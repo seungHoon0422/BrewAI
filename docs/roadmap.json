@@ -1,0 +1,97 @@
+{
+  "updated": "2026-10-28",
+  "rule": "passes 는 금요일 데모(Playwright 스펙)가 exit_criteria 를 모두 통과했을 때만 true 로 바꾼다. 항목을 지우거나 고쳐 쓰지 않는다.",
+  "phases": [
+    {
+      "id": "P0",
+      "name": "셋업",
+      "weeks": 0.5,
+      "goal": "두 PC 이어받기·보고·CI 틀 + 제품명 확정 + Node 설치",
+      "exit_criteria": [
+        "P0-1 회사 PC에서 /wrap → 집 PC에서 /start 하면 같은 3줄 상태가 나온다",
+        "P0-2 GitHub Actions에서 더미 eval 1건 green",
+        "P0-3 REPORT.html v1 이 root에 있다"
+      ],
+      "passes": false
+    },
+    {
+      "id": "P1",
+      "name": "뼈대 관통 + UI 초안",
+      "weeks": 2,
+      "goal": "Codex 레퍼런스 3-pane 웹 UI → conductor → LiteLLM → MCP 툴 → 승인 카드 → Langfuse trace 를 한 번 관통",
+      "exit_criteria": [
+        "P1-1 웹 앱(design/prototype.html 과 같은 화면)에서 질문 1개 → 툴 호출 → 결과 카드",
+        "P1-2 승인 필요 툴은 승인 카드에서 OK 해야만 실행된다",
+        "P1-3 Langfuse 에 agent·LLM·tool span 이 user·session 과 함께 한 trace tree 로, 토큰 비용과 함께 보인다",
+        "P1-4 위 데모가 Playwright web 스펙(게이트웨이 mock)으로 CI green + eval 3건(골든 1 · 제약 2)"
+      ],
+      "slice_hint": [
+        "01 design/prototype.html 을 React(shadcn·assistant-ui)로 이식 → 대화 → Pydantic AI → LiteLLM → FastMCP 툴 1개 → Langfuse (P1-1, P1-3)",
+        "02 승인 필요 툴(deferred tool) + 승인 카드 + Playwright 스펙 + eval 3건 CI — CI는 키 없이 TestModel·mock (P1-2, P1-4)"
+      ],
+      "passes": false
+    },
+    {
+      "id": "P2",
+      "name": "관리자 콘솔 + 데스크톱",
+      "weeks": 2,
+      "goal": "게이트웨이 모델 카탈로그 동기화·노출 관리, 사용자/관리자 분리, Electron 데스크톱",
+      "exit_criteria": [
+        "P2-1 관리자가 모델을 숨기면 사용자 앱 모델 목록에서 사라진다 (코드 변경 0)",
+        "P2-2 게이트웨이에 모델이 추가되면 관리자 콘솔에 '후보'로만 뜨고 기본 숨김",
+        "P2-3 사용자 앱에는 관리자 기능·경로가 없다 (별도 배포·인증)",
+        "P2-4 데스크톱 앱에서 같은 대화가 되고, 같은 Playwright 스위트가 web · admin · desktop 에서 green"
+      ],
+      "passes": false
+    },
+    {
+      "id": "P3",
+      "name": "찾기 → 승인 → 설치",
+      "weeks": 2,
+      "goal": "없는 능력을 카탈로그에서 찾아 승인·OAuth 후 같은 대화에서 사용 (MCP 게이트웨이 도입)",
+      "exit_criteria": [
+        "P3-1 GitHub MCP 미연결 상태에서 '내 이슈 요약' → 후보 → 승인 카드 → OAuth → 연결 → 답변이 한 대화에서 이어진다",
+        "P3-2 비밀값은 채팅 폼이 아니라 외부 브라우저로만 입력된다",
+        "P3-3 '승인 없는 설치 0건' eval 이 CI 게이트로 동작"
+      ],
+      "passes": false
+    },
+    {
+      "id": "P4",
+      "name": "서브에이전트 자동 구성 + 팀 시각화",
+      "weeks": 2,
+      "goal": "작업에 맞춰 conductor가 서브에이전트와 툴셋을 스스로 편성하고, 그 구성과 활동을 UI로 보여준다",
+      "exit_criteria": [
+        "P4-1 복합 요청 1개에 서브에이전트 2개 이상이 자동 편성된다 (사람이 미리 정의하지 않음)",
+        "P4-2 우측 팀 패널에 메인 → 서브 → 툴 그래프와 상태(대기·실행·완료·실패)가 실시간으로 보인다",
+        "P4-3 Langfuse trace 의 계층이 UI 그래프와 같다"
+      ],
+      "passes": false
+    },
+    {
+      "id": "P5",
+      "name": "Skill 자동 작성",
+      "weeks": 2,
+      "goal": "맞는 능력이 없으면 SKILL.md 를 작성 → 테스트 → 승인 → 등록",
+      "exit_criteria": [
+        "P5-1 새 skill 생성 → 자동 테스트 통과 → 승인 → 다음 대화에서 재사용",
+        "P5-2 승인 전 skill 은 격리(quarantine) 영역에만 있다",
+        "P5-3 작성 과정 전체가 한 trace 로 남고 비용이 보인다"
+      ],
+      "passes": false
+    },
+    {
+      "id": "P6",
+      "name": "운영",
+      "weeks": 2,
+      "goal": "eval 30건 · 예산·정책 · OTel Collector · MCP Apps 위젯 · 코드서명·자동 업데이트",
+      "exit_criteria": [
+        "P6-1 MCP Apps(ui://) 위젯이 별도 origin sandbox 에서 렌더",
+        "P6-2 eval 30건+ 이 PR 마다 돌고 회귀 결과가 PR 코멘트로 남는다",
+        "P6-3 REPORT.html 에 주간 비용·eval 통과율 추이",
+        "P6-4 서명된 데스크톱 설치본이 자동 업데이트된다"
+      ],
+      "passes": false
+    }
+  ]
+}

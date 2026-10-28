@@ -1,0 +1,680 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UI 프로토타입</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+:root{
+  color-scheme:light dark;
+  --bg:#ffffff; --side:#f7f7f8; --fg:#1d1d1f; --fg2:#3a3a3c; --muted:#6e6e73; --muted2:#86868b;
+  --line:#efeff1; --line2:#e7e7e9; --hair:#f0f0f2; --edge:rgba(0,0,0,.05);
+  --hover:#f3f3f4; --active:rgba(0,0,0,.045); --chip:#f4f4f5; --tray:#f2f2f3;
+  --black:#111113; --on-black:#ffffff; --blue:#2f6fed; --green:#1f9d55; --amber:#d48a06; --red:#d93636;
+  --ok-text:#17803d; --info-text:#2563d9;
+  --shadow:0 1px 2px rgba(0,0,0,.04),0 10px 30px rgba(0,0,0,.08);
+}
+:root[data-theme="light"]{color-scheme:light}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#1e1e21; --side:#161618; --fg:#ececee; --fg2:#d0d0d4; --muted:#9a9aa0; --muted2:#7c7c82;
+    --line:#2a2a2e; --line2:#34343a; --hair:#2a2a2e; --edge:rgba(255,255,255,.06);
+    --hover:#29292d; --active:rgba(255,255,255,.07); --chip:#2a2a2e; --tray:#252528;
+    --black:#f2f2f4; --on-black:#111113; --blue:#5b8cff; --green:#3fcf7f; --amber:#f0b34a; --red:#ff6b6b;
+    --ok-text:#3fcf7f; --info-text:#7aa2ff;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.45);
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#1e1e21; --side:#161618; --fg:#ececee; --fg2:#d0d0d4; --muted:#9a9aa0; --muted2:#7c7c82;
+  --line:#2a2a2e; --line2:#34343a; --hair:#2a2a2e; --edge:rgba(255,255,255,.06);
+  --hover:#29292d; --active:rgba(255,255,255,.07); --chip:#2a2a2e; --tray:#252528;
+  --black:#f2f2f4; --on-black:#111113; --blue:#5b8cff; --green:#3fcf7f; --amber:#f0b34a; --red:#ff6b6b;
+  --ok-text:#3fcf7f; --info-text:#7aa2ff;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.45);
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--side);color:var(--fg);
+  font:13px/1.5 "Pretendard Variable",Pretendard,-apple-system,BlinkMacSystemFont,"Segoe UI","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  letter-spacing:-.005em;word-break:keep-all;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;overflow:hidden}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.i{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.i.s{width:14px;height:14px}
+.ib{width:28px;height:28px;display:grid;place-items:center;border:0;background:transparent;color:var(--muted);border-radius:8px;cursor:pointer;padding:0}
+.ib:hover{background:var(--hover);color:var(--fg)}
+.ib:focus-visible{outline-offset:-2px}
+.sidebar,.msgs,.tree,.log{scrollbar-width:thin;scrollbar-color:transparent transparent}
+.sidebar:hover,.msgs:hover,.tree:hover,.log:hover{scrollbar-color:var(--line2) transparent}
+
+/* frame */
+.app{display:grid;grid-template-rows:40px 1fr;height:100vh}
+.titlebar{display:flex;align-items:center;gap:2px;padding:0 10px;-webkit-app-region:drag}
+.titlebar button{-webkit-app-region:no-drag}
+.titlebar .grow{flex:1}
+.body{display:grid;grid-template-columns:48px 256px minmax(0,1fr);min-height:0;transition:grid-template-columns .2s ease}
+.app.sb-hidden .body{grid-template-columns:48px 0 minmax(0,1fr)}
+
+/* rail */
+.rail{display:flex;flex-direction:column;align-items:center;gap:14px;padding:8px 0}
+.rail .ib{width:32px;height:32px;border-radius:10px;color:var(--muted2)}
+.rail .ib .i{width:18px;height:18px;stroke-width:1.7}
+.rail .ib.on{background:var(--active);color:var(--fg)}
+.rail .sep{width:18px;height:1px;background:var(--line2);margin:-2px 0}
+
+/* sidebar = white surface */
+.sidebar{background:var(--bg);border-right:1px solid var(--hair);border-top-left-radius:6px;box-shadow:-1px 0 0 var(--edge),0 -1px 0 var(--edge);overflow:auto;padding:8px 8px 16px;min-width:0}
+.app.sb-hidden .sidebar{padding:0;border:0;box-shadow:none}
+.sb-head{display:flex;align-items:center;gap:2px;padding:2px 0 12px}
+.brand{display:flex;align-items:center;gap:4px;border:0;background:transparent;padding:4px 8px;border-radius:8px;cursor:pointer;font-size:16px;font-weight:600;letter-spacing:-.015em;margin-right:auto}
+.brand:hover{background:var(--hover)}
+.brand .i{width:14px;height:14px;color:var(--muted2)}
+.row-btn{display:flex;align-items:center;gap:9px;width:100%;border:0;background:transparent;padding:7px 8px;border-radius:8px;cursor:pointer;text-align:left;color:var(--fg2)}
+.row-btn:hover{background:var(--hover)}
+.label{font-size:12px;color:var(--muted);margin:24px 8px 6px}
+.list{list-style:none;margin:0;padding:0}
+.item{display:flex;align-items:center;gap:6px;width:100%;border:0;background:transparent;text-align:left;padding:7px 8px;border-radius:8px;cursor:pointer;min-width:0;color:var(--fg2)}
+.item:hover{background:var(--hover)}
+.item.on{background:var(--active);color:var(--fg)}
+.item .t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.item .tag{color:var(--muted2);white-space:nowrap;flex:none;font-size:12.5px}
+.item .udot{width:6px;height:6px;border-radius:50%;background:var(--blue);margin-left:auto;flex:none}
+.item .spin{width:10px;height:10px;border:1.5px solid var(--line2);border-top-color:var(--blue);border-radius:50%;margin-left:auto;flex:none;animation:spin .8s linear infinite}
+.item.more{color:var(--muted2)}
+.item .i{color:var(--muted)}
+
+/* main = white surface */
+.main{background:var(--bg);box-shadow:0 -1px 0 var(--edge);min-width:0;min-height:0;position:relative}
+.app.sb-hidden .main{border-top-left-radius:6px;box-shadow:-1px 0 0 var(--edge),0 -1px 0 var(--edge)}
+.view{height:100%}
+.view[hidden]{display:none}
+
+/* home */
+.home{display:grid;grid-template-rows:1fr auto}
+.hero{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;padding:64px 24px 0}
+.mark{width:40px;height:40px;color:var(--fg)}
+.hero h1{font-size:22px;font-weight:500;margin:0;letter-spacing:-.02em;line-height:1.25}
+.dock{width:min(720px,calc(100% - 64px));margin:0 auto 16px}
+.suggest{list-style:none;margin:0 0 12px;padding:0 4px}
+.sg{display:flex;align-items:center;gap:12px;width:100%;border:0;background:transparent;text-align:left;color:var(--muted);padding:10px 8px;border-radius:9px;cursor:pointer}
+.sg:hover{color:var(--fg);background:var(--hover)}
+.sg .i{width:15px;height:15px;stroke-width:1.7;color:var(--muted2)}
+.sg:hover .i{color:var(--fg2)}
+.sg .need{margin-left:auto;font-size:11.5px;color:var(--muted2)}
+
+/* composer */
+.composer{position:relative;background:var(--tray);border-radius:20px}
+.ctx{display:flex;gap:16px;padding:8px 14px 7px;color:var(--muted);font-size:12px}
+.ctx button{display:inline-flex;align-items:center;gap:5px;border:0;background:transparent;cursor:pointer;padding:0;color:inherit}
+.ctx button:hover{color:var(--fg)}
+.ctx .i{width:13px;height:13px}
+.box{background:var(--bg);border:1px solid var(--line2);border-radius:18px 18px 20px 20px;padding:12px 10px 8px 16px;box-shadow:0 2px 10px rgba(0,0,0,.05)}
+.box:focus-within{border-color:var(--muted2)}
+textarea{display:block;width:100%;border:0;outline:0;resize:none;background:transparent;color:var(--fg);font:inherit;font-size:13.5px;line-height:1.5;min-height:42px;max-height:180px;padding:0}
+textarea::placeholder{color:var(--muted2)}
+.ctrl{display:flex;align-items:center;gap:4px;margin-top:4px}
+.ctrl .grow{flex:1}
+.model{display:inline-flex;align-items:center;gap:5px;border:0;background:transparent;color:var(--fg2);font-size:12.5px;padding:5px 8px;border-radius:8px;cursor:pointer}
+.model:hover{background:var(--hover)}
+.model .eff{color:var(--muted)}
+.model .i{width:13px;height:13px;color:var(--muted)}
+.send{width:32px;height:32px;border-radius:50%;border:0;background:var(--black);color:var(--on-black);display:grid;place-items:center;cursor:pointer;margin-left:2px}
+.send:disabled{opacity:.85;cursor:default}
+.send .i{stroke-width:2.1}
+.menu{position:absolute;right:46px;bottom:52px;width:260px;background:var(--bg);border:1px solid var(--line2);border-radius:12px;box-shadow:var(--shadow);padding:6px;z-index:10}
+.menu[hidden]{display:none}
+.menu h6{margin:6px 8px 4px;font-size:11px;color:var(--muted);font-weight:600}
+.menu button{display:flex;width:100%;justify-content:space-between;align-items:center;gap:8px;border:0;background:transparent;padding:6px 8px;border-radius:7px;cursor:pointer;text-align:left}
+.menu button:hover{background:var(--hover)}
+.menu .sub{color:var(--muted);font-size:11.5px;margin-left:4px}
+.menu .chk{visibility:hidden;color:var(--fg)}
+.menu button[aria-checked="true"] .chk{visibility:visible}
+.menu .foot{font-size:11px;color:var(--muted);padding:7px 8px 3px;border-top:1px solid var(--line);margin-top:4px}
+
+/* thread */
+.thread{display:grid;grid-template-columns:minmax(0,1fr) 320px;transition:grid-template-columns .2s ease}
+.app.team-hidden .thread{grid-template-columns:minmax(0,1fr) 0}
+.conv{display:grid;grid-template-rows:auto 1fr auto;min-height:0;min-width:0}
+.conv-head{display:flex;align-items:center;gap:8px;padding:8px 12px 8px 24px;min-height:45px}
+.conv-head .t{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.conv-head .tag{color:var(--muted2)}
+.conv-head .grow{flex:1}
+.msgs{overflow:auto;padding:14px 0 8px}
+.col{width:min(720px,calc(100% - 64px));margin:0 auto}
+.msg{margin:0 0 16px}
+.msg.user{display:flex;justify-content:flex-end}
+.msg.user .bubble{background:var(--chip);padding:8px 13px;border-radius:14px;max-width:75%}
+.msg.agent{font-size:13.5px;line-height:1.65}
+.act{display:inline-flex;align-items:center;gap:8px;color:var(--fg2);font-size:12.5px;padding:6px 10px 6px 12px;border:1px solid var(--line2);border-radius:999px;cursor:pointer;background:var(--bg)}
+.act:hover{background:var(--hover)}
+.act .d{width:7px;height:7px;border-radius:50%;background:var(--amber);animation:pulse 1.2s infinite}
+.act.wait .d{background:var(--blue);animation:none}
+.act.done .d{background:var(--green);animation:none}
+.act.stop .d{background:var(--muted2);animation:none}
+.act .i{width:13px;height:13px;color:var(--muted)}
+.card{border:1px solid var(--line);border-radius:16px;padding:14px 16px;background:var(--bg)}
+.card .head{display:flex;align-items:center;gap:8px;font-weight:600}
+.card .head .verified{margin-left:auto;font-size:11.5px;font-weight:500;color:var(--muted)}
+.pill{font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;background:color-mix(in srgb,var(--blue) 10%,transparent);color:var(--info-text)}
+.kv{display:grid;grid-template-columns:84px 1fr;gap:4px 10px;margin:12px 0 10px;font-size:12.5px}
+.kv dt{color:var(--muted)}
+.kv dd{margin:0}
+.card .safe{margin:0 0 12px;font-size:11.5px;color:var(--muted)}
+.actions{display:flex;gap:8px;align-items:center;min-height:30px}
+.btn{border-radius:999px;padding:6px 15px;font-size:12.5px;cursor:pointer;border:1px solid var(--line2);background:var(--bg)}
+.btn:hover{background:var(--hover)}
+.btn.primary{background:var(--black);color:var(--on-black);border-color:var(--black)}
+.btn.primary:hover{opacity:.88}
+.btn.push{margin-left:auto}
+.oktext{display:inline-flex;align-items:center;gap:6px;color:var(--ok-text);font-size:12.5px;font-weight:600}
+.oktext .i{width:14px;height:14px;stroke-width:2.2}
+.notext{color:var(--muted);font-size:12.5px;font-weight:600}
+.waittext{display:inline-flex;align-items:center;gap:8px;color:var(--fg2);font-size:12.5px}
+.spin12{width:12px;height:12px;border:1.5px solid var(--line2);border-top-color:var(--blue);border-radius:50%;animation:spin .8s linear infinite;flex:none}
+.result h4{margin:0 0 8px;font-size:14px}
+.result .pre{margin:-4px 0 8px;font-size:12px;color:var(--muted)}
+.chips{display:flex;gap:6px;margin:0 0 10px;flex-wrap:wrap}
+.chip{font-size:12px;padding:2px 9px;border-radius:999px;background:var(--chip);color:var(--fg2)}
+.result ul{margin:0;padding-left:18px;color:var(--fg2)}
+.result li{margin:3px 0}
+.more-link{border:0;background:none;color:var(--info-text);font-size:12.5px;padding:6px 0 0;cursor:pointer}
+.result .meta{margin-top:10px;color:var(--muted);font-size:11.5px}
+.result .actions{margin-top:12px}
+.dock2{padding:8px 0 16px}
+
+/* team panel */
+.team{border-left:1px solid var(--hair);background:var(--bg);display:grid;grid-template-rows:auto auto minmax(0,1fr) auto auto;min-width:0;overflow:hidden}
+.team-head{display:flex;align-items:center;gap:2px;padding:8px 8px 6px 16px;min-height:45px}
+.team-head .ttl{font-weight:600}
+.team-head .grow{flex:1}
+.summary{padding:2px 16px 6px;color:var(--muted);font-size:12px}
+.tree{overflow:auto;padding:4px 10px 12px}
+.node{margin:1px 0}
+.nrow{display:flex;align-items:center;gap:8px;padding:6px;border-radius:8px}
+.nrow b{font-weight:600;white-space:nowrap}
+.nrow .role{color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+.nrow .st{font-size:11.5px;color:var(--muted);white-space:nowrap}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted2);flex:none}
+.node[data-state=run]>.nrow .dot{background:var(--amber);animation:pulse 1.2s infinite}
+.node[data-state=ok]>.nrow .dot{background:var(--green)}
+.node[data-state=wait]>.nrow .dot{background:var(--blue)}
+.node[data-state=fail]>.nrow .dot{background:var(--red)}
+.node[data-state=stop]>.nrow .dot{background:var(--muted2)}
+.node[data-state=wait]>.nrow .st{color:var(--info-text)}
+.kids .node[data-state=ok]>.nrow .st{visibility:hidden}
+.kids{margin-left:9px;padding-left:12px;border-left:1px solid var(--line2)}
+.kids:empty{display:none}
+.tool{display:flex;align-items:center;gap:8px;padding:3px 6px;font-size:12px;color:var(--fg2)}
+.tool .tl{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.tool .st{margin-left:auto;color:var(--muted);font-size:11px;white-space:nowrap}
+.ti{width:12px;height:12px;flex:none;display:grid;place-items:center}
+.ti .i{width:12px;height:12px;stroke-width:2.4}
+.tool[data-state=run] .ti{border:1.5px solid var(--line2);border-top-color:var(--amber);border-radius:50%;animation:spin .8s linear infinite}
+.tool[data-state=ok] .ti{color:var(--green)}
+.tool[data-state=fail] .ti{color:var(--red)}
+.tool[data-state=wait] .ti::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--blue)}
+.tool[data-state=stop] .ti::before{content:"";width:8px;height:1.5px;background:var(--muted2)}
+.tool[data-state=wait] .st{color:var(--info-text)}
+.log{border-top:1px solid var(--hair);padding:8px 12px 10px;max-height:200px;overflow:auto}
+.log-toggle{display:flex;align-items:center;gap:6px;width:100%;border:0;background:transparent;color:var(--muted);font-size:12px;padding:4px 4px;border-radius:7px;cursor:pointer}
+.log-toggle:hover{background:var(--hover);color:var(--fg)}
+.log-toggle .i{width:13px;height:13px;transition:transform .15s}
+.log.open .log-toggle .i{transform:rotate(180deg)}
+.log ul{list-style:none;margin:4px 0 0;padding:0 4px;display:none}
+.log.open ul{display:block}
+.log li{display:flex;gap:8px;font-size:12px;color:var(--fg2);padding:2px 0}
+.log time{color:var(--muted2);font-variant-numeric:tabular-nums;width:34px;flex:none}
+.cost{display:none;padding:9px 16px;font-size:11.5px;color:var(--muted2)}
+.app.show-cost .cost{display:block}
+
+/* prototype controls (dev only, not product UI) */
+.proto{position:fixed;top:7px;right:48px;display:flex;align-items:center;gap:2px;border:1px dashed var(--line2);border-radius:8px;padding:2px;font-size:11px;z-index:30;opacity:.6;background:var(--side)}
+.proto:hover{opacity:1}
+.proto span{color:var(--muted);padding:2px 6px}
+.proto button{border:0;background:transparent;padding:2px 7px;border-radius:5px;cursor:pointer;color:var(--fg2)}
+.proto button:hover{background:var(--hover)}
+
+.enter{animation:fade .28s ease-out}
+@keyframes fade{from{opacity:0;transform:translateY(4px)}}
+@keyframes pulse{50%{opacity:.35}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important}
+}
+@media (max-width:1100px){ .thread{grid-template-columns:minmax(0,1fr) 290px} }
+@media (max-width:860px){
+  .body{grid-template-columns:0 0 minmax(0,1fr)}
+  .rail,.sidebar{overflow:hidden;padding:0;border:0;box-shadow:none}
+  .thread{grid-template-columns:minmax(0,1fr) 0}
+  .proto{display:none}
+}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="i-panel" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M9 4v16"/></symbol>
+  <symbol id="i-left" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></symbol>
+  <symbol id="i-right" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M20 11.5a7.5 7.5 0 0 1-11 6.6L4 19.5l1.4-4.3A7.5 7.5 0 1 1 20 11.5z"/></symbol>
+  <symbol id="i-team" viewBox="0 0 24 24"><circle cx="12" cy="5.5" r="2.5"/><circle cx="5.5" cy="17.5" r="2.5"/><circle cx="18.5" cy="17.5" r="2.5"/><path d="M10.7 7.7 6.8 15.3M13.3 7.7l3.9 7.6M8 17.5h8"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 3.5 20.5 8 12 12.5 3.5 8z"/><path d="M3.5 12.5 12 17l8.5-4.5"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l2.8-2.8a4 4 0 0 0-5.7-5.7l-.9.9"/><path d="M14 10a4 4 0 0 0-5.7 0l-2.8 2.8a4 4 0 0 0 5.7 5.7l.9-.9"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5.5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="18.5" cy="12" r="1"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></symbol>
+  <symbol id="i-pen" viewBox="0 0 24 24"><path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17z"/><path d="M14 8l2 2"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3.5 7.5a2 2 0 0 1 2-2h3.8l2 2h7.2a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v2.5"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+  <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3.5" y="5.5" width="17" height="13" rx="2"/><path d="m4 7 8 6 8-6"/></symbol>
+  <symbol id="i-cal" viewBox="0 0 24 24"><rect x="4" y="5.5" width="16" height="14" rx="2"/><path d="M4 10h16M9 3.5v4M15 3.5v4"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+  <symbol id="mark" viewBox="0 0 48 48"><path fill="currentColor" stroke="none" fill-rule="evenodd" d="M17 4h14a13 13 0 0 1 13 13v14a13 13 0 0 1-13 13H17A13 13 0 0 1 4 31V17A13 13 0 0 1 17 4zM13 26a7 7 0 1 0 14 0a7 7 0 1 0-14 0zM29 15.5a3.5 3.5 0 1 0 7 0a3.5 3.5 0 1 0-7 0z"/></symbol>
+</svg>
+
+<div class="app team-hidden" id="app">
+  <header class="titlebar">
+    <button class="ib" id="toggleSb" aria-label="사이드바 열고 닫기" title="사이드바"><svg class="i" aria-hidden="true"><use href="#i-panel"/></svg></button>
+    <button class="ib" aria-label="뒤로" title="뒤로"><svg class="i" aria-hidden="true"><use href="#i-left"/></svg></button>
+    <button class="ib" aria-label="앞으로" title="앞으로"><svg class="i" aria-hidden="true"><use href="#i-right"/></svg></button>
+    <span class="grow"></span>
+    <button class="ib" aria-label="새 창" title="새 창"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg></button>
+  </header>
+
+  <div class="body">
+    <nav class="rail" aria-label="메뉴">
+      <button class="ib on" aria-label="대화" aria-current="page" title="대화"><svg class="i" aria-hidden="true"><use href="#i-chat"/></svg></button>
+      <button class="ib" id="railTeam" aria-label="진행 상황" title="진행 상황"><svg class="i" aria-hidden="true"><use href="#i-team"/></svg></button>
+      <button class="ib" aria-label="예약 작업" title="예약 작업"><svg class="i" aria-hidden="true"><use href="#i-clock"/></svg></button>
+      <button class="ib" aria-label="스킬" title="스킬"><svg class="i" aria-hidden="true"><use href="#i-layers"/></svg></button>
+      <button class="ib" aria-label="연결된 앱" title="연결된 앱"><svg class="i" aria-hidden="true"><use href="#i-link"/></svg></button>
+      <span class="sep"></span>
+      <button class="ib" aria-label="더 보기" title="더 보기"><svg class="i" aria-hidden="true"><use href="#i-more"/></svg></button>
+    </nav>
+
+    <aside class="sidebar">
+      <div class="sb-head">
+        <button class="brand"><span data-brand>BrewAI</span><svg class="i" aria-hidden="true"><use href="#i-down"/></svg></button>
+        <button class="ib" aria-label="검색" title="검색"><svg class="i" aria-hidden="true"><use href="#i-search"/></svg></button>
+        <button class="ib" id="toggleSb2" aria-label="사이드바 접기" title="사이드바 접기"><svg class="i" aria-hidden="true"><use href="#i-panel"/></svg></button>
+      </div>
+      <button class="row-btn" id="newChat"><svg class="i" aria-hidden="true"><use href="#i-pen"/></svg>새 대화</button>
+
+      <div class="label">최근</div>
+      <ul class="list" id="recents">
+        <li><button class="item"><span class="t">주간 보고서 초안</span><span class="tag">업무</span><span class="udot" aria-label="새 소식"></span></button></li>
+        <li><button class="item"><span class="t">견적 메일 답장</span><span class="tag">업무</span></button></li>
+        <li><button class="item"><span class="t">여행 일정 정리</span><span class="tag">개인</span><span class="udot" aria-label="새 소식"></span></button></li>
+        <li><button class="item"><span class="t">발표 자료 다듬기</span><span class="tag">업무</span></button></li>
+        <li><button class="item"><span class="t">가계부 분류</span><span class="tag">개인</span></button></li>
+        <li><button class="item"><span class="t">이사 체크리스트</span><span class="tag">개인</span></button></li>
+        <li><button class="item more">더 보기</button></li>
+      </ul>
+
+      <div class="label">프로젝트</div>
+      <ul class="list">
+        <li><button class="item"><svg class="i s" aria-hidden="true"><use href="#i-folder"/></svg><span class="t">개인</span></button></li>
+        <li><button class="item"><svg class="i s" aria-hidden="true"><use href="#i-folder"/></svg><span class="t">업무</span></button></li>
+        <li><button class="item"><svg class="i s" aria-hidden="true"><use href="#i-folder"/></svg><span class="t">사이드 프로젝트</span></button></li>
+      </ul>
+    </aside>
+
+    <main class="main">
+      <section class="view home" id="home">
+        <div class="hero">
+          <svg class="mark" aria-hidden="true"><use href="#mark"/></svg>
+          <h1>무엇을 맡길까요?</h1>
+        </div>
+        <div class="dock">
+          <ul class="suggest" id="suggest">
+            <li><button class="sg" data-prompt="'견적 요청' 메일에 답장 초안 써줘"><svg class="i" aria-hidden="true"><use href="#i-mail"/></svg>'견적 요청' 메일에 답장 초안 쓰기<span class="need">연결 필요</span></button></li>
+            <li><button class="sg" data-prompt="노트북 3종 가격·무게·배터리 비교표 만들어줘"><svg class="i" aria-hidden="true"><use href="#i-team"/></svg>노트북 3종 비교표 — 여럿이 나눠서 조사</button></li>
+            <li><button class="sg" data-prompt="내일 10시 회의 자료 준비해줘"><svg class="i" aria-hidden="true"><use href="#i-cal"/></svg>내일 10시 회의 자료 준비<span class="need">연결 필요</span></button></li>
+          </ul>
+          <div id="slotHome"></div>
+        </div>
+      </section>
+
+      <section class="view thread" id="thread" hidden>
+        <div class="conv">
+          <div class="conv-head">
+            <span class="t" id="convTitle">새 대화</span><span class="tag">개인</span>
+            <span class="grow"></span>
+            <button class="ib" id="toggleTeam" aria-label="진행 상황 열고 닫기" title="진행 상황"><svg class="i" aria-hidden="true"><use href="#i-team"/></svg></button>
+          </div>
+          <div class="msgs"><div class="col" id="msgs" role="log" aria-live="polite"></div></div>
+          <div class="dock2"><div class="col" id="slotThread"></div></div>
+        </div>
+
+        <aside class="team" aria-label="진행 상황">
+          <div class="team-head">
+            <span class="ttl">진행 상황</span>
+            <span class="grow"></span>
+            <button class="ib" id="closeTeam" aria-label="진행 상황 닫기" title="닫기"><svg class="i" aria-hidden="true"><use href="#i-x"/></svg></button>
+          </div>
+          <div class="summary" id="summary" aria-live="polite">일을 나누는 중…</div>
+          <div class="tree" id="tree">
+            <div class="node" id="n-main" data-state="idle">
+              <div class="nrow"><span class="dot"></span><b>총괄</b><span class="role">일 나누고 확인</span><span class="st">대기</span></div>
+              <div class="kids" id="k-main"></div>
+            </div>
+          </div>
+          <div class="log" id="logBox">
+            <button class="log-toggle" id="logToggle" aria-expanded="false"><span id="logCount">기록 0개</span><svg class="i" aria-hidden="true"><use href="#i-down"/></svg></button>
+            <ul id="log" aria-live="polite"></ul>
+          </div>
+          <div class="cost" id="cost">이번 작업 사용량 · 적음</div>
+        </aside>
+      </section>
+
+      <div class="composer" id="composer">
+        <div class="ctx">
+          <button title="프로젝트 선택"><svg class="i" aria-hidden="true"><use href="#i-folder"/></svg>개인<svg class="i" aria-hidden="true"><use href="#i-down"/></svg></button>
+          <button title="앱 연결"><svg class="i" aria-hidden="true"><use href="#i-link"/></svg>앱 연결하기</button>
+        </div>
+        <div class="box">
+          <textarea id="prompt" rows="1" aria-label="요청 입력" placeholder="예: 이번 주 메일에서 할 일만 뽑아줘"></textarea>
+          <div class="ctrl">
+            <button class="ib" aria-label="파일 첨부" title="파일 첨부"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg></button>
+            <span class="grow"></span>
+            <button class="model" id="modelBtn" aria-haspopup="menu" aria-expanded="false" aria-controls="menu"><span id="modelName">Sonnet</span><span class="eff" id="effName">· 보통</span><svg class="i" aria-hidden="true"><use href="#i-down"/></svg></button>
+            <button class="ib" aria-label="음성 입력" title="음성 입력"><svg class="i" aria-hidden="true"><use href="#i-mic"/></svg></button>
+            <button class="send" id="send" disabled aria-label="보내기" title="보내기"><svg class="i" aria-hidden="true"><use href="#i-up"/></svg></button>
+          </div>
+        </div>
+        <div class="menu" id="menu" role="menu" hidden>
+          <h6>모델</h6>
+          <button role="menuitemradio" aria-checked="true" data-model="Sonnet"><span>Claude Sonnet<span class="sub">대부분의 일 · 추천</span></span><span class="chk"><svg class="i s" aria-hidden="true"><use href="#i-check"/></svg></span></button>
+          <button role="menuitemradio" aria-checked="false" data-model="Opus"><span>Claude Opus<span class="sub">어렵고 긴 일 · 더 느림</span></span><span class="chk"><svg class="i s" aria-hidden="true"><use href="#i-check"/></svg></span></button>
+          <button role="menuitemradio" aria-checked="false" data-model="Gemini"><span>Gemini Pro<span class="sub">다른 회사 모델</span></span><span class="chk"><svg class="i s" aria-hidden="true"><use href="#i-check"/></svg></span></button>
+          <h6>생각 깊이</h6>
+          <button role="menuitemradio" aria-checked="false" data-eff="빠르게"><span>빠르게<span class="sub">간단한 질문</span></span><span class="chk"><svg class="i s" aria-hidden="true"><use href="#i-check"/></svg></span></button>
+          <button role="menuitemradio" aria-checked="true" data-eff="보통"><span>보통<span class="sub">추천</span></span><span class="chk"><svg class="i s" aria-hidden="true"><use href="#i-check"/></svg></span></button>
+          <button role="menuitemradio" aria-checked="false" data-eff="꼼꼼히"><span>꼼꼼히<span class="sub">복잡한 일 · 오래 걸림</span></span><span class="chk"><svg class="i s" aria-hidden="true"><use href="#i-check"/></svg></span></button>
+          <div class="foot">관리자가 허용한 모델만 보여요</div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<div class="proto" aria-label="프로토타입 조작 (제품 UI 아님)">
+  <span>프로토타입</span>
+  <button id="pHome">홈</button>
+  <button id="pRun">승인 데모</button>
+  <button id="pTeam">팀 데모</button>
+  <button id="pTheme">다크/라이트</button>
+</div>
+
+<script>
+const NAMES = ['BrewAI'];
+let nameIdx = 0;
+function setBrand(name) {
+  document.querySelectorAll('[data-brand]').forEach(e => { e.textContent = name; });
+  document.title = name + ' — UI 프로토타입';
+  const b = document.getElementById('pName'); if (b) b.textContent = '이름: ' + name;
+}
+setBrand(NAMES[0]);
+
+const $ = s => document.querySelector(s);
+const app = $('#app'), home = $('#home'), thread = $('#thread');
+const msgs = $('#msgs'), logEl = $('#log'), composer = $('#composer');
+const input = $('#prompt'), sendBtn = $('#send'), menu = $('#menu'), modelBtn = $('#modelBtn');
+const CHECK = '<svg class="i" aria-hidden="true"><use href="#i-check"/></svg>';
+const XICON = '<svg class="i" aria-hidden="true"><use href="#i-x"/></svg>';
+const PH_HOME = '예: 이번 주 메일에서 할 일만 뽑아줘', PH_THREAD = '이어서 요청하거나 질문하세요', PH_WAIT = '위 카드에서 허용 여부를 먼저 골라 주세요';
+let timers = [], activityEl = null, t0 = 0, teamSeen = false, totalSteps = 4;
+
+function later(ms, fn) { timers.push(setTimeout(fn, ms)); }
+function clearTimers() { timers.forEach(clearTimeout); timers = []; }
+function el(tag, cls, html) { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; }
+function scrollDown() { const box = msgs.parentElement; box.scrollTop = box.scrollHeight; }
+
+/* composer */
+function autoresize() { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 180) + 'px'; }
+input.addEventListener('input', () => { autoresize(); sendBtn.disabled = !input.value.trim(); });
+input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); submit(); } });
+sendBtn.addEventListener('click', submit);
+function submit() {
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = ''; autoresize(); sendBtn.disabled = true;
+  startRun(text);
+}
+function setMenu(open) { menu.hidden = !open; modelBtn.setAttribute('aria-expanded', String(open)); }
+modelBtn.addEventListener('click', e => { e.stopPropagation(); setMenu(menu.hidden); });
+document.addEventListener('click', e => { if (!menu.contains(e.target)) setMenu(false); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !menu.hidden) { setMenu(false); modelBtn.focus(); } });
+menu.querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
+  const group = b.dataset.model ? '[data-model]' : '[data-eff]';
+  menu.querySelectorAll(group).forEach(x => x.setAttribute('aria-checked', 'false'));
+  b.setAttribute('aria-checked', 'true');
+  if (b.dataset.model) $('#modelName').textContent = b.dataset.model;
+  if (b.dataset.eff) $('#effName').textContent = '· ' + b.dataset.eff;
+}));
+document.querySelectorAll('#suggest .sg').forEach(b => b.addEventListener('click', () => {
+  input.value = b.dataset.prompt; autoresize(); sendBtn.disabled = false; input.focus();
+}));
+
+/* layout toggles */
+const toggleSb = () => app.classList.toggle('sb-hidden');
+$('#toggleSb').addEventListener('click', toggleSb);
+$('#toggleSb2').addEventListener('click', toggleSb);
+const toggleTeam = () => app.classList.toggle('team-hidden');
+$('#toggleTeam').addEventListener('click', toggleTeam);
+$('#closeTeam').addEventListener('click', toggleTeam);
+$('#railTeam').addEventListener('click', () => { if (!thread.hidden) toggleTeam(); });
+$('#newChat').addEventListener('click', goHome);
+$('#logToggle').addEventListener('click', () => {
+  const open = $('#logBox').classList.toggle('open');
+  $('#logToggle').setAttribute('aria-expanded', String(open));
+});
+$('#pHome').addEventListener('click', goHome);
+$('#pRun').addEventListener('click', () => startRun("'견적 요청' 메일에 답장 초안 써줘"));
+$('#pTeam').addEventListener('click', () => startRun('노트북 3종 가격·무게·배터리 비교표 만들어줘'));
+$('#pTheme').addEventListener('click', () => {
+  const root = document.documentElement;
+  const dark = root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+  root.dataset.theme = dark ? 'light' : 'dark';
+});
+
+function goHome() {
+  clearTimers();
+  thread.hidden = true; home.hidden = false;
+  $('#slotHome').appendChild(composer);
+  input.placeholder = PH_HOME;
+  document.querySelectorAll('#recents .item.on').forEach(i => i.classList.remove('on'));
+  input.focus();
+}
+
+/* scenarios — tool k = 내부 식별자(툴팁), l = 사용자에게 보이는 이름 */
+const SC = {
+  mail: { svc: '메일', s1: '메일 담당', s1r: '메일 읽고 맥락 파악', s2: '작성 담당', s2r: '답장 초안 쓰기',
+    t: [{ k: 'catalog.search', l: '필요한 도구 찾기' }, { k: 'mail.connect', l: '메일 연결' }, { k: 'mail.read_thread', l: '메일 내용 읽기' }, { k: 'draft_reply', l: '답장 초안 쓰기' }],
+    found: '답장 초안을 쓰려면 메일 연결이 필요해요. 메일은 보내지 않고 초안만 저장해요.',
+    can: '받은편지함 읽기, 답장 초안 저장', cannot: '메일 보내기·삭제 (보내기 전에 꼭 다시 물어봐요)',
+    title: "'견적 요청' 답장 초안", pre: '아직 보내지 않았어요', chips: ['초안 저장됨'],
+    items: ['요청하신 수량 기준 견적서를 첨부드립니다.', '납기는 발주 후 2주입니다.', '추가 문의는 편하게 회신 주세요.'], total: 3, acts: ['초안 열기', '다시 쓰기'], secs: 14 },
+  cal: { svc: '캘린더', s1: '자료 담당', s1r: '회의 정보 모으기', s2: '작성 담당', s2r: '개요 만들기',
+    t: [{ k: 'catalog.search', l: '필요한 도구 찾기' }, { k: 'calendar.connect', l: '캘린더 연결' }, { k: 'calendar.get_event', l: '회의 정보 가져오기' }, { k: 'make_outline', l: '개요 만들기' }],
+    found: '회의 정보를 보려면 캘린더 연결이 필요해요. 일정은 읽기만 할게요.',
+    can: '내 일정 읽기', cannot: '일정 만들기·수정·삭제',
+    title: '내일 10시 회의 자료 개요', pre: '', chips: ['참석 5명', '30분'],
+    items: ['지난 회의 결정 사항 3개', '이번 안건: 예산 조정안', '질문 받을 항목 2개'], total: 3, acts: ['문서로 저장', '복사'], secs: 12 },
+  compare: { svc: null, s1: '가격 조사', s1r: '판매처별 최저가', s2: '사양 조사', s2r: '무게·배터리·화면',
+    t: [{ k: 'web.search', l: '판매처 가격 찾기' }, { k: 'web.search', l: '제조사 사양 찾기' }, { k: 'web.fetch', l: '사용 후기 확인' }, { k: 'make_table', l: '비교표 만들기' }],
+    title: '노트북 3종 비교표', pre: '', chips: ['가격', '무게', '배터리'],
+    items: ['A: 129만 원 · 1.2kg · 18시간 — 가볍고 오래 감', 'B: 109만 원 · 1.5kg · 12시간 — 가성비', 'C: 159만 원 · 1.3kg · 15시간 — 화면이 가장 좋음'], total: 3, acts: ['표 복사', '문서로 저장'], secs: 11 },
+};
+function pick(text) {
+  if (/메일|답장/.test(text)) return SC.mail;
+  if (/회의|일정|캘린더/.test(text)) return SC.cal;
+  if (/비교|조사|노트북/.test(text)) return SC.compare;
+  return SC.compare;
+}
+
+/* team tree */
+const STATE_LABEL = { idle: '대기', run: '작업 중', wait: '내 확인 필요', ok: '완료', fail: '실패', stop: '멈춤' };
+function setNode(id, state, label) {
+  const n = $('#n-' + id); if (!n) return;
+  n.dataset.state = state;
+  n.querySelector(':scope > .nrow .st').textContent = label || STATE_LABEL[state];
+}
+function addNode(id, parent, name, role) {
+  const n = el('div', 'node enter');
+  n.id = 'n-' + id; n.dataset.state = 'idle';
+  n.innerHTML = '<div class="nrow"><span class="dot"></span><b>' + name + '</b><span class="role">' + role + '</span><span class="st">대기</span></div><div class="kids" id="k-' + id + '"></div>';
+  $('#k-' + parent).appendChild(n);
+  updateSummary();
+}
+function addTool(id, node, tool, state) {
+  const t = el('div', 'tool enter');
+  t.id = 't-' + id;
+  t.innerHTML = '<span class="ti"></span><span class="tl" title="' + tool.k + '">' + tool.l + '</span><span class="st"></span>';
+  $('#k-' + node).appendChild(t);
+  setTool(id, state);
+}
+function setTool(id, state) {
+  const t = $('#t-' + id); if (!t) return;
+  t.dataset.state = state;
+  t.querySelector('.ti').innerHTML = state === 'ok' ? CHECK : state === 'fail' ? XICON : '';
+  t.querySelector('.st').textContent = state === 'wait' ? '내 확인 필요' : state === 'stop' ? '허용 안 함' : state === 'fail' ? '실패' : '';
+  updateSummary();
+}
+function updateSummary(final) {
+  const subs = document.querySelectorAll('#k-main > .node').length;
+  const done = document.querySelectorAll('#tree .tool[data-state=ok]').length;
+  const s = $('#summary');
+  if (final === 'stop') s.textContent = '멈췄어요';
+  else if (final === 'done') s.textContent = subs + '명이 ' + totalSteps + '단계를 마쳤어요';
+  else if (subs) s.textContent = subs + '명이 함께 일하는 중 · ' + totalSteps + '단계 중 ' + done + '단계';
+  else s.textContent = '일을 나누는 중…';
+}
+function logLine(text) {
+  const sec = Math.round((performance.now() - t0) / 1000);
+  logEl.appendChild(el('li', 'enter', '<time>' + sec + '초</time><span>' + text + '</span>'));
+  $('#logCount').textContent = '기록 ' + logEl.children.length + '개';
+  const box = $('#logBox'); box.scrollTop = box.scrollHeight;
+}
+function setActivity(text, st) {
+  if (!activityEl) return;
+  activityEl.querySelector('.txt').textContent = text;
+  activityEl.className = 'act' + (st ? ' ' + st : '');
+}
+
+/* messages */
+function addUser(text) { const m = el('div', 'msg user enter'); m.appendChild(el('div', 'bubble')).textContent = text; msgs.appendChild(m); scrollDown(); }
+function addAgent(text) { const m = el('div', 'msg agent enter'); m.textContent = text; msgs.appendChild(m); scrollDown(); return m; }
+function addActivity() {
+  const m = el('div', 'msg enter');
+  activityEl = el('button', 'act', '<span class="d"></span><span class="txt">일을 나누는 중</span><svg class="i" aria-hidden="true"><use href="#i-right"/></svg>');
+  activityEl.title = '진행 과정 보기';
+  activityEl.addEventListener('click', toggleTeam);
+  m.appendChild(activityEl); msgs.appendChild(m); scrollDown();
+}
+function addApproval(sc, onApprove, onReject) {
+  const c = el('div', 'msg enter');
+  c.innerHTML = '<div class="card" role="group" aria-label="' + sc.svc + ' 연결 허용 확인"><div class="head"><span class="pill">확인 필요</span>' + sc.svc + ' 연결을 허용할까요?<span class="verified" title="관리자가 검수한 연결이에요">검증된 연결</span></div>' +
+    '<dl class="kv"><dt>할 수 있는 일</dt><dd>' + sc.can + '</dd><dt>하지 않는 일</dt><dd>' + sc.cannot + '</dd><dt>해제</dt><dd>설정 › 연결된 앱에서 언제든 끊을 수 있어요</dd></dl>' +
+    '<p class="safe">로그인은 ' + sc.svc + ' 공식 화면에서 해요. 비밀번호는 저희가 보지 않아요.</p>' +
+    '<div class="actions"><button class="btn primary">허용하고 계속</button><button class="btn">허용 안 함</button></div></div>';
+  const actions = c.querySelector('.actions');
+  const [ok, no] = c.querySelectorAll('.btn');
+  ok.addEventListener('click', () => {
+    actions.innerHTML = '<span class="waittext"><span class="spin12"></span>브라우저에서 ' + sc.svc + ' 로그인을 기다리는 중</span><button class="btn push">로그인 창 다시 열기</button>';
+    onApprove(() => { actions.innerHTML = '<span class="oktext">' + CHECK + sc.svc + ' 연결됨</span>'; });
+  });
+  no.addEventListener('click', () => { actions.innerHTML = '<span class="notext">허용하지 않았어요</span>'; onReject(); });
+  msgs.appendChild(c); scrollDown();
+}
+function addResult(sc) {
+  const c = el('div', 'msg enter');
+  const rest = sc.total - sc.items.length;
+  c.innerHTML = '<div class="card result"><h4>' + sc.title + '</h4>' + (sc.pre ? '<p class="pre">' + sc.pre + '</p>' : '') +
+    '<div class="chips">' + sc.chips.map(x => '<span class="chip">' + x + '</span>').join('') + '</div>' +
+    '<ul>' + sc.items.map(x => '<li>' + x + '</li>').join('') + '</ul>' +
+    (rest > 0 ? '<button class="more-link">나머지 ' + rest + '개 보기</button>' : '') +
+    '<div class="actions">' + sc.acts.map(a => '<button class="btn">' + a + '</button>').join('') + '</div>' +
+    '<div class="meta" title="' + $('#modelName').textContent + ' ' + $('#effName').textContent + '">' + sc.secs + '초 · 2명이 나눠서 처리</div></div>';
+  msgs.appendChild(c); scrollDown();
+}
+
+/* run */
+function resetThread() {
+  msgs.innerHTML = ''; logEl.innerHTML = ''; activityEl = null;
+  $('#logCount').textContent = '기록 0개'; $('#logBox').classList.remove('open');
+  $('#k-main').innerHTML = ''; setNode('main', 'idle'); updateSummary();
+}
+function addRecent(text) {
+  document.querySelectorAll('#recents .item.on').forEach(i => i.classList.remove('on'));
+  const li = el('li', 'enter', '<button class="item on"><span class="t"></span><span class="tag">개인</span><span class="spin" aria-label="진행 중"></span></button>');
+  li.querySelector('.t').textContent = text;
+  $('#recents').prepend(li);
+  return li;
+}
+function startRun(text) {
+  clearTimers();
+  const sc = pick(text);
+  t0 = performance.now();
+  home.hidden = true; thread.hidden = false;
+  if (!teamSeen) { app.classList.remove('team-hidden'); teamSeen = true; }
+  $('#slotThread').appendChild(composer);
+  input.placeholder = PH_THREAD;
+  $('#convTitle').textContent = text;
+  resetThread();
+  const recent = addRecent(text);
+  const finish = () => { const s = recent.querySelector('.spin'); if (s) s.remove(); };
+
+  addUser(text);
+  later(500, () => addAgent('어떤 정보가 필요한지 보고, 일을 나눠서 처리할게요.'));
+  later(900, () => { setNode('main', 'run', '일 나누는 중'); addActivity(); logLine('총괄이 일을 나눴어요'); });
+  if (sc.svc) connectFlow(sc, finish); else teamFlow(sc, finish);
+}
+function connectFlow(sc, finish) {
+  later(1600, () => { addNode('s1', 'main', sc.s1, sc.s1r); setNode('s1', 'run'); addTool('t1', 's1', sc.t[0], 'run'); logLine(sc.s1 + ' 합류'); });
+  later(2100, () => { addNode('s2', 'main', sc.s2, sc.s2r); logLine(sc.s2 + ' 합류'); });
+  later(2900, () => {
+    setTool('t1', 'ok'); addTool('t2', 's1', sc.t[1], 'wait'); setNode('s1', 'wait'); setNode('main', 'wait');
+    setActivity(sc.svc + ' 연결을 허용해 주세요', 'wait');
+    addAgent(sc.found);
+    logLine(sc.svc + ' 연결 허용 요청');
+    input.placeholder = PH_WAIT;
+    addApproval(sc, done => {
+      input.placeholder = PH_THREAD;
+      logLine('연결을 허용했어요');
+      setNode('main', 'run', '진행 중'); setNode('s1', 'wait', '로그인 기다리는 중');
+      setActivity(sc.svc + ' 로그인 기다리는 중', 'wait');
+      later(1500, () => { done(); setTool('t2', 'ok'); addTool('t3', 's1', sc.t[2], 'run'); setNode('s1', 'run'); setActivity('작업 중'); logLine(sc.svc + ' 로그인 완료 · 로그인 정보는 암호화해 보관해요'); });
+      later(2400, () => { setTool('t3', 'ok'); setNode('s1', 'ok'); setNode('s2', 'run', '정리 중'); addTool('t4', 's2', sc.t[3], 'run'); setActivity('결과 정리 중'); logLine(sc.s1 + '가 ' + sc.s2 + '에게 넘겼어요'); });
+      later(3800, () => { setTool('t4', 'ok'); setNode('s2', 'ok'); setNode('main', 'ok'); updateSummary('done'); setActivity('완료 · 2명이 4단계로 처리', 'done'); addResult(sc); logLine('작업 완료'); finish(); });
+    }, () => {
+      input.placeholder = PH_THREAD;
+      logLine('연결을 허용하지 않았어요');
+      setTool('t2', 'stop'); setNode('s1', 'stop', '허용 안 함'); setNode('s2', 'stop', '취소됨'); setNode('main', 'stop');
+      updateSummary('stop'); setActivity('멈춤 · 연결 허용 안 함', 'stop');
+      addAgent(sc.svc + ' 연결 없이는 진행할 수 없어서 여기서 멈출게요. 다른 방법이 필요하면 말해 주세요.');
+      finish();
+    });
+  });
+}
+function teamFlow(sc, finish) {
+  later(1500, () => { addNode('s1', 'main', sc.s1, sc.s1r); setNode('s1', 'run'); addTool('t1', 's1', sc.t[0], 'run'); setActivity('2명이 나눠서 조사하는 중'); logLine(sc.s1 + ' 합류'); });
+  later(1900, () => { addNode('s2', 'main', sc.s2, sc.s2r); setNode('s2', 'run'); addTool('t2', 's2', sc.t[1], 'run'); logLine(sc.s2 + ' 합류'); });
+  later(3000, () => { setTool('t1', 'ok'); addTool('t3', 's1', sc.t[2], 'run'); logLine(sc.s1 + ': 판매처 3곳 확인'); });
+  later(3500, () => { setTool('t2', 'ok'); setNode('s2', 'ok'); logLine(sc.s2 + ' 완료'); });
+  later(4300, () => { setTool('t3', 'ok'); setNode('s1', 'ok'); addTool('t4', 'main', sc.t[3], 'run'); setActivity('결과 정리 중'); logLine('총괄이 결과를 합치는 중'); });
+  later(5400, () => { setTool('t4', 'ok'); setNode('main', 'ok'); updateSummary('done'); setActivity('완료 · 2명이 4단계로 처리', 'done'); addResult(sc); logLine('작업 완료'); finish(); });
+}
+
+$('#slotHome').appendChild(composer);
+</script>
+</body>
+</html>

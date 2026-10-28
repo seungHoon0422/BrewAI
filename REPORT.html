@@ -1,0 +1,687 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BrewAI 킥오프 보고</title>
+<style>
+:root{
+  --bg:#f6f5f1; --fg:#1d1d20; --muted:#686870; --line:#dedad2; --line-strong:#a9a59c;
+  --card:#ffffff; --soft:#efede7; --arrow:#56565e;
+  --acc:#d4500f; --acc-soft:#fff1e8;
+  --hum:#2459d6; --hum-soft:#e9f0ff;
+  --ok:#1b7f3a; --ok-soft:#e6f5ea; --warn:#a85b00; --warn-soft:#fff4e0;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#121215; --fg:#ececf0; --muted:#a2a2ac; --line:#34343c; --line-strong:#6c6c78;
+    --card:#1b1b20; --soft:#22222a; --arrow:#b4b4be;
+    --acc:#ff8c4d; --acc-soft:#3a2317;
+    --hum:#7fa8ff; --hum-soft:#1a2443;
+    --ok:#5ad384; --ok-soft:#15301f; --warn:#f5b84a; --warn-soft:#3a2a10;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#121215; --fg:#ececf0; --muted:#a2a2ac; --line:#34343c; --line-strong:#6c6c78;
+  --card:#1b1b20; --soft:#22222a; --arrow:#b4b4be;
+  --acc:#ff8c4d; --acc-soft:#3a2317;
+  --hum:#7fa8ff; --hum-soft:#1a2443;
+  --ok:#5ad384; --ok-soft:#15301f; --warn:#f5b84a; --warn-soft:#3a2a10;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);
+  font:15px/1.55 "Pretendard","Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased}
+a{color:var(--hum)}
+.wrap{max-width:1120px;margin:0 auto;padding:0 16px}
+.muted{color:var(--muted)}
+.hero{padding:36px 16px 20px}
+.eyebrow{font-size:12px;letter-spacing:.06em;color:var(--acc);font-weight:700}
+h1{font-size:30px;line-height:1.2;margin:6px 0 6px}
+.sub{margin:0 0 18px;color:var(--muted);max-width:780px}
+.phasebar{display:flex;gap:3px;border-radius:10px;overflow:hidden;font-size:12px}
+.phasebar div{padding:7px 8px;background:var(--soft);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.phasebar .now{background:var(--acc);color:#fff;font-weight:700}
+.phasebar-note{font-size:12.5px;color:var(--muted);margin-top:7px}
+.phasebar-note b{color:var(--hum)}
+nav.toc{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line)}
+nav.toc .in{display:flex;gap:6px;overflow-x:auto;padding:9px 16px;max-width:1120px;margin:0 auto;scrollbar-width:none}
+nav.toc a{white-space:nowrap;font-size:13px;padding:4px 11px;border:1px solid var(--line);border-radius:999px;color:var(--fg);text-decoration:none;background:var(--card)}
+nav.toc a:hover{border-color:var(--acc)}
+section{padding-top:44px;scroll-margin-top:52px}
+h2{font-size:22px;line-height:1.3;margin:0 0 4px;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+h2 .n{font-size:13px;color:var(--acc);font-weight:800}
+h2 .h-sub{font-size:14px;font-weight:400;color:var(--muted)}
+.lead{color:var(--muted);margin:0 0 16px;font-size:14.5px;max-width:860px}
+.lead b{color:var(--fg)}
+.grid{display:grid;gap:12px}
+.g4{grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g5{grid-template-columns:repeat(auto-fit,minmax(190px,1fr))}
+.g7{grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.card h3{margin:0 0 6px;font-size:15.5px}
+.card p{margin:0;font-size:14px;color:var(--muted)}
+.card p b{color:var(--fg)}
+.k{display:inline-block;font-size:11.5px;font-weight:800;color:var(--acc);margin-bottom:4px;letter-spacing:.03em}
+.k a{color:inherit}
+.card.acc{border-color:var(--acc);background:var(--acc-soft)}
+.card.hum{border-color:var(--hum);background:var(--hum-soft)}
+.card.hum .k{color:var(--hum)}
+figure{margin:0 0 14px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 12px 6px}
+.fig-scroll{overflow-x:auto}
+.fig-scroll svg{display:block;width:100%;height:auto;min-width:760px}
+figcaption{font-size:13px;color:var(--muted);padding:8px 4px 6px}
+svg text{fill:currentColor;font-size:12.5px}
+svg .t-b{font-weight:700;font-size:13.5px}
+svg .t-s{font-size:11.5px;fill:var(--muted)}
+svg .t-acc{fill:var(--acc);font-weight:700}
+svg .t-hum{fill:var(--hum);font-weight:700}
+svg .box{fill:var(--card);stroke:var(--line-strong);stroke-width:1.2}
+svg .soft{fill:var(--soft);stroke:var(--line-strong);stroke-width:1}
+svg .acc{fill:var(--acc-soft);stroke:var(--acc);stroke-width:1.6}
+svg .hum{fill:var(--hum-soft);stroke:var(--hum);stroke-width:1.6}
+svg .borrow{fill:var(--card);stroke:var(--line-strong);stroke-width:1.2;stroke-dasharray:5 3}
+svg .ln{stroke:var(--arrow);stroke-width:1.4;fill:none}
+svg .ln-hum{stroke:var(--hum);stroke-width:1.8;fill:none}
+svg .ln-acc{stroke:var(--acc);stroke-width:1.8;fill:none}
+svg .dash{stroke-dasharray:5 4}
+svg .life{stroke:var(--line-strong);stroke-width:1;stroke-dasharray:3 4}
+svg .sep{stroke:var(--line);stroke-width:1}
+svg .mk{fill:var(--arrow)}
+svg .mk-hum{fill:var(--hum)}
+svg .mk-acc{fill:var(--acc)}
+svg .sw-hum{fill:var(--hum-soft);stroke:var(--hum)}
+svg .dot-ok{fill:var(--ok)}
+svg .dot-run{fill:var(--warn)}
+svg .dot-wait{fill:var(--hum)}
+.legend{display:flex;flex-wrap:wrap;gap:8px 16px;font-size:12.5px;color:var(--muted);padding:2px 4px 8px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.sw{width:14px;height:14px;border-radius:4px;border:1.5px solid var(--line-strong);background:var(--card);display:inline-block}
+.sw.acc{border-color:var(--acc);background:var(--acc-soft)}
+.sw.hum{border-color:var(--hum);background:var(--hum-soft)}
+.sw.borrow{border-style:dashed}
+.b{display:inline-block;font-size:12px;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.b.ok{background:var(--ok-soft);color:var(--ok)}
+.b.mid{background:var(--warn-soft);color:var(--warn)}
+.b.acc{background:var(--acc-soft);color:var(--acc)}
+.b.n{background:var(--soft);color:var(--muted)}
+.b.hum{background:var(--hum-soft);color:var(--hum)}
+.grp{font-size:12.5px;font-weight:800;color:var(--muted);margin:14px 0 8px;letter-spacing:.03em}
+.vc{display:flex;flex-direction:column;gap:5px;padding:12px 14px}
+.vc .b{align-self:flex-start}
+.vc .t{font-weight:700;font-size:14.5px}
+.vc p{font-size:13.5px}
+.rows{list-style:none;margin:8px 0 0;padding:0;font-size:14px}
+.rows li{display:flex;gap:10px;padding:7px 0;border-top:1px solid var(--line)}
+.rows li:first-child{border-top:none}
+.rows .l{flex:0 0 92px;font-weight:700}
+.rows .r{color:var(--muted)}
+.rows .r b{color:var(--fg);font-weight:600}
+.ph .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:6px}
+.ph .id{font-weight:800;color:var(--acc);font-size:13px}
+.ph h3{font-size:15px}
+.ph .demo{font-size:13px;color:var(--muted);margin-top:6px}
+.ph .demo b{color:var(--fg);font-weight:600}
+.nm{display:flex;flex-direction:column;gap:6px}
+.nm .top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.nm .nm-n{font-size:22px;font-weight:800;letter-spacing:-.01em}
+.nm .wm{font-size:30px;font-weight:650;letter-spacing:-.035em;line-height:1.1;margin-bottom:2px}
+.nm .nm-k{font-size:14px;color:var(--muted)}
+.nm .b{align-self:flex-start}
+.nm .warn{font-size:12.5px;color:var(--muted)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 0}
+.chip{font-size:12.5px;background:var(--card);border:1px solid var(--line);border-radius:999px;padding:3px 10px;color:var(--muted);text-decoration:line-through;text-decoration-color:var(--line-strong)}
+.opt{display:flex;gap:8px;align-items:flex-start;margin-top:8px;font-size:13.5px}
+.opt .b{flex:none}
+.callout{border-left:4px solid var(--acc);background:var(--card);border-radius:0 10px 10px 0;padding:10px 14px;font-size:14px;margin:0 0 14px}
+.callout.hum{border-left-color:var(--hum)}
+details{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 14px;font-size:13.5px}
+details summary{cursor:pointer;font-weight:700}
+details ol{margin:8px 0 0;padding-left:20px}
+details li{margin:3px 0;color:var(--muted)}
+footer{padding:40px 16px 60px;color:var(--muted);font-size:12.5px;text-align:center}
+code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.92em;background:var(--soft);padding:1px 5px;border-radius:5px}
+@media (max-width:640px){
+  h1{font-size:24px}
+  h2{font-size:19px}
+  .phasebar div{font-size:11px;padding:6px 4px}
+  .rows .l{flex-basis:76px}
+}
+</style>
+</head>
+<body>
+
+<header class="wrap hero">
+  <div class="eyebrow">킥오프 보고 · v1.3 · 2026-10-29</div>
+  <h1>BrewAI</h1>
+  <p class="sub">일반 사용자가 <b>웹·데스크톱</b>에서 쓰는 에이전트 플랫폼 — 에이전트가 도구를 골라 환경을 꾸리고 서브에이전트 팀을 스스로 편성하며, 그 모습이 화면에 보이고, 사람은 <b>로그인·승인만</b>.</p>
+  <div class="phasebar" aria-label="Phase 진행 상황">
+    <div class="now" style="flex:1.1">P0 셋업 ▶</div>
+    <div style="flex:2">P1 뼈대+UI</div>
+    <div style="flex:2">P2 관리자·데스크톱</div>
+    <div style="flex:2">P3 찾기·설치</div>
+    <div style="flex:2">P4 팀 편성·시각화</div>
+    <div style="flex:2">P5 Skill 작성</div>
+    <div style="flex:2">P6 운영</div>
+  </div>
+  <div class="phasebar-note">약 13주 · 지금 P0 (완료 기준 1/3) · <b>👤 결정 2개 대기 → <a href="#decide">11</a></b></div>
+</header>
+
+<nav class="toc" aria-label="목차"><div class="in">
+  <a href="#tldr">한눈에</a><a href="#agent">에이전트란</a><a href="#trend">가설 검증</a>
+  <a href="#arch">아키텍처</a><a href="#screens">화면·권한</a><a href="#flow">능력 획득</a>
+  <a href="#build">만들 것·빌릴 것</a><a href="#cycle">사이클</a><a href="#roadmap">로드맵</a>
+  <a href="#comm">소통</a><a href="#names">이름</a><a href="#decide">결정</a><a href="#src">출처</a>
+</div></nav>
+
+<main class="wrap">
+
+<section id="tldr">
+  <h2><span class="n">00</span>한눈에</h2>
+  <div class="grid g4">
+    <div class="card"><span class="k">에이전트 정의</span><h3>Agent = 모델 + 하네스</h3>
+      <p>LLM이 <b>루프 안에서 툴을 고르고, 언제 끝낼지 스스로 정하면</b> 에이전트. Claude Code·Codex는 그 위의 <b>'에이전트 제품'</b>.</p></div>
+    <div class="card"><span class="k">당신의 가설</span><h3>방향 맞음 · 일부 조건부</h3>
+      <p>단 주류는 <b>"검수된 카탈로그에서 찾아 붙이기 + 원클릭 동의"</b>까지. 무검수 자동 설치는 주류 제품에 없음.</p></div>
+    <div class="card"><span class="k">전략</span><h3>코어 4개만 직접</h3>
+      <p><b>찾기 · 승인 · Skill 작성 · 팀 편성</b>. 루프·게이트웨이(LiteLLM)·trace(Langfuse)·UI 부품은 빌림.</p></div>
+    <div class="card hum"><span class="k">👤 결정 2개 · <a href="#decide">11</a></span><h3>답 주시면 바로 P1</h3>
+      <p>① 모델 키 · Node 설치<br>② Langfuse 리전<br><span style="color:var(--ok-text,#1b7f3a)">✔ 이름 BrewAI · repo 연결</span></p></div>
+  </div>
+</section>
+
+<section id="agent">
+  <h2><span class="n">01</span>에이전트란? <span class="h-sub">혼란의 원인 = 같은 단어가 층을 넘나듦</span></h2>
+  <p class="lead">정의: LLM이 루프 안에서 툴을 고르고 끝낼 때를 스스로 정함 — Anthropic 표현으로 <b>"LLMs autonomously using tools in a loop"</b> (2025-09). OpenAI·Hugging Face도 같은 뜻.</p>
+
+  <figure>
+    <div class="fig-scroll">
+    <svg viewBox="0 0 980 410" role="img" aria-label="에이전트의 층: 모델을 루프가 감싸고, 하네스와 제품이 바깥을 감싼다. Claude Code와 Codex는 제품이고, 엔진은 하네스와 모델이다.">
+      <defs><marker id="m1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk"/></marker></defs>
+      <rect x="20" y="14" width="580" height="384" rx="14" class="box"/>
+      <text x="38" y="40" class="t-b">제품 (Agent product)</text>
+      <text x="38" y="59" class="t-s">Claude Code · Codex — 화면(CLI·IDE·앱·Web) + 인증·배포</text>
+      <rect x="40" y="74" width="540" height="308" rx="12" class="soft"/>
+      <text x="58" y="98" class="t-b">하네스 (Harness)</text>
+      <text x="58" y="117" class="t-s">툴 · 컨텍스트 관리 · 권한 · 메모리 · 샌드박스 · 훅</text>
+      <rect x="60" y="134" width="500" height="230" rx="10" class="box"/>
+      <text x="78" y="158" class="t-b">루프 (Agent loop)</text>
+      <text x="78" y="176" class="t-s">다음 행동과 종료를 LLM이 스스로 결정 ← 이게 '에이전트'의 핵심</text>
+      <rect x="84" y="202" width="160" height="58" rx="8" class="acc"/>
+      <text x="164" y="227" text-anchor="middle" class="t-b">모델</text>
+      <text x="164" y="246" text-anchor="middle" class="t-s">Claude · GPT · Gemini</text>
+      <rect x="376" y="202" width="160" height="58" rx="8" class="box"/>
+      <text x="456" y="227" text-anchor="middle" class="t-b">툴 실행</text>
+      <text x="456" y="246" text-anchor="middle" class="t-s">파일 · 셸 · MCP · 검색</text>
+      <line x1="244" y1="216" x2="374" y2="216" class="ln" marker-end="url(#m1)"/>
+      <text x="309" y="208" text-anchor="middle">tool call</text>
+      <line x1="376" y1="248" x2="246" y2="248" class="ln" marker-end="url(#m1)"/>
+      <text x="311" y="268" text-anchor="middle">결과 관찰</text>
+      <text x="456" y="284" text-anchor="middle" class="t-s">↻ 필요한 만큼 반복</text>
+      <line x1="164" y1="260" x2="164" y2="314" class="ln" marker-end="url(#m1)"/>
+      <text x="174" y="292" class="t-s">LLM이 종료 판단</text>
+      <rect x="96" y="316" width="136" height="32" rx="8" class="box"/>
+      <text x="164" y="337" text-anchor="middle">목표 달성 → 답변</text>
+      <text x="630" y="40" class="t-b">같은 말 '에이전트', 다른 층</text>
+      <text x="630" y="78" class="t-b">Claude Code</text><text x="830" y="78" class="t-acc">= 제품</text>
+      <text x="630" y="97" class="t-s">엔진 = Claude Code 하네스 + Claude 모델</text>
+      <line x1="630" y1="112" x2="965" y2="112" class="sep"/>
+      <text x="630" y="134" class="t-b">Codex</text><text x="830" y="134" class="t-acc">= 제품</text>
+      <text x="630" y="153" class="t-s">엔진 = Codex 하네스 + GPT 모델</text>
+      <line x1="630" y1="168" x2="965" y2="168" class="sep"/>
+      <text x="630" y="190" class="t-b">Pydantic AI · LangGraph 등</text><text x="830" y="190" class="t-acc">= 루프 부품</text>
+      <text x="630" y="209" class="t-s">우리는 Pydantic AI만 빌림</text>
+      <line x1="630" y1="224" x2="965" y2="224" class="sep"/>
+      <text x="630" y="246" class="t-b">MCP 서버</text><text x="830" y="246" class="t-acc">= 툴 공급원</text>
+      <text x="630" y="265" class="t-s">에이전트 아님 — 하네스에 툴을 대주는 쪽</text>
+      <line x1="630" y1="280" x2="965" y2="280" class="sep"/>
+      <text x="630" y="302" class="t-b">Skill</text><text x="830" y="302" class="t-acc">= 지식 패키지</text>
+      <text x="630" y="321" class="t-s">SKILL.md — 필요할 때 로드, 에이전트 아님</text>
+      <line x1="630" y1="336" x2="965" y2="336" class="sep"/>
+      <text x="630" y="358" class="t-b">Subagent · A2A</text><text x="830" y="358" class="t-acc">= 멀티 에이전트</text>
+      <text x="630" y="377" class="t-s">에이전트끼리 위임·협업</text>
+    </svg>
+    </div>
+    <figcaption>'에이전트' 대신 층으로 말하기 — 예: Claude Code = 제품 (엔진 = 하네스 + 모델).</figcaption>
+  </figure>
+
+  <figure>
+    <div class="fig-scroll">
+    <svg viewBox="0 0 980 165" role="img" aria-label="에이전트 판별 4문항: 툴로 바깥을 바꾸나, 다음 단계를 LLM이 정하나, 반복하나, 목표와 종료가 있나. 모두 예면 에이전트. Q1이 아니오면 모델 호출, Q2가 아니오면 고정 Workflow.">
+      <defs><marker id="m2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk"/></marker></defs>
+      <rect x="20" y="18" width="170" height="62" rx="8" class="box"/>
+      <text x="32" y="36" class="t-s">Q1</text><text x="105" y="54" text-anchor="middle">툴로 바깥을</text><text x="105" y="71" text-anchor="middle">읽거나 바꾸나?</text>
+      <rect x="215" y="18" width="170" height="62" rx="8" class="box"/>
+      <text x="227" y="36" class="t-s">Q2 · 핵심</text><text x="300" y="54" text-anchor="middle">다음 단계·종료를</text><text x="300" y="71" text-anchor="middle">LLM이 정하나?</text>
+      <rect x="410" y="18" width="170" height="62" rx="8" class="box"/>
+      <text x="422" y="36" class="t-s">Q3</text><text x="495" y="54" text-anchor="middle">결과가 모델로 돌아가</text><text x="495" y="71" text-anchor="middle">반복되나?</text>
+      <rect x="605" y="18" width="170" height="62" rx="8" class="box"/>
+      <text x="617" y="36" class="t-s">Q4</text><text x="690" y="54" text-anchor="middle">목표가 있고 실패 시</text><text x="690" y="71" text-anchor="middle">멈추거나 넘기나?</text>
+      <rect x="800" y="18" width="160" height="62" rx="8" class="acc"/>
+      <text x="880" y="46" text-anchor="middle" class="t-b">에이전트 ✔</text><text x="880" y="66" text-anchor="middle" class="t-s">4개 모두 '예'</text>
+      <line x1="190" y1="49" x2="213" y2="49" class="ln" marker-end="url(#m2)"/><text x="201" y="42" text-anchor="middle" class="t-s">예</text>
+      <line x1="385" y1="49" x2="408" y2="49" class="ln" marker-end="url(#m2)"/><text x="396" y="42" text-anchor="middle" class="t-s">예</text>
+      <line x1="580" y1="49" x2="603" y2="49" class="ln" marker-end="url(#m2)"/><text x="591" y="42" text-anchor="middle" class="t-s">예</text>
+      <line x1="775" y1="49" x2="798" y2="49" class="ln" marker-end="url(#m2)"/><text x="786" y="42" text-anchor="middle" class="t-s">예</text>
+      <line x1="105" y1="80" x2="105" y2="116" class="ln dash" marker-end="url(#m2)"/><text x="112" y="102" class="t-s">아니오</text>
+      <rect x="30" y="118" width="150" height="32" rx="8" class="soft"/><text x="105" y="139" text-anchor="middle">그냥 모델 호출 · 챗봇</text>
+      <line x1="300" y1="80" x2="300" y2="116" class="ln dash" marker-end="url(#m2)"/><text x="307" y="102" class="t-s">아니오</text>
+      <rect x="225" y="118" width="150" height="32" rx="8" class="soft"/><text x="300" y="139" text-anchor="middle">Workflow (고정 경로)</text>
+    </svg>
+    </div>
+  </figure>
+</section>
+
+<section id="trend">
+  <h2><span class="n">02</span>당신의 가설 검증</h2>
+  <p class="lead">바뀐 건 <b>"누가 찾느냐"</b>(사람 → 에이전트). 안 바뀐 건 <b>"누가 허락하느냐"</b>(여전히 사람·관리자).</p>
+  <figure>
+    <div class="fig-scroll">
+    <svg viewBox="0 0 980 325" role="img" aria-label="이전에는 사용자가 툴을 미리 등록하고 에이전트는 쓰기만 했다. 지금은 에이전트가 카탈로그에서 찾고, 사람은 승인 카드와 OAuth 로그인에서만 개입하며, 없는 능력은 Skill로 작성해 검토 후 다음 대화부터 쓴다.">
+      <defs><marker id="m3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk"/></marker></defs>
+      <line x1="338" y1="16" x2="338" y2="292" class="sep"/>
+      <text x="20" y="32" class="t-b">이전 · 2024~2025</text>
+      <rect x="70" y="52" width="200" height="42" rx="8" class="hum"/>
+      <text x="170" y="71" text-anchor="middle" class="t-b">사용자 👤</text><text x="170" y="87" text-anchor="middle" class="t-s">커넥터·키를 미리 등록</text>
+      <line x1="170" y1="94" x2="170" y2="140" class="ln" marker-end="url(#m3)"/><text x="180" y="121" class="t-s">사람이 전부 미리</text>
+      <rect x="70" y="142" width="200" height="42" rx="8" class="box"/>
+      <text x="170" y="161" text-anchor="middle" class="t-b">고정된 툴 목록</text><text x="170" y="177" text-anchor="middle" class="t-s">등록한 것만 보임</text>
+      <line x1="170" y1="184" x2="170" y2="230" class="ln" marker-end="url(#m3)"/>
+      <rect x="70" y="232" width="200" height="42" rx="8" class="box"/>
+      <text x="170" y="251" text-anchor="middle" class="t-b">에이전트</text><text x="170" y="267" text-anchor="middle" class="t-s">있는 툴만 사용</text>
+      <text x="362" y="32" class="t-b">지금 · 2026 — 채팅 안에서 해결</text>
+      <rect x="362" y="52" width="130" height="42" rx="8" class="hum"/><text x="427" y="71" text-anchor="middle" class="t-b">요청 👤</text><text x="427" y="87" text-anchor="middle" class="t-s">채팅 한 문장</text>
+      <rect x="518" y="52" width="130" height="42" rx="8" class="box"/><text x="583" y="71" text-anchor="middle" class="t-b">에이전트</text><text x="583" y="87" text-anchor="middle" class="t-s">보유 툴로 안 됨</text>
+      <rect x="674" y="52" width="130" height="42" rx="8" class="box"/><text x="739" y="71" text-anchor="middle" class="t-b">툴 검색</text><text x="739" y="87" text-anchor="middle" class="t-s">검수 카탈로그에서</text>
+      <rect x="830" y="52" width="130" height="42" rx="8" class="box"/><text x="895" y="71" text-anchor="middle" class="t-b">후보 있음?</text><text x="895" y="87" text-anchor="middle" class="t-s">등급·권한 확인</text>
+      <line x1="492" y1="73" x2="516" y2="73" class="ln" marker-end="url(#m3)"/>
+      <line x1="648" y1="73" x2="672" y2="73" class="ln" marker-end="url(#m3)"/>
+      <line x1="804" y1="73" x2="828" y2="73" class="ln" marker-end="url(#m3)"/>
+      <line x1="895" y1="94" x2="895" y2="140" class="ln" marker-end="url(#m3)"/><text x="903" y="121" class="t-s">예</text>
+      <rect x="830" y="142" width="130" height="42" rx="8" class="hum"/><text x="895" y="161" text-anchor="middle" class="t-b">승인 카드 👤</text><text x="895" y="177" text-anchor="middle" class="t-s">설치·권한 범위</text>
+      <rect x="674" y="142" width="130" height="42" rx="8" class="box"/><text x="739" y="161" text-anchor="middle" class="t-b">연결</text><text x="739" y="177" text-anchor="middle" class="t-s">세션 한정·버전 고정</text>
+      <rect x="518" y="142" width="130" height="42" rx="8" class="hum"/><text x="583" y="161" text-anchor="middle" class="t-b">OAuth 로그인 👤</text><text x="583" y="177" text-anchor="middle" class="t-s">외부 브라우저</text>
+      <rect x="362" y="142" width="130" height="42" rx="8" class="box"/><text x="427" y="161" text-anchor="middle" class="t-b">실행 → 결과</text><text x="427" y="177" text-anchor="middle" class="t-s">생성형 UI 카드</text>
+      <line x1="830" y1="163" x2="806" y2="163" class="ln" marker-end="url(#m3)"/>
+      <line x1="674" y1="163" x2="650" y2="163" class="ln" marker-end="url(#m3)"/>
+      <line x1="518" y1="163" x2="494" y2="163" class="ln" marker-end="url(#m3)"/>
+      <path d="M960,73 H971 V253 H962" class="ln dash" marker-end="url(#m3)"/><text x="958" y="210" text-anchor="end" class="t-s">아니오</text>
+      <rect x="830" y="232" width="130" height="42" rx="8" class="box"/><text x="895" y="251" text-anchor="middle" class="t-b">Skill 초안</text><text x="895" y="267" text-anchor="middle" class="t-s">샌드박스에서 작성</text>
+      <rect x="674" y="232" width="130" height="42" rx="8" class="hum"/><text x="739" y="251" text-anchor="middle" class="t-b">테스트 + 승인 👤</text><text x="739" y="267" text-anchor="middle" class="t-s">격리 영역에서</text>
+      <rect x="518" y="232" width="130" height="42" rx="8" class="box"/><text x="583" y="251" text-anchor="middle" class="t-b">등록</text><text x="583" y="267" text-anchor="middle" class="t-s">runtime/skills</text>
+      <line x1="830" y1="253" x2="806" y2="253" class="ln dash" marker-end="url(#m3)"/>
+      <line x1="674" y1="253" x2="650" y2="253" class="ln dash" marker-end="url(#m3)"/>
+      <path d="M518,253 H427 V186" class="ln dash" marker-end="url(#m3)"/><text x="435" y="222" class="t-s">다음 대화부터</text>
+      <rect x="20" y="302" width="13" height="13" rx="3" class="sw-hum"/><text x="40" y="313" class="t-s">파란 칸 = 사람이 개입하는 지점</text>
+      <text x="362" y="313" class="t-s">점선 = 카탈로그에 없을 때 (P5)</text>
+    </svg>
+    </div>
+  </figure>
+  <div class="grp">채팅 · 능력 획득</div>
+  <div class="grid g3">
+    <div class="card vc"><span class="b mid">◐ 조건부</span><span class="t">사용자 사전 등록이 사라진다</span><p>사라지지 않고 '위로' 이동 — 검수 카탈로그·관리자 정책·플러그인 번들</p></div>
+    <div class="card vc"><span class="b mid">◐ 조건부</span><span class="t">에이전트가 찾아서 설치</span><p>찾기는 표준(tool search, 커넥터 제안). 설치는 카탈로그 안 + 원클릭 동의까지</p></div>
+    <div class="card vc"><span class="b mid">◐ 조건부</span><span class="t">에이전트가 Skill·MCP를 만듦</span><p>Skill 초안은 주류, 활성화는 사람 검토. MCP 서버를 새로 만드는 건 드묾</p></div>
+    <div class="card vc"><span class="b ok">✔ 방향 일치</span><span class="t">사람은 인증·승인만</span><p>MCP 스펙이 이 구조(외부 브라우저 로그인·권한 단계 상승). 고위험 행위 승인은 남음</p></div>
+    <div class="card vc"><span class="b ok">✔ 확인</span><span class="t">생성형 UI 채팅</span><p>MCP Apps가 첫 공식 확장(2026-01). Claude·ChatGPT·VS Code가 렌더</p></div>
+    <div class="card vc"><span class="b mid">◐ 조건부</span><span class="t">모든 걸 채팅 안에서</span><p>비밀번호·키는 채팅 폼 금지(스펙) → 외부 브라우저. "채팅에서 시작해 채팅으로 복귀"</p></div>
+  </div>
+  <div class="grp">인프라</div>
+  <div class="grid g4">
+    <div class="card vc"><span class="b mid">◐ 조건부</span><span class="t">비용·trace를 OTel로 표준화</span><p>모두 OTLP 수신. 단 GenAI 규격은 아직 실험 단계 → 이름·비용 키 맞춤 필요</p></div>
+    <div class="card vc"><span class="b ok">✔ 확인</span><span class="t">모델 호출은 게이트웨이 뒤</span><p>LiteLLM 등 성숙. 모델 정보까지 API로 제공. 버전·해시 고정이 전제</p></div>
+    <div class="card vc"><span class="b ok">✔ 확인</span><span class="t">툴도 게이트웨이로 분리</span><p>ContextForge·agentgateway. 최신 MCP 스펙 지원이 선택 기준</p></div>
+    <div class="card vc"><span class="b ok">✔ 확인</span><span class="t">conductor가 필요할 때 호출</span><p>한 trace로 연결 가능. 연결 설정·카탈로그 스키마는 직접 작성</p></div>
+  </div>
+</section>
+
+<section id="arch">
+  <h2><span class="n">03</span>목표 아키텍처</h2>
+  <p class="lead">부품 사이는 <b>표준(OpenAI 호환 API · MCP · OTLP)과 AG-UI(에이전트↔화면 이벤트 규격)</b>로만 연결 → 부품 교체 = 설정 변경.</p>
+  <figure>
+    <div class="fig-scroll">
+    <svg viewBox="0 0 1040 580" role="img" aria-label="사용자 앱(웹·데스크톱)은 AG-UI로, 관리자 콘솔은 관리자 API로 Conductor와 통신한다. Conductor 안의 루프는 LLM Gateway로, 승인·정책은 MCP Gateway로, 능력 찾기는 카탈로그로, Skill 저장소는 Sandbox로 연결되고, 팀 구성이 서브에이전트를 편성한다. 모든 구성요소가 OpenTelemetry로 span을 보낸다.">
+      <defs><marker id="m4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk"/></marker></defs>
+      <rect x="20" y="30" width="170" height="44" rx="8" class="hum"/><text x="105" y="57" text-anchor="middle" class="t-b">사용자 👤</text>
+      <line x1="105" y1="76" x2="105" y2="108" class="ln" marker-start="url(#m4)" marker-end="url(#m4)"/>
+      <rect x="20" y="110" width="170" height="190" rx="10" class="box"/>
+      <text x="105" y="134" text-anchor="middle" class="t-b">사용자 앱</text>
+      <text x="105" y="152" text-anchor="middle" class="t-s">웹 · 데스크톱(Electron)</text>
+      <text x="36" y="180">대화 · 팀 활동 패널</text>
+      <text x="36" y="202" class="t-hum">승인 카드 👤</text>
+      <text x="36" y="224" class="t-hum">OAuth 링크 👤</text>
+      <text x="36" y="246">내 연결 · 내 Skill</text>
+      <text x="36" y="268">MCP Apps 위젯 (P6)</text>
+      <rect x="20" y="330" width="170" height="90" rx="10" class="box"/>
+      <text x="105" y="356" text-anchor="middle" class="t-b">관리자 콘솔 🔒</text>
+      <text x="105" y="378" text-anchor="middle" class="t-s">모델 노출 · 카탈로그</text>
+      <text x="105" y="396" text-anchor="middle" class="t-s">사용자 · 예산 · trace</text>
+      <line x1="190" y1="205" x2="248" y2="205" class="ln" marker-start="url(#m4)" marker-end="url(#m4)"/>
+      <text x="219" y="196" text-anchor="middle" class="t-s">AG-UI</text><text x="219" y="222" text-anchor="middle" class="t-s">SSE</text>
+      <line x1="190" y1="375" x2="248" y2="375" class="ln" marker-start="url(#m4)" marker-end="url(#m4)"/>
+      <text x="219" y="366" text-anchor="middle" class="t-s">API</text>
+
+      <rect x="250" y="30" width="280" height="400" rx="12" class="acc"/>
+      <text x="390" y="54" text-anchor="middle" class="t-b">Conductor</text>
+      <rect x="270" y="68" width="240" height="52" rx="8" class="borrow"/><text x="390" y="89" text-anchor="middle" class="t-b">루프 (빌림)</text><text x="390" y="107" text-anchor="middle" class="t-s">Pydantic AI 2.x · adapter 1곳</text>
+      <rect x="270" y="134" width="240" height="52" rx="8" class="box"/><text x="390" y="155" text-anchor="middle" class="t-b">② 승인 · 정책</text><text x="390" y="173" text-anchor="middle" class="t-s">위험 등급 · 서버 재검증 · 예산</text>
+      <rect x="270" y="200" width="240" height="52" rx="8" class="box"/><text x="390" y="221" text-anchor="middle" class="t-b">① 능력 찾기 · 설치</text><text x="390" y="239" text-anchor="middle" class="t-s">tool search · 카탈로그 · 연결</text>
+      <rect x="270" y="266" width="240" height="52" rx="8" class="box"/><text x="390" y="287" text-anchor="middle" class="t-b">③ Skill 작성 · 저장소</text><text x="390" y="305" text-anchor="middle" class="t-s">격리 → 테스트 → 승인</text>
+      <rect x="270" y="332" width="240" height="52" rx="8" class="box"/><text x="390" y="353" text-anchor="middle" class="t-b">④ 팀 편성</text><text x="390" y="371" text-anchor="middle" class="t-s">서브에이전트 자동 구성 · 활동 이벤트</text>
+      <text x="390" y="410" text-anchor="middle" class="t-s">①~④ 직접 · 루프만 빌림</text>
+
+      <rect x="630" y="68" width="200" height="52" rx="8" class="borrow"/><text x="730" y="89" text-anchor="middle" class="t-b">LLM Gateway</text><text x="730" y="107" text-anchor="middle" class="t-s">LiteLLM · 모델 정보 원천</text>
+      <rect x="630" y="134" width="200" height="52" rx="8" class="borrow"/><text x="730" y="155" text-anchor="middle" class="t-b">MCP Gateway (P3)</text><text x="730" y="173" text-anchor="middle" class="t-s">ContextForge · agentgateway</text>
+      <rect x="630" y="200" width="200" height="52" rx="8" class="borrow"/><text x="730" y="221" text-anchor="middle" class="t-b">카탈로그</text><text x="730" y="239" text-anchor="middle" class="t-s">T0 공식 ~ T3 자작</text>
+      <rect x="630" y="266" width="200" height="52" rx="8" class="borrow"/><text x="730" y="287" text-anchor="middle" class="t-b">Sandbox (P5)</text><text x="730" y="305" text-anchor="middle" class="t-s">Skill·코드 격리 실행</text>
+
+      <rect x="880" y="68" width="140" height="52" rx="8" class="soft"/><text x="950" y="89" text-anchor="middle" class="t-b">모델들</text><text x="950" y="107" text-anchor="middle" class="t-s">Claude·GPT·Gemini</text>
+      <rect x="880" y="134" width="140" height="52" rx="8" class="soft"/><text x="950" y="155" text-anchor="middle" class="t-b">MCP 서버들</text><text x="950" y="173" text-anchor="middle" class="t-s">원격 OAuth · 로컬</text>
+      <rect x="880" y="206" width="140" height="52" rx="8" class="borrow"/><text x="950" y="227" text-anchor="middle" class="t-b">Token Vault</text><text x="950" y="245" text-anchor="middle" class="t-s">LLM에 비노출</text>
+
+      <line x1="510" y1="94" x2="628" y2="94" class="ln" marker-end="url(#m4)"/><text x="569" y="86" text-anchor="middle" class="t-s">OpenAI 호환 API</text>
+      <line x1="510" y1="160" x2="628" y2="160" class="ln" marker-end="url(#m4)"/><text x="569" y="152" text-anchor="middle" class="t-s">MCP · 승인 후</text>
+      <line x1="510" y1="226" x2="628" y2="226" class="ln" marker-start="url(#m4)" marker-end="url(#m4)"/><text x="569" y="218" text-anchor="middle" class="t-s">검색 · 설치</text>
+      <line x1="510" y1="292" x2="628" y2="292" class="ln" marker-end="url(#m4)"/><text x="569" y="284" text-anchor="middle" class="t-s">테스트 · 실행</text>
+      <line x1="830" y1="94" x2="878" y2="94" class="ln" marker-end="url(#m4)"/><text x="854" y="86" text-anchor="middle" class="t-s">라우팅</text>
+      <line x1="830" y1="160" x2="878" y2="160" class="ln" marker-end="url(#m4)"/><text x="854" y="152" text-anchor="middle" class="t-s">프록시</text>
+      <path d="M880,232 H855 V176 H832" class="ln" marker-end="url(#m4)"/><text x="860" y="200" class="t-s">토큰 주입</text>
+
+      <line x1="390" y1="430" x2="390" y2="468" class="ln dash" marker-end="url(#m4)"/>
+      <line x1="730" y1="318" x2="730" y2="468" class="ln dash" marker-end="url(#m4)"/>
+      <text x="398" y="456" class="t-s">span</text><text x="738" y="456" class="t-s">span</text>
+      <rect x="20" y="470" width="1000" height="96" rx="12" class="soft"/>
+      <text x="38" y="496" class="t-b">관측 — OpenTelemetry → Langfuse</text>
+      <text x="38" y="516" class="t-s">모든 칸이 OTLP로 span 전송 · user·session 포함</text>
+      <text x="38" y="534" class="t-s">P1: Collector 없이 Langfuse 직행</text>
+      <text x="38" y="552" class="t-s">GenAI 규격은 아직 실험 단계 → 이름 맞춤</text>
+      <rect x="430" y="492" width="160" height="50" rx="8" class="borrow"/><text x="510" y="513" text-anchor="middle" class="t-b">Collector (P6)</text><text x="510" y="531" text-anchor="middle" class="t-s">이름·비용 키 맞춤 · 마스킹</text>
+      <rect x="700" y="492" width="302" height="50" rx="8" class="borrow"/><text x="851" y="513" text-anchor="middle" class="t-b">Langfuse</text><text x="851" y="531" text-anchor="middle" class="t-s">다른 분석 도구도 추가 가능</text>
+      <line x1="590" y1="517" x2="698" y2="517" class="ln" marker-end="url(#m4)"/><text x="644" y="509" text-anchor="middle" class="t-s">동시 전송</text>
+    </svg>
+    </div>
+    <div class="legend">
+      <span><i class="sw acc"></i>Conductor = 직접 만듦</span>
+      <span><i class="sw borrow"></i>점선 = 빌려 씀</span>
+      <span><i class="sw hum"></i>사람 개입</span>
+    </div>
+  </figure>
+</section>
+
+<section id="screens">
+  <h2><span class="n">04</span>화면 · 권한 <span class="h-sub">Codex 화면 구성을 따라 만든 클릭 가능한 초안</span></h2>
+  <div class="grid g2" style="margin-bottom:14px">
+    <a class="card acc" href="design/prototype.html" style="text-decoration:none;color:inherit">
+      <span class="k">UI 프로토타입 · 브라우저로 열기</span>
+      <h3>design/prototype.html ↗</h3>
+      <p>아이콘 레일 · 사이드바(최근·프로젝트) · 빈 화면 + 제안 · 입력창(프로젝트·앱 연결·모델 선택). 상단 점선 바에서 <b>승인 데모 / 팀 데모 / 다크</b> 전환.</p>
+    </a>
+    <div class="card">
+      <span class="k">우리만의 것</span>
+      <h3>진행 상황 패널 + 허용 카드</h3>
+      <p>총괄 → 서브에이전트 → 단계가 실시간으로 보이고, 연결이 필요하면 <b>"할 수 있는 일 / 하지 않는 일"</b>을 보여주고 허용을 받음. 로고·문구·아이콘은 자체 제작(클린룸).</p>
+    </div>
+  </div>
+
+  <figure>
+    <div class="fig-scroll">
+    <svg viewBox="0 0 1000 215" role="img" aria-label="모델은 LiteLLM 게이트웨이에서만 등록한다. 우리 API가 /model_group/info로 모델 정보를 동기화하고, 관리자 콘솔은 노출 정책만 저장하며, 사용자 앱에는 노출된 모델만 보인다. 관리자는 Langfuse trace로 딥링크한다.">
+      <defs><marker id="m9" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk"/></marker></defs>
+      <rect x="330" y="35" width="240" height="50" rx="8" class="borrow"/><text x="450" y="56" text-anchor="middle" class="t-b">Langfuse</text><text x="450" y="74" text-anchor="middle" class="t-s">모든 span에 user · session</text>
+      <rect x="700" y="35" width="280" height="50" rx="8" class="box"/><text x="840" y="56" text-anchor="middle" class="t-b">관리자 콘솔 🔒</text><text x="840" y="74" text-anchor="middle" class="t-s">노출 · 표시 이름 · 순서만 (등록 ✕)</text>
+      <rect x="20" y="125" width="200" height="70" rx="8" class="borrow"/><text x="120" y="152" text-anchor="middle" class="t-b">LLM Gateway</text><text x="120" y="172" text-anchor="middle" class="t-s">LiteLLM · 모델 등록은 여기서만</text>
+      <rect x="330" y="125" width="240" height="70" rx="8" class="acc"/><text x="450" y="148" text-anchor="middle" class="t-b">카탈로그 동기화 (우리 API)</text><text x="450" y="166" text-anchor="middle" class="t-s">게이트웨이 캐시 + 노출 정책</text><text x="450" y="183" text-anchor="middle" class="t-s">새 모델 = 후보 · 기본 숨김</text>
+      <rect x="700" y="125" width="280" height="70" rx="8" class="box"/><text x="840" y="152" text-anchor="middle" class="t-b">사용자 앱 (웹 · 데스크톱)</text><text x="840" y="172" text-anchor="middle" class="t-s">모델 목록 = 노출된 것만 · 관리자 경로 없음</text>
+      <line x1="700" y1="60" x2="572" y2="60" class="ln" marker-end="url(#m9)"/><text x="636" y="52" text-anchor="middle" class="t-s">trace 링크</text>
+      <path d="M760,85 V110 H450 V123" class="ln" marker-end="url(#m9)"/><text x="605" y="104" text-anchor="middle" class="t-s">노출 정책 저장</text>
+      <line x1="220" y1="160" x2="328" y2="160" class="ln" marker-end="url(#m9)"/><text x="274" y="152" text-anchor="middle" class="t-s">/model_group/info</text><text x="274" y="178" text-anchor="middle" class="t-s">가격·컨텍스트·기능</text>
+      <line x1="570" y1="160" x2="698" y2="160" class="ln" marker-end="url(#m9)"/><text x="634" y="152" text-anchor="middle" class="t-s">노출된 모델만</text>
+    </svg>
+    </div>
+    <figcaption>모델의 원본은 게이트웨이. 우리는 "누구에게, 어떤 이름으로 보일지"만 저장한다.</figcaption>
+  </figure>
+</section>
+
+<section id="flow">
+  <h2><span class="n">05</span>능력 획득 흐름 <span class="h-sub">P3 데모 시나리오</span></h2>
+  <p class="lead">"내 GitHub 이슈 요약해줘" — GitHub 연결이 없는 상태에서 시작. <b>사람 손은 파란 화살표 2번뿐.</b></p>
+  <figure>
+    <div class="fig-scroll">
+    <svg viewBox="0 0 1000 660" role="img" aria-label="능력 획득 순서: 보유 툴이 없어 카탈로그를 검색하고, 승인 카드로 사용자 승인을 받은 뒤, MCP 서버의 401 응답에 따라 외부 브라우저에서 OAuth 로그인을 하고, 토큰을 Vault에 저장한 뒤 툴을 호출해 결과 카드를 보여준다.">
+      <defs>
+        <marker id="m5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk"/></marker>
+        <marker id="m5h" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk-hum"/></marker>
+      </defs>
+      <rect x="10" y="16" width="140" height="36" rx="8" class="hum"/><text x="80" y="39" text-anchor="middle" class="t-b">사용자 👤</text>
+      <rect x="200" y="16" width="140" height="36" rx="8" class="box"/><text x="270" y="39" text-anchor="middle" class="t-b">사용자 앱</text>
+      <rect x="410" y="16" width="140" height="36" rx="8" class="acc"/><text x="480" y="39" text-anchor="middle" class="t-b">Conductor</text>
+      <rect x="620" y="16" width="140" height="36" rx="8" class="borrow"/><text x="690" y="39" text-anchor="middle" class="t-b">카탈로그</text>
+      <rect x="830" y="16" width="160" height="36" rx="8" class="borrow"/><text x="910" y="39" text-anchor="middle" class="t-b">MCP 서버 · 인증</text>
+      <line x1="80" y1="52" x2="80" y2="645" class="life"/>
+      <line x1="270" y1="52" x2="270" y2="645" class="life"/>
+      <line x1="480" y1="52" x2="480" y2="645" class="life"/>
+      <line x1="690" y1="52" x2="690" y2="645" class="life"/>
+      <line x1="910" y1="52" x2="910" y2="645" class="life"/>
+      <line x1="80" y1="88" x2="268" y2="88" class="ln" marker-end="url(#m5)"/><text x="175" y="81" text-anchor="middle">"내 GitHub 이슈 요약해줘"</text>
+      <line x1="270" y1="124" x2="478" y2="124" class="ln" marker-end="url(#m5)"/><text x="375" y="117" text-anchor="middle">AG-UI 실행</text>
+      <rect x="488" y="140" width="150" height="26" rx="6" class="soft"/><text x="563" y="158" text-anchor="middle" class="t-s">보유 툴에 없음</text>
+      <line x1="480" y1="196" x2="688" y2="196" class="ln" marker-end="url(#m5)"/><text x="585" y="189" text-anchor="middle">검색: github issue</text>
+      <line x1="690" y1="232" x2="482" y2="232" class="ln dash" marker-end="url(#m5)"/><text x="585" y="225" text-anchor="middle">후보: GitHub MCP · T1 검수</text>
+      <line x1="480" y1="268" x2="272" y2="268" class="ln" marker-end="url(#m5)"/><text x="375" y="261" text-anchor="middle">승인 카드 (설치 + 권한 범위)</text>
+      <line x1="80" y1="304" x2="268" y2="304" class="ln-hum" marker-end="url(#m5h)"/><text x="175" y="297" text-anchor="middle" class="t-hum">① 👤 승인</text>
+      <line x1="270" y1="340" x2="478" y2="340" class="ln" marker-end="url(#m5)"/><text x="375" y="333" text-anchor="middle">승인 결과 (서버가 재검증)</text>
+      <line x1="480" y1="376" x2="908" y2="376" class="ln" marker-end="url(#m5)"/><text x="695" y="369" text-anchor="middle">연결 시도</text>
+      <line x1="910" y1="412" x2="482" y2="412" class="ln dash" marker-end="url(#m5)"/><text x="695" y="405" text-anchor="middle">401 → OAuth 로그인 URL (MCP 인가)</text>
+      <line x1="480" y1="448" x2="272" y2="448" class="ln" marker-end="url(#m5)"/><text x="375" y="441" text-anchor="middle">로그인 링크 표시</text>
+      <line x1="80" y1="484" x2="908" y2="484" class="ln-hum" marker-end="url(#m5h)"/><text x="495" y="477" text-anchor="middle" class="t-hum">② 👤 외부 브라우저에서 OAuth 로그인</text>
+      <rect x="760" y="496" width="230" height="26" rx="6" class="soft"/><text x="875" y="514" text-anchor="middle" class="t-s">토큰 → Vault (LLM은 못 봄)</text>
+      <line x1="480" y1="548" x2="908" y2="548" class="ln" marker-end="url(#m5)"/><text x="695" y="541" text-anchor="middle">tools/call (토큰은 Vault가 주입)</text>
+      <line x1="910" y1="584" x2="482" y2="584" class="ln dash" marker-end="url(#m5)"/><text x="695" y="577" text-anchor="middle">결과</text>
+      <line x1="480" y1="620" x2="272" y2="620" class="ln" marker-end="url(#m5)"/><text x="375" y="613" text-anchor="middle">결과 카드 / 위젯</text>
+    </svg>
+    </div>
+    <figcaption>점선 = 응답 · 전 과정이 한 trace로 남음. ※ MCP 서버 자신이 제3자(예: GitHub API) 비밀을 받아야 할 땐 'URL elicitation' — 그 비밀은 서버에 남고 Conductor로 오지 않음.</figcaption>
+  </figure>
+</section>
+
+<section id="build">
+  <h2><span class="n">06</span>만들 것 vs 빌릴 것 <span class="h-sub">공수 걱정의 답</span></h2>
+  <div class="grid g2">
+    <div class="card acc">
+      <span class="k">★ 직접 만드는 4개 — 오래 남는 자산</span>
+      <ul class="rows">
+        <li><span class="l">① 찾기·설치</span><span class="r">P1 하드코딩 툴 1개 → <b>P3 카탈로그 + tool search</b></span></li>
+        <li><span class="l">② 승인·정책</span><span class="r">P1 승인 툴 1개 → <b>P3~P6 위험 등급·예산</b></span></li>
+        <li><span class="l">③ Skill 작성</span><span class="r"><b>P5 샌드박스 → 격리 → 승인 → 등록</b></span></li>
+        <li><span class="l">④ 팀 편성</span><span class="r"><b>P4 서브에이전트 자동 구성 + 팀 패널</b></span></li>
+      </ul>
+    </div>
+    <div class="card">
+      <span class="k" style="color:var(--muted)">빌려 쓰는 것 — P1 → 나중</span>
+      <ul class="rows">
+        <li><span class="l">UI 부품</span><span class="r">shadcn/ui · assistant-ui · React Flow</span></li>
+        <li><span class="l">데스크톱</span><span class="r">Electron (P2)</span></li>
+        <li><span class="l">루프</span><span class="r">Pydantic AI (MS Agent Framework로 교체 가능)</span></li>
+        <li><span class="l">LLM GW</span><span class="r">LiteLLM 1.106.2 고정 · 모델 정보 원천</span></li>
+        <li><span class="l">MCP GW</span><span class="r">직결 → ContextForge / agentgateway (P3)</span></li>
+        <li><span class="l">trace</span><span class="r">Langfuse Cloud</span></li>
+        <li><span class="l">E2E</span><span class="r">Playwright — 웹 · 관리자 · 데스크톱 한 스위트</span></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="cycle">
+  <h2><span class="n">07</span>개발 사이클 <span class="h-sub">1주 = 데모 1개 · 데모 = Playwright 스펙</span></h2>
+  <figure>
+    <div class="fig-scroll">
+    <svg viewBox="0 0 1000 255" role="img" aria-label="주간 사이클: 월요일 사람이 슬라이스를 고르고, 화요일부터 목요일 세션마다 start, 기능 하나, wrap을 반복하고, 금요일 Playwright 데모를 사람이 판정한 뒤 eval 추가와 보고서 갱신을 하고 다음 주로 돌아간다.">
+      <defs><marker id="m6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk"/></marker></defs>
+      <text x="465" y="28" text-anchor="middle" class="t-s">목요일 밤까지 데모 불가 → 기간 말고 범위를 자른다</text>
+      <line x1="465" y1="36" x2="465" y2="54" class="ln dash"/>
+      <text x="980" y="28" text-anchor="end" class="t-s">4주마다 반나절 정리 (cool-down)</text>
+      <rect x="20" y="56" width="210" height="140" rx="10" class="hum"/>
+      <text x="125" y="82" text-anchor="middle" class="t-b">월 · 고르기 👤 (30분)</text>
+      <text x="125" y="112" text-anchor="middle" class="t-acc">/slice</text>
+      <text x="125" y="134" text-anchor="middle">슬라이스 1쪽</text>
+      <text x="125" y="154" text-anchor="middle">금요일 데모 문장 확정</text>
+      <text x="125" y="176" text-anchor="middle" class="t-s">slice/NN 브랜치</text>
+      <rect x="290" y="56" width="350" height="140" rx="10" class="box"/>
+      <text x="465" y="82" text-anchor="middle" class="t-b">화~목 · 구현</text>
+      <rect x="305" y="100" width="80" height="40" rx="8" class="soft"/><text x="345" y="125" text-anchor="middle" class="t-acc">/start</text>
+      <rect x="415" y="100" width="130" height="40" rx="8" class="soft"/><text x="480" y="125" text-anchor="middle">기능 1개 + 검증</text>
+      <rect x="575" y="100" width="55" height="40" rx="8" class="soft"/><text x="602" y="125" text-anchor="middle" class="t-acc">/wrap</text>
+      <line x1="385" y1="120" x2="413" y2="120" class="ln" marker-end="url(#m6)"/>
+      <line x1="545" y1="120" x2="573" y2="120" class="ln" marker-end="url(#m6)"/>
+      <text x="345" y="156" text-anchor="middle" class="t-s">이어받기</text>
+      <text x="602" y="156" text-anchor="middle" class="t-s">저장·push</text>
+      <text x="465" y="182" text-anchor="middle" class="t-s">↻ 세션마다 · PC 바뀔 때마다</text>
+      <rect x="700" y="56" width="280" height="140" rx="10" class="acc"/>
+      <text x="840" y="82" text-anchor="middle" class="t-b">금 · 데모 (60~90분)</text>
+      <text x="718" y="106" class="t-hum">① Playwright 데모 → 👤 판정</text>
+      <text x="718" y="124">② trace 20~50개 훑기</text>
+      <text x="718" y="142">③ 실패만 eval 케이스로 추가</text>
+      <text x="718" y="160">④ squash-merge · roadmap 체크</text>
+      <text x="718" y="178"><tspan class="t-acc">⑤ /report</tspan> → REPORT.html</text>
+      <line x1="230" y1="126" x2="288" y2="126" class="ln" marker-end="url(#m6)"/>
+      <line x1="640" y1="126" x2="698" y2="126" class="ln" marker-end="url(#m6)"/>
+      <path d="M840,196 V226 H125 V198" class="ln" marker-end="url(#m6)"/>
+      <text x="482" y="245" text-anchor="middle" class="t-s">다음 주</text>
+    </svg>
+    </div>
+    <figcaption>파란 = 사람 몫(고르기·승인·판정). 나머지(인터뷰·계획·구현·E2E·eval·보고서)는 Claude Code.</figcaption>
+  </figure>
+  <div class="grid g3">
+    <div class="card"><span class="k">원칙 1</span><h3>뼈대 먼저</h3><p>2주 안에 하드코딩으로 <b>전 구간 관통</b>. 이 뼈대가 이후 모든 슬라이스의 회귀 테스트.</p></div>
+    <div class="card"><span class="k">원칙 2</span><h3>데모는 자동으로</h3><p>금요일 데모 = <b>Playwright 스펙</b>. 웹·관리자·데스크톱을 같은 스위트로. 게이트웨이는 mock.</p></div>
+    <div class="card"><span class="k">원칙 3</span><h3>새 문서 만들지 않기</h3><p>상태는 HANDOFF·roadmap·REPORT, 결정은 ADR, 아이디어는 ideas.md 한 줄.</p></div>
+  </div>
+</section>
+
+<section id="roadmap">
+  <h2><span class="n">08</span>로드맵 <span class="h-sub">각 Phase는 '데모'로 끝남</span></h2>
+  <p class="lead">완료 기준은 <code>docs/roadmap.json</code> — 금요일 Playwright 데모가 통과해야만 체크.</p>
+  <div class="grid g7">
+    <div class="card ph acc"><div class="top"><span class="id">P0 · ½주</span><span class="b acc">진행 중</span></div><h3>셋업</h3><div class="demo"><b>데모:</b> 회사 /wrap → 집 /start 에서 같은 3줄</div></div>
+    <div class="card ph"><div class="top"><span class="id">P1 · 2주</span><span class="b n">대기</span></div><h3>뼈대 + UI 초안</h3><div class="demo"><b>데모:</b> 3단 화면에서 질문 → 승인 → 결과 카드, Langfuse에 trace</div></div>
+    <div class="card ph"><div class="top"><span class="id">P2 · 2주</span><span class="b n">대기</span></div><h3>관리자 · 데스크톱</h3><div class="demo"><b>데모:</b> 관리자가 모델 숨김 → 사용자 목록에서 사라짐 · 데스크톱 동작</div></div>
+    <div class="card ph"><div class="top"><span class="id">P3 · 2주</span><span class="b n">대기</span></div><h3>찾기·승인·설치</h3><div class="demo"><b>데모:</b> 05번 그림 시나리오를 한 대화에서</div></div>
+    <div class="card ph"><div class="top"><span class="id">P4 · 2주</span><span class="b n">대기</span></div><h3>팀 편성 · 시각화</h3><div class="demo"><b>데모:</b> 서브에이전트 2개 자동 편성, 팀 패널에 실시간 표시</div></div>
+    <div class="card ph"><div class="top"><span class="id">P5 · 2주</span><span class="b n">대기</span></div><h3>Skill 작성</h3><div class="demo"><b>데모:</b> 새 Skill 생성 → 테스트 → 승인 → 다음 대화에서 재사용</div></div>
+    <div class="card ph"><div class="top"><span class="id">P6 · 2주</span><span class="b n">대기</span></div><h3>운영</h3><div class="demo"><b>데모:</b> eval 30건 CI · MCP Apps 위젯 · 서명된 설치본</div></div>
+  </div>
+</section>
+
+<section id="comm">
+  <h2><span class="n">09</span>소통 체계 <span class="h-sub">회사 ↔ 집</span></h2>
+  <p class="lead">Claude 메모리는 <b>PC마다 따로</b> 저장됨 → 두 PC가 공유할 기억은 <b>레포 안에만</b> 둔다.</p>
+  <figure>
+    <div class="fig-scroll">
+    <svg viewBox="0 0 1000 250" role="img" aria-label="회사 PC에서 /wrap으로 push하면 GitHub private 저장소를 거쳐 집 PC에서 /start로 pull한다. 반대 방향도 같다. 로컬 메모리와 .env 키는 공유되지 않는다.">
+      <defs>
+        <marker id="m7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk"/></marker>
+        <marker id="m7a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk-acc"/></marker>
+      </defs>
+      <rect x="20" y="20" width="210" height="210" rx="12" class="box"/>
+      <text x="125" y="48" text-anchor="middle" class="t-b">🏢 회사 PC</text>
+      <text x="125" y="74" text-anchor="middle">Claude Code</text>
+      <text x="125" y="92" text-anchor="middle" class="t-s">Codex는 AGENTS.md 절차로</text>
+      <line x1="40" y1="150" x2="210" y2="150" class="sep"/>
+      <text x="125" y="172" text-anchor="middle" class="t-s">로컬 전용 — 공유 안 됨</text>
+      <text x="125" y="194" text-anchor="middle">~/.claude 메모리</text>
+      <text x="125" y="214" text-anchor="middle">.env 키</text>
+      <rect x="390" y="20" width="220" height="210" rx="12" class="acc"/>
+      <text x="500" y="48" text-anchor="middle" class="t-b">GitHub · private</text>
+      <text x="406" y="78">AGENTS.md — 규칙</text>
+      <text x="406" y="100">HANDOFF.md — 상태·📥메모</text>
+      <text x="406" y="122">docs/roadmap.json — 완료 기준</text>
+      <text x="406" y="144">docs/adr/ — 결정</text>
+      <text x="406" y="166">REPORT.html — 보고</text>
+      <text x="406" y="188">evals/ · e2e/ — 회귀 테스트</text>
+      <text x="500" y="216" text-anchor="middle" class="t-s">공유 기억은 여기에만</text>
+      <rect x="770" y="20" width="210" height="210" rx="12" class="box"/>
+      <text x="875" y="48" text-anchor="middle" class="t-b">🏠 집 PC</text>
+      <text x="875" y="74" text-anchor="middle">Claude Code</text>
+      <text x="875" y="92" text-anchor="middle" class="t-s">Codex는 AGENTS.md 절차로</text>
+      <line x1="790" y1="150" x2="960" y2="150" class="sep"/>
+      <text x="875" y="172" text-anchor="middle" class="t-s">로컬 전용 — 공유 안 됨</text>
+      <text x="875" y="194" text-anchor="middle">~/.claude 메모리</text>
+      <text x="875" y="214" text-anchor="middle">.env 키</text>
+      <line x1="230" y1="100" x2="388" y2="100" class="ln-acc" marker-end="url(#m7a)"/><text x="309" y="92" text-anchor="middle" class="t-acc">① /wrap → push</text>
+      <line x1="610" y1="100" x2="768" y2="100" class="ln-acc" marker-end="url(#m7a)"/><text x="689" y="92" text-anchor="middle" class="t-acc">② /start → pull</text>
+      <line x1="770" y1="136" x2="612" y2="136" class="ln dash" marker-end="url(#m7)"/><text x="691" y="128" text-anchor="middle" class="t-s">/wrap → push</text>
+      <line x1="390" y1="136" x2="232" y2="136" class="ln dash" marker-end="url(#m7)"/><text x="311" y="128" text-anchor="middle" class="t-s">/start → pull</text>
+      <text x="500" y="246" text-anchor="middle" class="t-s">점선 = 반대 방향도 동일</text>
+    </svg>
+    </div>
+    <figcaption>규칙 하나: 커밋 안 된 변경을 남긴 채 PC를 떠나지 않는다. /start 는 다른 PC가 마지막으로 작업한 브랜치로 자동 전환.</figcaption>
+  </figure>
+  <div class="grid g4" style="margin-bottom:14px">
+    <div class="card"><span class="k">세션 시작</span><h3><code>/start</code></h3><p>최신 브랜치로 전환 → HANDOFF 읽기 → <b>3줄 보고</b></p></div>
+    <div class="card"><span class="k">월요일</span><h3><code>/slice</code></h3><p>객관식 3문항 → 이번 주 <b>1쪽</b> + 브랜치</p></div>
+    <div class="card"><span class="k">세션 끝</span><h3><code>/wrap</code></h3><p>HANDOFF 갱신 → commit → push → <b>2줄 보고</b></p></div>
+    <div class="card"><span class="k">금요일</span><h3><code>/report</code></h3><p>이 파일 갱신, 이전 판은 <code>reports/</code> 보관</p></div>
+  </div>
+  <div class="callout hum">👤 당신이 할 일은 하나 — 생각나면 <code>HANDOFF.md</code> 📥 칸에 한 줄. 정리·커밋·보고는 Claude가.</div>
+</section>
+
+<section id="names">
+  <h2><span class="n">10</span>제품 이름 <span class="h-sub">확정 · 2026-10-29</span></h2>
+  <div class="grid g2">
+    <div class="card nm acc"><div class="wm">BrewAI</div><div class="top"><span class="nm-k">브루에이아이 · github.com/seungHoon0422/BrewAI</span><span class="b ok">확정</span></div><span class="warn">SaaS 아님 · 잘되면 오픈소스. 공개 전에 같은 이름의 AI 회사(시드니 BrewAI)와 상표만 한 번 확인.</span></div>
+    <details class="card"><summary>검토했던 후보 (참고)</summary><p style="margin-top:8px">kestel · tanis · merano · tavira · cerris · leptis · sorven · lofoten · paros · estel — 총 180여 개 충돌 확인</p></details>
+  </div>
+</section>
+
+<section id="decide">
+  <h2><span class="n">11</span>결정 필요 <span class="h-sub">답 예시: "Anthropic, Node OK · JP"</span></h2>
+  <div class="grid g3">
+    <div class="card">
+      <span class="k" style="color:var(--ok-text,#1b7f3a)">✔ 완료</span><h3>이름 · repo</h3>
+      <p><b>BrewAI</b> · github.com/seungHoon0422/BrewAI 연결, 첫 커밋.</p>
+    </div>
+    <div class="card hum">
+      <span class="k">① P1 전</span><h3>모델 키 · Node 설치</h3>
+      <p>게이트웨이는 LiteLLM 확정(모델 정보 API 때문). UI 초안·Playwright에 Node 필요.</p>
+      <div class="opt"><span class="b hum">질문</span><span>P1 모델 키: Anthropic / OpenAI / 회사 제공?</span></div>
+      <div class="opt"><span class="b acc">추천</span><span>Node LTS를 <code>winget</code>으로 설치 (두 PC 모두)</span></div>
+    </div>
+    <div class="card hum">
+      <span class="k">② P1 전</span><h3>Langfuse Cloud 리전</h3>
+      <p>한국 리전 없음 · 나중에 바꾸려면 이전 작업 필요. 개발 중엔 테스트 데이터만.</p>
+      <div class="opt"><span class="b acc">추천</span><span><b>JP(도쿄)</b> — 가장 가까움</span></div>
+      <div class="opt"><span class="b n">대안</span><span>EU · 출시 전 국외이전 검토는 어느 쪽이든 필요</span></div>
+    </div>
+  </div>
+  <p class="lead" style="margin-top:12px">ADR 0001~0006(코어 4개 · Python+Pydantic AI · 스택 · 표면 3개 · UI 클린룸 · 모델 카탈로그)은 <b>제안</b> 상태 — 이의 없으면 P1 시작 때 확정.</p>
+</section>
+
+<section id="src">
+  <h2><span class="n">12</span>출처 <span class="h-sub">2026-10-28 기준 · 리서치·검증·리뷰 워크플로 5개</span></h2>
+  <details>
+    <summary>주요 출처 펼치기</summary>
+    <ol>
+      <li>Anthropic — <a href="https://www.anthropic.com/engineering/building-effective-agents">Building effective agents</a> (2024-12-19) · <a href="https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents">Effective context engineering</a> (2025-09-29) · <a href="https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents">Demystifying evals</a> (2026-01-09)</li>
+      <li>Claude Code — <a href="https://code.claude.com/docs/en/glossary">Glossary (harness 정의)</a> · <a href="https://code.claude.com/docs/en/memory">Memory (PC별 저장, AGENTS.md)</a></li>
+      <li>OpenAI — <a href="https://cdn.openai.com/business-guides-and-resources/a-practical-guide-to-building-agents.pdf">A practical guide to building agents</a> (2025-04) · Simon Willison — <a href="https://simonwillison.net/2025/Sep/18/agents/">agent 정의</a> (2025-09-18)</li>
+      <li>MCP — <a href="https://modelcontextprotocol.io/specification/2026-07-28/changelog">2026-07-28 스펙 변경점</a> · <a href="https://modelcontextprotocol.io/specification/2026-07-28/client/elicitation">Elicitation</a> · <a href="https://modelcontextprotocol.io/registry/about">Registry (preview)</a> · <a href="https://blog.modelcontextprotocol.io/posts/2026-01-26-mcp-apps/">MCP Apps</a> (2026-01-26)</li>
+      <li>Claude — <a href="https://platform.claude.com/docs/en/agents-and-tools/tool-use/tool-search-tool">Tool search tool</a> · <a href="https://www.anthropic.com/engineering/code-execution-with-mcp">Code execution with MCP</a> · <a href="https://claude.com/blog/connectors-for-everyday-life">커넥터 제안</a> (2026-04-23)</li>
+      <li><a href="https://agentskills.io">Agent Skills 표준</a> · <a href="https://www.linuxfoundation.org/press/agentic-ai-foundation-announces-four-new-projects-agent-skills-open-responses-openenv-and-opensandbox">AAIF에 Agent Skills 등 편입</a> (2026-10-22)</li>
+      <li>데스크톱·E2E — <a href="https://playwright.dev/docs/api/class-electron">Playwright Electron</a> · <a href="https://playwright.dev/docs/test-projects">Playwright projects</a> · <a href="https://playwright.dev/docs/webview2">WebView2</a> · <a href="https://v2.tauri.app/develop/tests/webdriver/">Tauri WebDriver</a></li>
+      <li>Codex — <a href="https://github.com/openai/codex">openai/codex (Apache-2.0: CLI·SDK·app-server)</a> · <a href="https://simonwillison.net/2026/Feb/2/introducing-the-codex-app/">Codex 앱은 Electron</a> · <a href="https://conductatlas.com/platform/openai/terms-of-use-row/prohibition-on-reverse-engineering-services/">OpenAI 약관 리버스 엔지니어링 금지 조항(아카이브)</a></li>
+      <li>게이트웨이 — <a href="https://docs.litellm.ai/docs/proxy/model_discovery">LiteLLM 모델 목록·정보 API</a> · <a href="https://docs.litellm.ai/docs/proxy/virtual_keys">virtual keys</a> · <a href="https://docs.litellm.ai/blog/security-incident-oct-21-2026">LiteLLM 사고 공지</a> (2026-10-21) · <a href="https://agentgateway.dev/docs/kubernetes/latest/documentation/llm/models/serve/">agentgateway 모델 API</a></li>
+      <li>Langfuse — <a href="https://langfuse.com/integrations/native/opentelemetry">OTel 수신</a> · <a href="https://langfuse.com/docs/observability/features/sessions">sessions</a> · <a href="https://langfuse.com/docs/observability/features/url">trace URL</a> · <a href="https://langfuse.com/security/data-regions">데이터 리전</a></li>
+      <li>보안 — <a href="https://securitylabs.datadoghq.com/articles/litellm-compromised-pypi-docker.md">LiteLLM 1.107.0 분석</a> · <a href="https://snyk.io/blog/malicious-mcp-server-on-npm-postmark-mcp-harvests-emails/">postmark-mcp</a> (최초 보고 Koi Security)</li>
+      <li>방법론 — <a href="https://hamel.dev/blog/posts/evals-faq/should-i-practice-eval-driven-development.html">Hamel Husain: eval-driven dev?</a> · <a href="https://basecamp.com/shapeup/0.3-chapter-01">Shape Up</a> · Walking skeleton (Cockburn)</li>
+    </ol>
+  </details>
+</section>
+
+</main>
+
+<footer>이 파일은 <code>/report</code> 로 갱신 · 이전 판은 <code>reports/</code> · 규칙은 <code>AGENTS.md</code></footer>
+</body>
+</html>
