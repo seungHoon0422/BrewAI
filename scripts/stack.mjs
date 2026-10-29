@@ -1,13 +1,13 @@
 // scripts/stack.mjs — npm run stack[:trace|:down|:status|:logs|:reset] (ADR-0009)
-// 로컬 Docker 스택. 기본 = LiteLLM 게이트웨이 하나 (가볍게). trace = Langfuse v4 셀프호스트 묶음을 더한다. 클라우드 요금 없음.
-//   up          = litellm 만                       (npm run stack)
+// 로컬 Docker 스택. 기본 = LiteLLM 게이트웨이 + 그 전용 Postgres (관리 화면 /ui 로그인 · UI 로 모델 추가). trace = Langfuse v4 셀프호스트 묶음을 더한다. 클라우드 요금 없음.
+//   up          = litellm + litellm-db             (npm run stack)
 //   up trace    = litellm + Langfuse 묶음 6개       (npm run stack:trace · npm run stack -- trace)
 //   up auto     = .env(또는 셸)의 BREWAI_TRACE=1 일 때만 trace (npm run dev 가 부른다)
-//   down        = 전부 내린다 (데이터 볼륨은 남는다) · reset --yes = 볼륨까지 지운다 (trace·계정 초기화)
+//   down        = 전부 내린다 (데이터 볼륨은 남는다) · reset --yes = 볼륨까지 지운다 (trace·계정·UI 로 넣은 모델 초기화)
 // - 처음 실행: .env 에 없는(또는 빈) 비밀값만 만들어 넣는다. 이미 있는 값은 절대 덮어쓰지 않는다
 // - up = docker compose up -d --wait → 모든 healthcheck 가 통과해야 끝난다 (= 바로 써도 된다)
 // - 의존성 없음 (Node 기본 모듈만). shell:false. 윈도우 · 맥 같은 코드
-// 시험용 덮어쓰기: BREWAI_ENV_FILE=<경로> · BREWAI_COMPOSE_FILE=<경로> · DOCKER_HOST (Docker 꺼짐 흉내)
+// 시험용 덮어쓰기: BREWAI_ENV_FILE=<경로> · BREWAI_COMPOSE_FILE=<경로> · BREWAI_STACK_PROJECT=<이름> · DOCKER_HOST (Docker 꺼짐 흉내)
 import { spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const ENV_FILE = process.env.BREWAI_ENV_FILE ? path.resolve(process.env.BREWAI_ENV_FILE) : path.join(ROOT, '.env');
 const COMPOSE = process.env.BREWAI_COMPOSE_FILE ? path.resolve(process.env.BREWAI_COMPOSE_FILE) : path.join(ROOT, 'infra', 'compose.yaml');
-const PROJECT = 'brewai';
+const PROJECT = process.env.BREWAI_STACK_PROJECT || 'brewai';
 const WAIT_SECONDS = Number(process.env.BREWAI_STACK_WAIT ?? 300);
 const cmd = process.argv[2] ?? 'up';
 const say = (m) => console.log(`[stack] ${m}`);
@@ -75,6 +75,8 @@ function checkDocker(trace = false) {
 const hex = (n) => crypto.randomBytes(n).toString('hex');
 const SECRETS = {
   LITELLM_MASTER_KEY: () => `sk-${hex(32)}`,
+  LITELLM_DB_PASSWORD: () => hex(16),
+  LITELLM_SALT_KEY: () => `sk-${hex(32)}`, // DB 에 저장한 provider 키를 암호화 → 처음 쓴 뒤 절대 바꾸지 않는다
   LANGFUSE_PUBLIC_KEY: () => `pk-lf-${crypto.randomUUID()}`,
   LANGFUSE_SECRET_KEY: () => `sk-lf-${crypto.randomUUID()}`,
   LANGFUSE_INIT_USER_PASSWORD: () => hex(12),
@@ -107,6 +109,11 @@ function ensureSecrets() {
   if (/cloud\.langfuse\.com/.test(values.OTEL_EXPORTER_OTLP_ENDPOINT ?? '') || /<base64/.test(values.OTEL_EXPORTER_OTLP_HEADERS ?? ''))
     say('주의: .env 의 OTEL_EXPORTER_OTLP_* 가 아직 Langfuse Cloud 예시예요 → .env.example 의 로컬 값으로 바꾸고 OTEL_EXPORTER_OTLP_HEADERS 줄은 지우세요.');
   if (values.LITELLM_LICENSE || process.env.LITELLM_LICENSE) fail('LITELLM_LICENSE 가 설정돼 있어요 → 지우세요 (GHSA-w4c7, 1.106.5 전까지 금지).');
+  // LiteLLM DB 가 이미 있는데 SALT·DB 비번이 없다 = 새로 만들면 저장한 provider 키를 못 읽고(SALT) DB 에 못 붙는다(비번) → 만들지 않고 멈춘다
+  const lost = ['LITELLM_SALT_KEY', 'LITELLM_DB_PASSWORD'].filter((k) => !values[k]);
+  if (lost.length && docker(['volume', 'inspect', `${PROJECT}_litellm_db_data`]).status === 0)
+    fail(`.env 에 ${lost.join(' · ')} 가 없는데 LiteLLM DB 는 이미 있어요 (새로 만들면 DB 에 못 붙거나 저장한 키를 못 읽어요).`,
+      '예전 값을 .env 에 되살리거나, UI 로 넣은 모델·키를 버려도 되면 npm run stack:reset -- --yes 후 다시 실행하세요.');
   const eol = text.includes('\r\n') ? '\r\n' : '\n';
   let out = text;
   const added = [];
@@ -214,8 +221,8 @@ async function up() {
   const images = compose(['config', '--images'], { trace }).stdout?.trim().split(/\s+/).filter(Boolean) ?? [];
   const missing = images.filter((i) => docker(['image', 'inspect', '--format', '.', i]).status !== 0);
   if (missing.length)
-    say(`처음이라 이미지 ${missing.length}개를 받아요 (${trace ? '합 ~1.5 GB' : '~640 MB'} 압축 · 느린 망이면 오래 걸려요. PC 마다 한 번)`);
-  say(`올리는 중… ${trace ? 'LiteLLM + Langfuse 묶음' : 'LiteLLM 만 (Langfuse = npm run stack:trace)'} · 모두 healthy 가 될 때까지 최대 ${WAIT_SECONDS}초`);
+    say(`처음이라 이미지 ${missing.length}개를 받아요 (${trace ? '합 ~1.5 GB' : '~800 MB'} 압축 · 느린 망이면 오래 걸려요. PC 마다 한 번)`);
+  say(`올리는 중… ${trace ? 'LiteLLM + DB + Langfuse 묶음' : 'LiteLLM + DB (Langfuse = npm run stack:trace)'} · 모두 healthy 가 될 때까지 최대 ${WAIT_SECONDS}초`);
   const t0 = Date.now();
   const r = compose(['up', '-d', '--wait', '--wait-timeout', String(WAIT_SECONDS)], { trace, stdio: 'inherit' });
   if (r.status !== 0) {
@@ -228,6 +235,7 @@ async function up() {
   const L = port('LANGFUSE_PORT', 3000);
   say(`준비됐어요 (${((Date.now() - t0) / 1000).toFixed(0)}초)`);
   say(`게이트웨이  http://127.0.0.1:${port('LITELLM_PORT', 4000)}   (키 = .env LITELLM_MASTER_KEY)`);
+  say(`관리 화면  http://127.0.0.1:${port('LITELLM_PORT', 4000)}/ui   로그인 admin / .env LITELLM_MASTER_KEY  (모델 추가 = Models + Endpoints)`);
   if (trace || runningServices().has('langfuse-web')) {
     say(`Langfuse    http://localhost:${L}   로그인 ${env.LANGFUSE_INIT_USER_EMAIL || 'dev@brewai.local'} / .env LANGFUSE_INIT_USER_PASSWORD`);
     say(`trace 받는 곳 http://127.0.0.1:${L}/api/public/otel  (Basic LANGFUSE_PUBLIC_KEY:LANGFUSE_SECRET_KEY)`);
@@ -238,7 +246,7 @@ async function up() {
 function down(volumes) {
   checkDocker();
   if (volumes && !process.argv.includes('--yes'))
-    fail('reset 은 trace · Langfuse 계정 · 키를 모두 지워요. 정말이면: npm run stack:reset -- --yes');
+    fail('reset 은 trace · Langfuse 계정 · 키 · LiteLLM UI 로 넣은 모델·키를 모두 지워요. 정말이면: npm run stack:reset -- --yes');
   const r = compose(['down', ...(volumes ? ['-v'] : [])], { stdio: 'inherit', env: placeholderEnv() });
   if (r.status !== 0) process.exit(r.status ?? 1);
   say(volumes ? '내리고 데이터도 지웠어요. 다음 up 은 처음처럼 새로 만들어요.' : '내렸어요 (데이터는 남아요 → 다음 up 에서 그대로).');

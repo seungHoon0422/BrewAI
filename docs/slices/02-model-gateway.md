@@ -7,7 +7,7 @@
 ## 연결 (127.0.0.1 만)
 | 누가 | 주소 | 무엇 |
 |---|---|---|
-| 게이트웨이 `npm run stack` (Docker · 대체 `npm run gateway` venv) | :4000 | LiteLLM 1.106.2 · config-only(DB 없음) · `brewai-mock`(키 없음) + claude-sonnet-5-5 · claude-haiku-5-5 · gpt-6.1-sol |
+| 게이트웨이 `npm run stack` (Docker · 대체 `npm run gateway` venv) | :4000 | LiteLLM 1.106.2 · Docker = DB 모드(`litellm-db` · 관리 화면 `/ui`) · venv = config-only · `brewai-mock`(키 없음) + claude-sonnet-5-5 · claude-haiku-5-5 · gpt-6.1-sol |
 | Langfuse `npm run stack:trace` (선택) | :3000 | 셀프호스트 4.67.0 · OTLP `/api/public/otel` · conductor 연결은 slice 03 (ADR-0009) |
 | conductor `npm run api` | :8787 | `GET /healthz` · `GET /api/models` · `GET /api/admin/models` · `POST /api/chat`(AG-UI SSE) |
 | 관리자 · 데스크톱 | 5174 · app:// | conductor 만 부른다 (키 없음) |
@@ -15,7 +15,7 @@
 ## 데모 스크립트 (금요일 — 두 PC 각각)
 1. `npm run e2e` → desktop · admin · web 전부 green. `uv run --locked pytest` (evals + conductor) green.
    한 번에: `npm run dev` (또는 start 파일) = 아래 2~5 를 한 창에서.
-2. 터미널 1 `npm run stack` → `[stack] 준비됐어요` (Docker LiteLLM 만 · `npm run stack:status` 로 메모리). `config.yaml` 을 열어 "모델 등록은 여기뿐".
+2. 터미널 1 `npm run stack` → `[stack] 준비됐어요` (Docker LiteLLM + DB · `npm run stack:status` 로 메모리). `config.yaml` 을 열어 "모델 등록 = 여기 + 관리 화면 `/ui`(admin / 마스터 키)".
    trace 도 보여 줄 때: `npm run stack:trace` → http://localhost:3000 로그인 `dev@brewai.local` / `.env` 비번 → 프로젝트 `brewai-dev` (대화 trace 는 slice 03 부터).
    Docker 가 없는 PC: `npm run gateway` (venv) → `Uvicorn running on http://127.0.0.1:4000`.
 3. 터미널 2 `npm run api` → `curl -s http://127.0.0.1:8787/api/models` → `brewai-mock` 이 첫 항목.
@@ -31,19 +31,20 @@
 - [x] `npm run gateway` 가 `LITELLM_LICENSE` · 약한/예시 마스터 키 · 차 있는 포트를 거부
 - [x] 관리자 '모델' 표 · 개요 게이트웨이 카드 · 데스크톱 대화 화면 · E2E 42 green (chat 6 · admin-models 6 · desktop API 출처 1) · `npm run dev` 가 게이트웨이·conductor 도 띄움
 - [x] 로컬 Docker 스택 (ADR-0009): `infra/compose.yaml` 기본 LiteLLM · profile `trace` = Langfuse 묶음(한도 합 ~2.4 GiB) · `npm run stack[:trace|:down]` · `npm run dev` 가 Docker LiteLLM 을 쓰고 Docker 가 없으면 venv 로 · 회사 맥에서 확인
+- [x] 집 윈도우에서 찾음: 관리 화면 `/ui` 마스터 키 로그인 = "Authentication Error, Not connected to DB!" (config-only) → 기본 스택에 LiteLLM 전용 Postgres(DB 모드, ADR-0009) · 회사 맥 scratch 확인: 첫 기동 ~10초(마이그레이션 213개) · 로그인 · `/model/new` 로 넣은 모델이 `/model_group/info` 에 provider 와 함께 · 재기동 뒤 유지 · reset 으로 정리
 - [ ] 회사 맥: `.env` 의 Langfuse Cloud 줄을 `.env.example` 의 로컬 구역으로 (사람이 직접) → `npm run stack` 이 비밀값을 채움 → 데모 1~8
-- [ ] 집 윈도우: Docker Desktop(WSL2 메모리 6 GB) → `npm run stack` 첫 실행(amd64 이미지) · `npm run stack:trace` 한 번 · `.env` 의 `LLM_GATEWAY_URL` 을 127.0.0.1 로 · 데모 1~8 · Docker 를 끄고 `npm run dev` → venv 대체 안내 · 창 버튼과 대화 제목 줄 안 겹침(눈으로)
+- [ ] 집 윈도우: Docker Desktop(WSL2 메모리 6 GB) → `npm run stack` 첫 실행(amd64 이미지) · `npm run stack:trace` 한 번 · `.env` 의 `LLM_GATEWAY_URL` 을 127.0.0.1 로 · 데모 1~8 · `git pull` 뒤 `npm run stack` → `/ui` 로그인 admin + 마스터 키 · Docker 를 끄고 `npm run dev` → venv 대체 안내 · 창 버튼과 대화 제목 줄 안 겹침(눈으로)
 - [ ] 금요일 전 `uv` 로 OSV 재확인 (2026-10-21 게시 핀이 많음)
 
 ## 범위 밖
-MCP 툴·결과 카드·Langfuse trace(slice 03) · 승인 카드·CI E2E(slice 04) · 모델 노출·이름·순서 편집 · `model_exposure` DB · LiteLLM DB 모드·virtual key(P2) · 모델 선택 메뉴(버튼만, disabled) · assistant-ui(slice 03)
+MCP 툴·결과 카드·Langfuse trace(slice 03) · 승인 카드·CI E2E(slice 04) · 모델 노출·이름·순서 편집 · `model_exposure` DB · virtual key(P2) · 모델 선택 메뉴(버튼만, disabled) · assistant-ui(slice 03)
 
 ## 함정
 - **GHSA-w4c7-34wj-hqm8** (CVSS 10): 1.106.2 + Enterprise 라이선스 = 인증 없이 env(키) 유출 → `LITELLM_LICENSE` 절대 금지 · 127.0.0.1 바인드. **2026-11-03 부터 1.106.5**(수정판, 2026-10-27 게시) 로 cool-down 에서 올린다 — lock 다시 만들고 다이제스트 새로 적기 · `scripts/gateway.mjs` 의 `LITELLM_VERSION` 도
 - `--only-binary :all:` 없이 sync 하면 해시가 틀려도 sdist·캐시 wheel 로 조용히 깔린다. 1.82.7 · 1.82.8 · 1.107.0 은 `constraints.txt` 로 막음
 - `config.yaml` 은 ASCII 만 (윈도우 cp949 에서 한글 주석이 기동을 깬다) · 래퍼가 `PYTHONUTF8=1` + `PYTHONIOENCODING=utf-8`
 - LiteLLM 이 레포 `.env` 를 스스로 찾는다 → `PYTHON_DOTENV_DISABLED=1`, `.env` 는 uv `--env-file` 로 한 번만. 다른 파일로 띄우기 = `BREWAI_ENV_FILE=<경로>`
-- config-only 모드: 키 없음 = 500 평문 · 틀린 키 = 400 `no_db_connection` (401 아님) → conductor 는 `gateway_auth_failed`
+- config-only 모드(venv): 키 없음 = 500 평문 · 틀린 키 = 400 `no_db_connection` (401 아님) → conductor 는 `gateway_auth_failed`. Docker 스택(DB 모드)은 틀린·없는 키 = 401
 - 카탈로그 30초 캐시: 게이트웨이를 끈 직후 `/api/models` 는 그대로, 대화만 `gateway_unreachable`
 - 윈도우 `localhost` → ::1 → 모든 기본값 127.0.0.1. 관리자는 `http://localhost:5174` 로 열어야 CORS 통과
 - 래퍼만 `kill -9` 하면 uv·python 이 고아로 포트를 잡는다 → Ctrl+C 로 끈다

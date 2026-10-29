@@ -1,5 +1,6 @@
-# BrewAI LiteLLM proxy 1.106.2 - config-only (no database). ASCII only (Windows cp949).
-# Models are registered ONLY here (ADR-0006). BrewAI decides exposure, label and order, never price or context.
+# BrewAI LiteLLM proxy 1.106.2. ASCII only (Windows cp949).
+# Docker stack = DB mode: these models + models added in the Admin UI (/ui), both in /model_group/info (ADR-0009).
+# venv gateway (npm run gateway) = config-only, these models only. BrewAI decides exposure, label and order, never price or context.
 # Secrets come from the environment via os.environ/... ; never write a key in this file.
 model_list:
   # Keyless mock: answers without any provider key (dev, Friday demo without keys).

@@ -1,6 +1,7 @@
 # BrewAI local stack (ADR-0009): LiteLLM gateway + self-hosted Langfuse v4 (no cloud, no cost).
-# Default = litellm only (`npm run stack`). Profile "trace" adds the Langfuse bundle
-# (`npm run stack:trace`: web, worker, postgres, clickhouse, redis, minio; mem limits sum ~2.4 GiB; litellm alone 768m).
+# Default = litellm + litellm-db (`npm run stack`; DB mode = Admin UI login + models added in the UI; 896m + 160m).
+# Profile "trace" adds the Langfuse bundle
+# (`npm run stack:trace`: web, worker, postgres, clickhouse, redis, minio; mem limits sum ~2.4 GiB).
 # Start/stop with `node scripts/stack.mjs up [trace]|down` (it creates missing secrets in .env first).
 # Rules: every image tag@sha256 (minio: digest only, Chainguard free = :latest only),
 #        multi-arch index, published >= 7 days before pin date 2026-10-29,
@@ -48,20 +49,26 @@ x-lf-deps: &lf-deps
   minio: { condition: service_healthy }
 
 services:
-  # ---------- LLM gateway (no DB, config-only) ----------
+  # ---------- LLM gateway (DB mode: config.yaml models + models added in the Admin UI /ui) ----------
   litellm:
     image: ghcr.io/berriai/litellm-non_root:v1.106.2@sha256:07fabea33dfc2b127e865c03112dfc76936334b29028ec05cdd355af2385dc04
-    mem_limit: 768m
+    mem_limit: 896m   # DB mode: ~600 MiB steady, ~700 MiB first-boot peak (768m was too tight)
     restart: unless-stopped
     command: ["--config", "/app/config.yaml", "--port", "4000"]
     read_only: true
     tmpfs: ["/tmp", "/app/.cache", "/nonexistent"]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
+    depends_on:
+      litellm-db: { condition: service_healthy }
     volumes:
       - ./litellm/config.yaml:/app/config.yaml:ro
     environment:
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?run node scripts/stack.mjs}
+      DATABASE_URL: postgresql://litellm:${LITELLM_DB_PASSWORD:?run node scripts/stack.mjs}@litellm-db:5432/litellm
+      STORE_MODEL_IN_DB: "True"
+      # Encrypts provider keys saved in the DB. NEVER change it after first use (saved keys become unreadable).
+      LITELLM_SALT_KEY: ${LITELLM_SALT_KEY:?run node scripts/stack.mjs}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       LITELLM_LOCAL_MODEL_COST_MAP: "True"   # no remote fetches at startup (same 5 flags as scripts/gateway.mjs)
@@ -70,7 +77,7 @@ services:
       LITELLM_LOCAL_ANTHROPIC_BETA_HEADERS: "True"
       LITELLM_LOCAL_AUTOROUTER_PRESETS: "True"
       PYTHON_DOTENV_DISABLED: "1"
-      # LITELLM_LICENSE: never (GHSA-w4c7 until 1.106.5). DATABASE_URL: none (config-only).
+      # LITELLM_LICENSE: never (GHSA-w4c7 until 1.106.5).
     ports:
       - 127.0.0.1:${LITELLM_PORT:-4000}:4000
     healthcheck:
@@ -79,6 +86,32 @@ services:
       timeout: 5s
       retries: 3
       start_period: 90s
+      start_interval: 1s
+
+  # LiteLLM's own Postgres (keys, models added in the UI). Not published to the host; named volume only.
+  litellm-db:
+    image: docker.io/library/postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
+    mem_limit: 160m
+    restart: unless-stopped
+    # Official entrypoint starts as root, chowns the volume, then drops to postgres (gosu) -> only these 5 caps.
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      POSTGRES_USER: litellm
+      POSTGRES_PASSWORD: ${LITELLM_DB_PASSWORD:?run node scripts/stack.mjs}
+      POSTGRES_DB: litellm
+      TZ: UTC
+      PGTZ: UTC
+    volumes:
+      - litellm_db_data:/var/lib/postgresql/data
+    healthcheck:
+      # -h 127.0.0.1: the init-time temp server is socket-only, so litellm never starts against it.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U litellm -d litellm"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 60s
       start_interval: 1s
 
   # ---------- Langfuse v4 (traces) ----------
@@ -217,6 +250,7 @@ services:
       start_interval: 1s
 
 volumes:
+  litellm_db_data:
   postgres_data:
   clickhouse_data:
   clickhouse_logs:

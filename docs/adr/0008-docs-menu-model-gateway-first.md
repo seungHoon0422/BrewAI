@@ -8,7 +8,7 @@
     사용자 앱(데스크톱 · 웹)에는 넣지 않는다 (AGENTS.md 경계).
   - slice 순서: 02 = **모델 연동** (LiteLLM 게이트웨이 → conductor 최소 API → 관리자 '모델' 목록 · 데스크톱 대화 답) ·
     03 = MCP 툴 1개 + Langfuse trace · 04 = 승인 카드 + CI E2E + eval 3건.
-  - 모델 등록은 `infra/litellm/config.yaml` 에서만. 키 없는 mock 모델 하나 + provider 는 `.env` 키로.
+  - 모델 등록은 LiteLLM 에서만 (`infra/litellm/config.yaml` 또는 LiteLLM 관리 화면 — DB 모드, ADR-0009). 키 없는 mock 모델 하나 + provider 는 `.env` 키로.
     회사 게이트웨이를 쓰게 되면 `LLM_GATEWAY_URL` · 키만 바꾼다 → 결정 대기 ①(모델 키) 해소.
 - roadmap 에서 바뀐 것: P1-5 관리자 7 → 8개 메뉴(문서) · P1 slice_hint 02~04. 옛 문구는 git 이력.
 - 재검토: 관리자 콘솔이 별도 배포·인증(P2-3)될 때 문서 메뉴를 개발 빌드 전용으로 뺄지.
