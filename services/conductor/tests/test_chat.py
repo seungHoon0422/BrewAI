@@ -188,7 +188,7 @@ def test_reasoning_ignored_for_models_without_it(make_api) -> None:
     assert events[1]["value"] | {"reasoning": "off", "reasoning_requested": "low", "reasoning_supported": False} == events[1]["value"]
     assert ChatRuntime.model_settings(
         ModelChoice("m", "m", "openai", "OpenAI", supports_reasoning=True, supports_tools=True, max_output_tokens=100000), "low"
-    ) == {"openai_reasoning_effort": "low", **DROP}  # max_tokens 는 thinking budget 이 있는 provider 에만
+    ) == {"openai_reasoning_effort": "medium", **DROP}  # 보통(low) = effort medium · max_tokens 는 thinking budget 이 있는 provider 에만
 
 
 # ── 툴: calculator 왕복 ───────────────────────────────────────────────────────────────
@@ -260,9 +260,9 @@ def test_claude_thinking_is_only_sent_before_the_tool_call(make_api, h) -> None:
     api = make_api(lambda _: FunctionModel(stream_function=stream), [*h.fixture_items(), claude], bootstrap_models=("claude-think",))
     events = api.chat("3*3 은?", reasoning="low")
     assert events[-1]["type"] == "RUN_FINISHED" and events[1]["value"]["reasoning"] == "low"
-    assert calls == [{"openai_reasoning_effort": "low", "max_tokens": 16000, **DROP}, {"max_tokens": 16000, **DROP}]
+    assert calls == [{"openai_reasoning_effort": "medium", "max_tokens": 16000, **DROP}, {"max_tokens": 16000, **DROP}]
     api.chat("한 번 더", reasoning="low")  # 새 턴의 첫 호출 = 다시 생각 (지난 턴의 tool_use 는 서명이 없어도 된다)
-    assert calls[2] == {"openai_reasoning_effort": "low", "max_tokens": 16000, **DROP} and calls[3] == {"max_tokens": 16000, **DROP}
+    assert calls[2] == {"openai_reasoning_effort": "medium", "max_tokens": 16000, **DROP} and calls[3] == {"max_tokens": 16000, **DROP}
 
     # OpenAI 계열은 그대로 (reasoning 을 툴 왕복 내내 보낸다)
     calls.clear()
@@ -381,3 +381,92 @@ def test_failure_before_streaming_closes_the_run(make_api, h) -> None:
     with pytest.raises(RuntimeError):  # 대화가 잠기지 않았다 (409 thread_busy 가 아니라 다시 실행까지 간다)
         api.client.post("/api/chat", json=h.chat_body(run="r-b"))
     assert [r["id"] for r in api.client.get("/api/runs").json()] == ["r-b", "r-a"]
+
+
+# ── 진짜 경로: LiteLLM 1.106.2 가 Anthropic thinking 을 OpenAI 형식 스트림으로 준 모양 → Pydantic AI 2.59 → AG-UI ──
+# 모양 = infra/litellm/.venv 의 litellm/llms/anthropic/chat/handler.py (ModelResponseIterator._content_block_delta_helper):
+#   thinking_delta  → delta.reasoning_content = 글 + thinking_blocks/provider_specific_fields.thinking_blocks = [{type: thinking, thinking}]
+#   signature_delta → delta.reasoning_content = "" + thinking_blocks = [{type: thinking, thinking: "", signature}]
+# reasoning_effort 를 보내면 LiteLLM 이 adaptive 모델(claude-sonnet-5-5 등)에 thinking {type: adaptive, display: summarized}
+# + output_config.effort 를 붙인다 (transformation._map_reasoning_effort). display 를 안 주면 Anthropic 기본 = omitted (빈 글).
+
+
+def _litellm_chunk(delta: dict[str, Any] | None, finish: str | None = None, usage: dict[str, Any] | None = None) -> dict[str, Any]:
+    base: dict[str, Any] = {"id": "chatcmpl-litellm", "created": 1761696000, "model": "claude-sonnet-5-5", "object": "chat.completion.chunk"}
+    base["choices"] = [] if delta is None else [{"index": 0, "delta": delta, "finish_reason": finish}]
+    if usage is not None:
+        base["usage"] = usage
+    return base
+
+
+def _thinking_delta(text: str) -> dict[str, Any]:
+    block = [{"type": "thinking", "thinking": text}]
+    return {"content": "", "reasoning_content": text, "thinking_blocks": block, "provider_specific_fields": {"thinking_blocks": block}}
+
+
+def _signature_delta() -> dict[str, Any]:
+    block = [{"type": "thinking", "thinking": "", "signature": "EqQBCkYIBxgCKkDfakeSignature=="}]
+    return {"content": "", "reasoning_content": "", "thinking_blocks": block, "provider_specific_fields": {"thinking_blocks": block}}
+
+
+def _litellm_gateway(chunks: list[dict[str, Any]], sent: list[dict[str, Any]]) -> Any:
+    import httpx2
+    from openai import AsyncOpenAI
+
+    def handler(req: httpx2.Request) -> httpx2.Response:
+        sent.append(json.loads(req.content))
+        body = "".join(f"data: {json.dumps(c, ensure_ascii=False)}\n\n" for c in chunks) + "data: [DONE]\n\n"
+        return httpx2.Response(200, content=body.encode(), headers={"content-type": "text/event-stream"})
+
+    return AsyncOpenAI(
+        base_url="http://gateway.invalid/v1", api_key="sk-test-secret-0000", max_retries=0,
+        http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(handler)),
+    )
+
+
+def _claude(h) -> list[dict[str, Any]]:
+    return [*h.fixture_items(), h.group("claude-sonnet-5-5", ["anthropic"], supports_reasoning=True, max_output_tokens=128000)]
+
+
+def test_litellm_anthropic_thinking_stream_becomes_ag_ui_reasoning(make_api, h) -> None:
+    sent: list[dict[str, Any]] = []
+    usage = {"prompt_tokens": 20, "completion_tokens": 30, "total_tokens": 50, "completion_tokens_details": {"reasoning_tokens": 12}}
+    chunks = [
+        _litellm_chunk({"role": "assistant", "content": ""}),
+        _litellm_chunk(_thinking_delta("질문을 나눠 보면 ")),
+        _litellm_chunk(_thinking_delta("두 단계예요.")),
+        _litellm_chunk(_signature_delta()),
+        _litellm_chunk({"content": "결론입니다."}),
+        _litellm_chunk({}, "stop"),
+        _litellm_chunk(None, usage=usage),
+    ]
+    client = _litellm_gateway(chunks, sent)
+    api = make_api(None, _claude(h), bootstrap_models=("claude-sonnet-5-5",), openai_client=client)
+    events = api.chat("어려운 질문", reasoning="high")
+    kinds = h.types(events)
+    assert kinds.index("REASONING_START") < kinds.index("REASONING_MESSAGE_CONTENT") < kinds.index("REASONING_END") < kinds.index("TEXT_MESSAGE_CONTENT")
+    assert "".join(e["delta"] for e in events if e["type"] == "REASONING_MESSAGE_CONTENT") == "질문을 나눠 보면 두 단계예요."
+    assert [e["stepName"] for e in events if e["type"] == "STEP_STARTED"] == ["thinking", "writing"]
+    # 요청: LiteLLM 이 Anthropic thinking 으로 바꿀 reasoning_effort + thinking 이 들어갈 출력 한도 + drop_params
+    assert sent[0]["reasoning_effort"] == "high" and sent[0]["max_completion_tokens"] == 16000 and sent[0]["drop_params"] is True
+    assert sent[0]["stream"] is True and sent[0]["stream_options"] == {"include_usage": True}
+    summary = next(e for e in events if e["type"] == "CUSTOM" and e["name"] == "brewai.run_summary")
+    assert summary["value"]["usage"]["reasoning_tokens"] == 12
+    thread = api.client.get("/api/threads/thread-1").json()
+    assert thread["messages"][1]["reasoning"] == "질문을 나눠 보면 두 단계예요."
+
+
+def test_litellm_omitted_thinking_has_tokens_but_no_text(make_api, h) -> None:
+    """display omitted(기본) · redacted = 서명만 온다 → 생각 이벤트는 없고 reasoning_tokens 만 남는다 (화면: '생각 내용을 보내지 않았어요')."""
+    sent: list[dict[str, Any]] = []
+    usage = {"prompt_tokens": 20, "completion_tokens": 30, "total_tokens": 50, "completion_tokens_details": {"reasoning_tokens": 9}}
+    chunks = [
+        _litellm_chunk({"role": "assistant", "content": ""}), _litellm_chunk(_signature_delta()),
+        _litellm_chunk({"content": "결론입니다."}), _litellm_chunk({}, "stop"), _litellm_chunk(None, usage=usage),
+    ]
+    api = make_api(None, _claude(h), bootstrap_models=("claude-sonnet-5-5",), openai_client=_litellm_gateway(chunks, sent))
+    events = api.chat("질문", reasoning="low")
+    assert not any(t.startswith("REASONING") for t in h.types(events))
+    summary = next(e for e in events if e["type"] == "CUSTOM" and e["name"] == "brewai.run_summary")
+    assert summary["value"]["usage"]["reasoning_tokens"] == 9
+    assert sent[0]["reasoning_effort"] == "medium"  # 보통 = medium (low 면 adaptive Claude 가 생각을 자주 건너뛴다)

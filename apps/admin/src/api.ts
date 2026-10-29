@@ -30,6 +30,7 @@ export type AdminModel = {
   supports_function_calling: boolean;
   supports_vision: boolean;
   supports_reasoning: boolean;
+  source: 'config' | 'ui' | 'mixed' | null; // 등록 출처 (LiteLLM model_info.db_model) · null = 모름
   // ↓ 연결 상태 (conductor 가 본 것: 대화 결과 · 연결 시험). last_error_code = 실패 이유 (Models.tsx ERROR_DETAIL)
   last_ok_at: string | null;
   last_error_code: string | null;
@@ -113,6 +114,7 @@ function toModel(m: Record<string, unknown>, i: number): AdminModel {
     supports_function_calling: m.supports_function_calling === true,
     supports_vision: m.supports_vision === true,
     supports_reasoning: m.supports_reasoning === true,
+    source: m.source === 'config' || m.source === 'ui' || m.source === 'mixed' ? m.source : null,
     last_ok_at: typeof m.last_ok_at === 'string' ? m.last_ok_at : null,
     last_error_code: typeof m.last_error_code === 'string' ? m.last_error_code : null,
     last_error_at: typeof m.last_error_at === 'string' ? m.last_error_at : null,

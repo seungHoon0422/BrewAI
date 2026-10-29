@@ -17,7 +17,14 @@ export type Model = {
   supports_tools: boolean;
   supports_vision: boolean;
   max_input_tokens: number | null;
+  max_output_tokens: number | null;
+  source: ModelSource; // 등록 출처 (LiteLLM model_info.db_model) · null = 모름
+  health: ModelHealth; // 마지막 연결 결과 (대화 · 관리자 연결 시험). error 여도 고를 수 있다 — 경고만
+  health_code: string | null; // 실패 이유 (chat/text.ts HEALTH_SHORT · DETAIL)
+  health_at: string | null;
 };
+export type ModelSource = 'config' | 'ui' | 'mixed' | null;
+export type ModelHealth = 'ok' | 'error' | 'unknown';
 
 export type ToolInfo = { name: string; label: string; description: string };
 // 제품 스킬 (conductor runtime/skills). builtin = 레포에 든 스타터 · used = 쓴 실행 수
@@ -26,7 +33,8 @@ export type SkillInfo = { name: string; label: string; description: string; tool
 export type StepStatus = 'running' | 'done' | 'error' | 'cancelled';
 // name = thinking | tool:<이름> | skill:<스킬> | writing · started_ms = 실행 시작부터
 export type Step = { name: string; label: string; status: StepStatus; started_ms: number; duration_ms: number | null };
-export type Usage = { input_tokens: number | null; output_tokens: number | null; requests: number; tool_calls: number } | null;
+// reasoning_tokens = 생각 토큰 (글이 안 와도 >0 이면 생각은 했다 · display omitted · redacted)
+export type Usage = { input_tokens: number | null; output_tokens: number | null; requests: number; tool_calls: number; reasoning_tokens: number | null } | null;
 
 export type ThreadSummary = {
   id: string;
@@ -157,7 +165,10 @@ export function toSteps(v: unknown): Step[] {
 
 export function toUsage(v: unknown): Usage {
   if (!isObj(v)) return null;
-  return { input_tokens: num(v.input_tokens), output_tokens: num(v.output_tokens), requests: num(v.requests) ?? 0, tool_calls: num(v.tool_calls) ?? 0 };
+  return {
+    input_tokens: num(v.input_tokens), output_tokens: num(v.output_tokens), requests: num(v.requests) ?? 0, tool_calls: num(v.tool_calls) ?? 0,
+    reasoning_tokens: num(v.reasoning_tokens),
+  };
 }
 
 export async function listModels(signal?: AbortSignal): Promise<Model[]> {
@@ -176,6 +187,11 @@ export async function listModels(signal?: AbortSignal): Promise<Model[]> {
       supports_tools: m.supports_tools === true,
       supports_vision: m.supports_vision === true,
       max_input_tokens: num(m.max_input_tokens),
+      max_output_tokens: num(m.max_output_tokens),
+      source: m.source === 'config' || m.source === 'ui' || m.source === 'mixed' ? m.source : null,
+      health: m.health === 'ok' || m.health === 'error' ? m.health : 'unknown',
+      health_code: typeof m.health_code === 'string' ? m.health_code : null,
+      health_at: typeof m.health_at === 'string' ? m.health_at : null,
     }));
 }
 

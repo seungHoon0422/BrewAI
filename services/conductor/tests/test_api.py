@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from collections.abc import AsyncIterator
 
 import httpx2
@@ -314,13 +315,81 @@ async def _catalog(handler) -> LiteLLMCatalog:
 @pytest.mark.anyio
 async def test_catalog_sends_bearer_and_parses_fixture(h) -> None:
     def handler(req: httpx2.Request) -> httpx2.Response:
-        assert req.url.path == "/model_group/info"
         assert req.headers["authorization"] == "Bearer sk-test-secret-0000"
+        if req.url.path == "/v1/model/info":
+            return httpx2.Response(404, json={"detail": "Not Found"})  # 출처를 못 읽어도 목록은 그대로
+        assert req.url.path == "/model_group/info"
         return httpx2.Response(200, content=h.FIXTURE.read_bytes(), headers={"content-type": "application/json"})
 
     models = await (await _catalog(handler)).list_models()
     assert [m.id for m in models] == ["fake-chat-small", "fake-chat-large", "fake-embed"]
     assert models[0].max_input_tokens == 128000 and isinstance(models[0].max_input_tokens, int)  # LiteLLM 은 128000.0 을 준다
+    assert models[0].source is None
+
+
+# LiteLLM 1.106.2 `/v1/model/info` 항목 모양 (proxy_server.model_info_v1 · 키는 remove_sensitive_info 로 빠진다)
+def _deployment(name: str, db_model: bool) -> dict:
+    return {
+        "model_name": name,
+        "litellm_params": {"model": f"anthropic/{name}", "api_key": "sk-must-not-be-read"},
+        "model_info": {"id": f"id-{name}-{db_model}", "db_model": db_model, "mode": "chat"},
+    }
+
+
+@pytest.mark.anyio
+async def test_catalog_reads_where_each_model_was_registered(h) -> None:
+    """config.yaml 모델 = db_model false · 관리 화면(DB) 모델 = true · 같은 이름이 둘 다 = mixed. 키 칸은 안 읽는다."""
+
+    def handler(req: httpx2.Request) -> httpx2.Response:
+        if req.url.path == "/v1/model/info":
+            return httpx2.Response(200, json={"data": [
+                _deployment("fake-chat-small", False), _deployment("fake-chat-large", True),
+                _deployment("fake-embed", False), _deployment("fake-embed", True), {"model_info": {}}, "junk",
+            ]})
+        return httpx2.Response(200, content=h.FIXTURE.read_bytes(), headers={"content-type": "application/json"})
+
+    models = {m.id: m for m in await (await _catalog(handler)).list_models()}
+    assert {k: m.source for k, m in models.items()} == {"fake-chat-small": "config", "fake-chat-large": "ui", "fake-embed": "mixed"}
+    assert "sk-must" not in repr(models)
+
+
+@pytest.mark.anyio
+async def test_catalog_keeps_last_sources_when_model_info_fails(h) -> None:
+    """출처 읽기가 한 번 실패해도 지난 값 그대로 ('알 수 없음' 으로 깜빡이지 않는다)."""
+    fail = {"on": False}
+
+    def handler(req: httpx2.Request) -> httpx2.Response:
+        if req.url.path == "/v1/model/info":
+            if fail["on"]:
+                return httpx2.Response(500, json={"error": "boom"})
+            return httpx2.Response(200, json={"data": [_deployment("fake-chat-small", False), _deployment("fake-chat-large", True)]})
+        return httpx2.Response(200, content=h.FIXTURE.read_bytes(), headers={"content-type": "application/json"})
+
+    cat = await _catalog(handler)
+    first = {m.id: m.source for m in await cat.list_models(fresh=True)}
+    fail["on"] = True
+    again = {m.id: m.source for m in await cat.list_models(fresh=True)}
+    assert first == again == {"fake-chat-small": "config", "fake-chat-large": "ui", "fake-embed": None}
+
+
+def test_models_api_shows_source_and_last_failure(make_api, h) -> None:
+    """데스크톱 모델 목록: 등록 출처 + 마지막 연결 결과 (실패해도 목록에 남고 고를 수 있다 · 화면은 경고만)."""
+    api = make_api(lambda _: TestModel(custom_output_text="ok", call_tools=[]))
+    src = {"fake-chat-small": "config", "fake-chat-large": "ui"}
+    api.catalog.models = [replace(m, source=src.get(m.id)) for m in api.catalog.models]
+    api.client.post("/api/admin/models/sync")
+    rows = {r["id"]: r for r in api.client.get("/api/models").json()}
+    assert (rows["fake-chat-small"]["source"], rows["fake-chat-large"]["source"]) == ("config", "ui")
+    assert rows["fake-chat-small"]["health"] == "unknown" and rows["fake-chat-small"]["health_code"] is None
+    api.store.record_model_result("fake-chat-large", error_code="provider_key_missing", source="probe")
+    api.chat("안녕", model="fake-chat-small")
+    rows = {r["id"]: r for r in api.client.get("/api/models").json()}
+    assert rows["fake-chat-large"] | {"health": "error", "health_code": "provider_key_missing"} == rows["fake-chat-large"]
+    assert rows["fake-chat-small"]["health"] == "ok" and rows["fake-chat-small"]["health_at"]
+    api.store.record_model_result("fake-chat-large", error_code=None, source="probe")  # 나중 성공이 이긴다
+    assert next(r for r in api.client.get("/api/models").json() if r["id"] == "fake-chat-large")["health"] == "ok"
+    admin = {r["id"]: r for r in api.client.get("/api/admin/models").json()}
+    assert admin["fake-chat-large"]["source"] == "ui" and admin["fake-embed"]["source"] is None
 
 
 @pytest.mark.anyio
@@ -347,6 +416,8 @@ async def test_catalog_cache_and_fresh(h) -> None:
 
     def handler(req: httpx2.Request) -> httpx2.Response:
         nonlocal calls
+        if req.url.path == "/v1/model/info":
+            return httpx2.Response(404)
         calls += 1
         if calls > 2:
             raise httpx2.ConnectError("refused", request=req)  # 게이트웨이가 꺼졌다

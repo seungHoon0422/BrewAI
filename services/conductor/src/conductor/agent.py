@@ -8,6 +8,10 @@ POST /api/chat 본문 = AG-UI RunAgentInput, 응답 = AG-UI SSE. 이벤트 순�
   실패 = … → STEP_FINISHED → RUN_ERROR {code, message, detail?} (마지막 이벤트. detail = diagnose.py DETAILS · 화면 안내용)
   생각 이벤트 = ag-ui-protocol 0.1.22 의 REASONING_START · REASONING_MESSAGE_START{role:"reasoning"} · REASONING_MESSAGE_CONTENT{delta}
   · REASONING_MESSAGE_END · (REASONING_ENCRYPTED_VALUE — 화면은 무시) · REASONING_END (Pydantic AI AG-UI adapter 2.59 가 낸다)
+  생각 글 경로 (LiteLLM 1.106.2 확인 · tests/test_chat.py test_litellm_*): reasoning_effort → LiteLLM 이 Claude adaptive 모델에
+  thinking {type: adaptive, display: summarized} + output_config.effort 로 바꾼다 → thinking_delta 가 delta.reasoning_content 로 오고
+  Pydantic AI 가 ThinkingPart → REASONING_* 로 낸다. 생각 끄기·display omitted·redacted 면 글 없이 서명만 → 이벤트 없음.
+  brewai.run_summary.usage.reasoning_tokens (추가) = 생각 토큰 (글이 없어도 >0 이면 '생각은 했지만 내용은 안 보냄').
 모델 = LiteLLM 프록시의 OpenAI 호환 /v1/chat/completions (LiteLLMProvider, api_base = LLM_GATEWAY_URL + /v1).
 멀티턴 = 서버가 원본: 클라이언트가 보낸 messages 중 마지막 user 메시지만 쓰고, 앞 대화는 저장된 기록(message_history)으로.
 """
@@ -75,6 +79,9 @@ INSTRUCTIONS = (
 
 Reasoning = Literal["off", "low", "high"]
 REASONING_LEVELS: tuple[Reasoning, ...] = ("off", "low", "high")
+# 화면의 생각 깊이 → LiteLLM reasoning_effort. '보통'(low) = medium: Claude adaptive 모델은 effort low 면 쉬운 질문에서
+# 생각을 자주 건너뛴다 (LiteLLM 1.106.2 _map_reasoning_effort → output_config.effort). 저장 값(low)은 그대로 둔다 (기록 호환)
+REASONING_EFFORT: dict[str, Literal["medium", "high"]] = {"low": "medium", "high": "high"}
 MAX_MODEL_REQUESTS = 8  # 툴 왕복 포함 한 실행의 모델 호출 상한 (무한 툴 루프 방지)
 MAX_PROMPT_CHARS = 32_000
 THINKING_MAX_TOKENS = 16_000  # Anthropic thinking 은 max_tokens > budget 이어야 한다 (LiteLLM high = 4096)
@@ -513,7 +520,7 @@ class ChatRuntime:
             return None
         # drop_params: 게이트웨이 값(supports_reasoning)과 LiteLLM 모델 표(provider 변환)가 어긋나도 400 대신 그 파라미터만 버린다
         # (예: 관리 화면에서 model_info 로 '생각 지원' 을 켰는데 LiteLLM 1.106.2 표에 없는 모델 이름). 이 요청에만 · LiteLLM 1.106.2 확인
-        settings = OpenAIChatModelSettings(openai_reasoning_effort=reasoning, extra_body={"drop_params": True})
+        settings = OpenAIChatModelSettings(openai_reasoning_effort=REASONING_EFFORT[reasoning], extra_body={"drop_params": True})
         if model.provider in ("anthropic", "bedrock", "google") and model.max_output_tokens:
             settings["max_tokens"] = min(model.max_output_tokens, THINKING_MAX_TOKENS)
         return settings
@@ -591,8 +598,12 @@ class ChatRuntime:
             new = result.all_messages()[len(history):]  # 이번 질문 + 이번 답 (툴 왕복 포함)
             activity.messages = ModelMessagesTypeAdapter.dump_json(new).decode()
             u = result.usage
+            # 생각 토큰: OpenAI 형식 completion_tokens_details.reasoning_tokens (LiteLLM 이 Anthropic thinking 글자로 센다).
+            # 글 없이 토큰만 있으면 = 생각은 했는데 내용을 안 보냄 (display omitted · redacted) → 화면이 그렇게 말한다
+            reasoning_tokens = u.output_reasoning_tokens or int((u.details or {}).get("reasoning_tokens") or 0)
             activity.usage = {
                 "input_tokens": u.input_tokens, "output_tokens": u.output_tokens, "requests": u.requests, "tool_calls": u.tool_calls,
+                "reasoning_tokens": reasoning_tokens,
             }
 
         # BrewAI 가 정한 값(CUSTOM value · REST)은 snake_case. AG-UI 자체 필드만 camelCase

@@ -80,6 +80,10 @@ const PATHS = {
     </>
   ),
   refresh: <path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4.5v4h-4" />,
+  // 검색 · 끌기 손잡이 (같은 결 · 데스크톱 search 와 같은 모양)
+  search: <><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4 4" /></>,
+  chev: <path d="M9.5 6l6 6-6 6" />,
+  grip: <path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01" />,
 } satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof PATHS;

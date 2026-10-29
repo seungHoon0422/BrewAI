@@ -38,6 +38,7 @@ def test_first_sync_exposes_only_the_keyless_mock(make_api, h) -> None:
         {
             "id": "brewai-mock", "label": "BrewAI Mock", "provider": "brewai", "provider_label": "BrewAI", "family": "BrewAI Mock",
             "is_default": True, "supports_reasoning": False, "supports_tools": True, "supports_vision": True, "max_input_tokens": 128000,
+            "max_output_tokens": 8192, "source": None, "health": "unknown", "health_code": None, "health_at": None,
         }
     ]
     rows = {r["id"]: r for r in api.client.get("/api/admin/models").json()}

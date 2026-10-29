@@ -7,8 +7,8 @@ import { href } from '../menu';
 import { go } from '../router';
 import { ProviderIcon, providerLabel } from '../providers';
 import { useNow } from '../chat/Answer';
-import { isLive, openThread, useSession, type Answer } from '../chat/session';
-import { FAILURE_TEXT, RUN_STATUS, STEP_DOT, ago, reasoningLabel, runErrorText, seconds, stepDoing } from '../chat/text';
+import { isLive, openThread, useDupCheck, useSession, useSkillLabels, type Answer } from '../chat/session';
+import { FAILURE_TEXT, RUN_STATUS, STEP_DOT, ago, reasoningLabel, runErrorText, seconds, stepPhrase, tracePhrase } from '../chat/text';
 import { Empty, Page, Section } from './Page';
 
 type Live = { threadId: string; title: string; answer: Answer };
@@ -94,9 +94,9 @@ export function Activity() {
 
 function LiveRun({ l }: { l: Live }) {
   const tools = useSession((s) => s.tools);
+  const skills = useSkillLabels();
   const now = useNow(true);
   const a = l.answer;
-  const current = a.steps.findLast((s) => s.status === 'running')?.name ?? null;
   return (
     <li className="row run-live" data-run={a.runId}>
       <span className="dot" data-state="run" aria-hidden="true" />
@@ -105,12 +105,12 @@ function LiveRun({ l }: { l: Live }) {
           <b className="ell">{l.title}</b>
         </button>
         <span className="row-sub">
-          <span className="doing">{stepDoing(current, tools)}</span>
+          <span className="doing">{tracePhrase(a, now, tools, skills).text}</span>
           <span aria-hidden="true"> · {seconds(now - a.startedAt)}</span>
         </span>
-        <Steps steps={a.steps} live now={now - a.startedAt} tools={tools} />
+        <Steps steps={a.steps} live now={now - a.startedAt} tools={tools} skills={skills} />
       </div>
-      {a.model && <ModelTag provider={a.model.provider} providerName={a.model.provider_label} label={a.model.label} reasoning={a.reasoning} />}
+      {a.model && <ModelTag id={a.model.id} provider={a.model.provider} providerName={a.model.provider_label} label={a.model.label} reasoning={a.reasoning} />}
     </li>
   );
 }
@@ -132,12 +132,14 @@ function RunItem({ r }: { r: RunRow }) {
         <span className="row-sub"><span className="sr">{st.label} · </span>{sub}</span>
         <Steps steps={r.steps} />
       </div>
-      <ModelTag provider={r.provider} providerName={r.provider_label} label={r.model_label} reasoning={r.reasoning} />
+      <ModelTag id={r.model} provider={r.provider} providerName={r.provider_label} label={r.model_label} reasoning={r.reasoning} />
     </li>
   );
 }
 
-function Steps({ steps, live, now = 0, tools = {} }: { steps: Step[]; live?: boolean; now?: number; tools?: Record<string, string> }) {
+function Steps({ steps, live, now = 0, tools = {}, skills = {} }: {
+  steps: Step[]; live?: boolean; now?: number; tools?: Record<string, string>; skills?: Record<string, string>;
+}) {
   if (!steps.length) return null;
   return (
     <ol className="chain" aria-label="단계">
@@ -145,7 +147,7 @@ function Steps({ steps, live, now = 0, tools = {} }: { steps: Step[]; live?: boo
         <li key={`${s.name}-${i}`} data-state={STEP_DOT[s.status]}>
           {i > 0 && <span className="arr" aria-hidden="true"><Icon name="right" small /></span>}
           <span className="dot" aria-hidden="true" />
-          <span>{live && s.status === 'running' ? stepDoing(s.name, tools) : s.label}</span>
+          <span>{live && s.status === 'running' ? stepPhrase(s.name, now - s.started_ms, tools, skills) : s.label}</span>
           <span className="tm">{s.status === 'running' ? seconds(now - s.started_ms) : seconds(s.duration_ms)}</span>
         </li>
       ))}
@@ -153,12 +155,16 @@ function Steps({ steps, live, now = 0, tools = {} }: { steps: Step[]; live?: boo
   );
 }
 
-function ModelTag({ provider, providerName, label, reasoning }: { provider: string; providerName: string; label: string; reasoning: string }) {
+// 같은 이름의 다른 모델이 있으면 id 도 (모델 메뉴 · 답 아래 줄과 같은 규칙)
+function ModelTag({ id, provider, providerName, label, reasoning }: { id: string; provider: string; providerName: string; label: string; reasoning: string }) {
+  const dup = useDupCheck();
   const think = reasoning === 'low' || reasoning === 'high' ? ` · 생각 ${reasoningLabel(reasoning)}` : '';
+  const twin = dup({ id, label });
   return (
-    <span className="mtag" title={`${providerLabel(provider, providerName)} · ${label}${think}`}>
+    <span className="mtag" title={`${providerLabel(provider, providerName)} · ${label}${label !== id ? ` (${id})` : ''}${think}`}>
       <ProviderIcon provider={provider} />
       <span className="ell">{label}</span>
+      {twin && <span className="mid">{id}</span>}
     </span>
   );
 }

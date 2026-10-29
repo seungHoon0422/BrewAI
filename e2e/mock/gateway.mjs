@@ -11,6 +11,11 @@
 //       (stream / non-stream, OpenAI chunk 형식, stream_options.include_usage). 답은 결정적인 한국어 문장.
 //       답 끝에 ' · 이전 질문: <앞 user 메시지>' (멀티턴: conductor 가 기록을 보냈는지 E2E 가 본다)
 // 생각: 요청에 reasoning_effort 가 있으면 (생각 지원 모델만 — 아니면 LiteLLM 처럼 400) reasoning_content 조각을 먼저 흘린다.
+//   Anthropic 모델 = LiteLLM 1.106.2 가 Claude thinking 을 바꾼 모양 그대로 (llms/anthropic/chat/handler.py):
+//   thinking_delta → delta {content:"", reasoning_content, thinking_blocks:[{type:"thinking", thinking}], provider_specific_fields:{thinking_blocks}}
+//   그 뒤 signature_delta → reasoning_content "" + thinking_blocks [{thinking:"", signature}] · usage.completion_tokens_details.reasoning_tokens
+//   [fake:omitted] → 서명만 (display omitted · redacted 흉내: 생각은 했지만 글은 없음)
+//   [fake:nothink] → reasoning_effort 가 있어도 생각 없이 바로 답 (adaptive 모델이 쉬운 질문에 생각을 건너뛴 흉내 · reasoning_tokens 0)
 // 툴: 요청 tools 에 그 툴이 있을 때만 tool_calls 로 부른다 → 다음 요청(role tool 결과)에서 결과로 답한다 (OpenAI 왕복 그대로)
 // Anthropic 생각 + 툴 (진짜 Anthropic · LiteLLM modify_params 없음): 생각이 켜진 요청에서 이번 질문 뒤 assistant tool_calls 가
 //   서명된 thinking_blocks 없이 다시 오면 400 (실제 오류 문구 흉내). conductor 는 툴 결과를 들고 가는 요청에서 생각을 꺼야 한다
@@ -22,6 +27,7 @@
 //   툴 (적은 순서대로 하나씩 부른다 · 요청 tools 에 있을 때만): [fake:skill <이름>] → use_skill · [fake:convert <값> <단위> <단위>] → unit_convert
 //   · [fake:calc] <수식> → calculator (줄 끝까지가 수식, 없으면 12*(3+4)) · [fake:time] → current_time. 다 부르면 결과들로 답한다
 // drop_params: 요청에 drop_params true 면 (LiteLLM 처럼) 모델이 지원 안 하는 reasoning_effort 를 400 대신 버린다
+// 등록 출처: GET /v1/model/info (LiteLLM 모양: data[{model_name, litellm_params, model_info:{id, db_model}}]) — db_model true = 관리 화면(DB)
 // 테스트 조작 (Bearer 필요): POST /__fake/catalog {"late": true|false, "hide": ["fake-chat-large"], "broken": {"<모델>": "<FAILURES 이름>"}, "reset": true}
 //   → 카탈로그를 바꾼다 (새 모델 = 관리자 '후보', 숨긴 모델 = '사라짐', broken = 그 모델의 모든 채팅 호출이 그 실패). 응답 {"models": [id…]}
 import http from 'node:http';
@@ -76,6 +82,8 @@ const BASE_GROUPS = [
 ];
 // LiteLLM 에 나중에 등록되는 모델 (관리자 '후보' 흉내). provider = gemini → conductor 는 google 로 묶는다
 const LATE_GROUP = group({ id: 'fake-chat-late', providers: ['gemini'], maxIn: 1000000, maxOut: 8192, inCost: 1e-7, outCost: 4e-7, tools: true });
+// 관리 화면(DB)에서 추가한 모델 = db_model true. 나머지 = config.yaml
+const DB_MODELS = new Set(['fake-chat-large', 'fake-chat-late']);
 const catalog = { late: process.env.FAKE_GATEWAY_LATE === '1', hide: new Set(), broken: new Map() };
 
 // LiteLLM 1.106.2 실패 모양 [status, type, message] (infra/litellm/.venv 소스로 확인). 키처럼 보이는 값은 가짜
@@ -209,11 +217,23 @@ function chunks(text, size = 6) {
   return out;
 }
 
-function usage(messages, reply) {
+function usage(messages, reply, reasoning = 0) {
   const prompt = messages.reduce((n, m) => n + Array.from(textOf(m?.content)).length, 0);
-  const completion = Array.from(reply).length;
-  return { prompt_tokens: prompt, completion_tokens: completion, total_tokens: prompt + completion };
+  const completion = Array.from(reply).length + reasoning;
+  const out = { prompt_tokens: prompt, completion_tokens: completion, total_tokens: prompt + completion };
+  if (reasoning) out.completion_tokens_details = { reasoning_tokens: reasoning };
+  return out;
 }
+
+// LiteLLM 1.106.2 Anthropic thinking 조각 (handler.py _content_block_delta_helper → Delta)
+const thinkingDelta = (text) => {
+  const blocks = [{ type: 'thinking', thinking: text }];
+  return { content: '', reasoning_content: text, thinking_blocks: blocks, provider_specific_fields: { thinking_blocks: blocks } };
+};
+const signatureDelta = () => {
+  const blocks = [{ type: 'thinking', thinking: '', signature: 'EqQBCkYIBxgCKkBfakeSignatureForE2E==' }];
+  return { content: '', reasoning_content: '', thinking_blocks: blocks, provider_specific_fields: { thinking_blocks: blocks } };
+};
 
 async function chatCompletions(req, res) {
   let body;
@@ -272,7 +292,10 @@ async function chatCompletions(req, res) {
   const lastUser = messages.findLastIndex((m) => m?.role === 'user');
   const done = messages.slice(lastUser + 1).filter((m) => m?.role === 'tool').length; // 이번 질문에서 이미 부른 툴 수
   const call = plannedCalls(body, question)[done] ?? null;
-  const thinking = !afterTool && (body.reasoning_effort !== undefined || question.includes('[fake:think]'));
+  const thinking = !afterTool && !question.includes('[fake:nothink]') && (body.reasoning_effort !== undefined || question.includes('[fake:think]'));
+  const anthropic = info.providers.includes('anthropic');
+  const omitted = thinking && question.includes('[fake:omitted]');
+  const reasoningTokens = thinking ? Array.from(THOUGHT).length : 0;
   const reply = call ? '' : afterTool ? replyFromTools(messages) : replyFor(model, messages);
   const toolCall = call && { index: 0, id: `call_fake_${messages.length}`, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args) } };
   const id = 'chatcmpl-fake';
@@ -281,12 +304,12 @@ async function chatCompletions(req, res) {
 
   if (!body.stream) {
     const message = { role: 'assistant', content: call ? null : reply, tool_calls: toolCall ? [{ id: toolCall.id, type: 'function', function: toolCall.function }] : null };
-    if (thinking) message.reasoning_content = THOUGHT;
+    if (thinking && !omitted) message.reasoning_content = THOUGHT;
     return send(res, 200, {
       ...base,
       object: 'chat.completion',
       choices: [{ index: 0, message, logprobs: null, finish_reason: finish }],
-      usage: usage(messages, reply),
+      usage: usage(messages, reply, reasoningTokens),
     });
   }
 
@@ -302,11 +325,15 @@ async function chatCompletions(req, res) {
   const delay = question.includes('[fake:slow]') ? 250 : DELAY;
   chunk({ role: 'assistant', content: '' });
   if (thinking) {
-    // LiteLLM 은 Anthropic thinking 을 delta.reasoning_content 로 준다 (OpenAI 호환 확장)
-    for (const part of chunks(THOUGHT, 8)) {
+    // LiteLLM 은 Anthropic thinking 을 delta.reasoning_content 로 준다 (OpenAI 호환 확장) + thinking_blocks (서명은 끝 조각)
+    for (const part of omitted ? [] : chunks(THOUGHT, 8)) {
       if (res.destroyed) return;
       await sleep(delay);
-      chunk({ reasoning_content: part });
+      chunk(anthropic ? thinkingDelta(part) : { reasoning_content: part });
+    }
+    if (anthropic) {
+      await sleep(delay);
+      chunk(signatureDelta());
     }
   }
   if (toolCall) {
@@ -328,7 +355,7 @@ async function chatCompletions(req, res) {
   }
   chunk({}, finish);
   if (body.stream_options?.include_usage) {
-    event({ ...base, object: 'chat.completion.chunk', choices: [], usage: usage(messages, reply) });
+    event({ ...base, object: 'chat.completion.chunk', choices: [], usage: usage(messages, reply, reasoningTokens) });
   }
   res.write('data: [DONE]\n\n');
   res.end();
@@ -368,6 +395,16 @@ const server = http.createServer(async (req, res) => {
       record(req, null);
       const only = url.searchParams.get('model_group');
       return send(res, 200, { data: only ? modelGroups().filter((m) => m.model_group === only) : modelGroups() });
+    }
+    if (route === 'GET /v1/model/info' || route === 'GET /model/info') {
+      // LiteLLM model_info_v1 모양 (키 · api_base 는 진짜 프록시도 지운다)
+      return send(res, 200, {
+        data: modelGroups().map((m) => ({
+          model_name: m.model_group,
+          litellm_params: { model: `${m.providers[0]}/${m.model_group}` },
+          model_info: { id: `fake-${m.model_group}`, db_model: DB_MODELS.has(m.model_group), mode: m.mode },
+        })),
+      });
     }
     if (route === 'GET /v1/models' || route === 'GET /models') {
       return send(res, 200, {

@@ -3,6 +3,8 @@
 데스크톱 (CORS = 데스크톱 출처만)
   GET    /healthz                    살아 있음 (게이트웨이는 안 부른다)
   GET    /api/models                 노출 모델만 · 기본 모델이 첫 항목(is_default) · 나머지는 관리자 순서
+                                     + source(config|ui|mixed|null = 등록 출처) · health(ok|error|unknown) · health_code · health_at
+                                       (마지막 연결 결과. error 여도 목록에 남고 고를 수 있다 — 화면은 경고만)
   GET    /api/tools                  conductor 툴 [{name, label, description}] (활동 단계 tool:<name> 의 화면 이름)
   GET    /api/skills                 제품 스킬 (runtime/skills) [{name, label, description, tools, builtin, used}] (단계 skill:<name>)
   POST   /api/chat                   AG-UI RunAgentInput → AG-UI SSE (agent.py 머리말 = 이벤트 순서)
@@ -11,7 +13,7 @@
   DELETE /api/threads/{id}           대화 지우기 (204)
   GET    /api/runs                   최근 실행 (진행 상황 화면: 상태 · 모델 · 단계 · 걸린 시간)
 관리자 (CORS = 관리자 출처만, ADR-0006 — 모델 등록은 LiteLLM 에서만)
-  GET    /api/admin/models           모든 모델 (노출 · 후보 · 숨김 · 사라짐) + 게이트웨이 값 (읽기 전용)
+  GET    /api/admin/models           모든 모델 (노출 · 후보 · 숨김 · 사라짐) + 게이트웨이 값 (읽기 전용) + source (등록 출처)
   GET    /api/admin/providers        provider 별 개수
   PATCH  /api/admin/models/{id}      exposed · display_name · order · is_default 만
                                      칸 값이 틀리면 422 {detail: bad_<칸>} · 모르는 칸 = 422 (FastAPI 기본 목록)
@@ -68,6 +70,12 @@ class ModelOut(BaseModel):
     supports_tools: bool
     supports_vision: bool
     max_input_tokens: int | None
+    max_output_tokens: int | None = None
+    source: Literal["config", "ui", "mixed"] | None = None  # 등록 출처 (LiteLLM model_info.db_model) · None = 모름
+    # 연결 상태 (대화 결과 · 관리자 연결 시험 중 나중 것). error 여도 고를 수 있다 — 화면은 경고만
+    health: Literal["ok", "error", "unknown"] = "unknown"
+    health_code: str | None = None  # 실패 이유 = diagnose detail (없으면 공개 code)
+    health_at: str | None = None
 
 
 class AdminModelRow(BaseModel):
@@ -97,6 +105,7 @@ class AdminModelRow(BaseModel):
     supports_function_calling: bool
     supports_vision: bool
     supports_reasoning: bool
+    source: Literal["config", "ui", "mixed"] | None = None  # 등록 출처: config.yaml · LiteLLM 관리 화면(DB) · 둘 다
     # ↓ 연결 상태 (conductor 가 본 것: 채팅 결과 · 연결 시험). last_error_code = diagnose detail (없으면 공개 code)
     last_ok_at: str | None = None
     last_error_code: str | None = None
@@ -135,8 +144,25 @@ class ScopedCORS:
         await (self._admin if admin else self._desktop)(scope, receive, send)
 
 
-def _model_out(r: ExposureRow, default: str | None) -> ModelOut:
+def _source(r: ExposureRow) -> Any:
+    s = r.info.get("source")
+    return s if s in ("config", "ui", "mixed") else None
+
+
+def _health(h: Any) -> tuple[str, str | None, str | None]:
+    """(ok | error | unknown, 실패 code, 시각). 실패가 마지막 성공보다 나중이면 error."""
+    if not h:
+        return "unknown", None, None
+    ok, err = h["last_ok_at"], h["last_error_at"]
+    if err and (not ok or err > ok):
+        return "error", h["last_error_code"], err
+    return ("ok", None, ok) if ok else ("unknown", None, None)
+
+
+def _model_out(r: ExposureRow, default: str | None, health: Any = None) -> ModelOut:
+    state, code, at = _health(health)
     return ModelOut(
+        max_output_tokens=r.info.get("max_output_tokens"), source=_source(r), health=state, health_code=code, health_at=at,
         id=r.gateway_id, label=r.label, provider=r.provider, provider_label=r.provider_label, family=r.family,
         is_default=r.gateway_id == default, supports_reasoning=bool(r.info.get("supports_reasoning")),
         supports_tools=bool(r.info.get("supports_function_calling")), supports_vision=bool(r.info.get("supports_vision")),
@@ -157,7 +183,7 @@ def _admin_row(r: ExposureRow, order: int, default: str | None, health: Any = No
         mode=i.get("mode"), max_input_tokens=i.get("max_input_tokens"), max_output_tokens=i.get("max_output_tokens"),
         input_cost_per_token=i.get("input_cost_per_token"), output_cost_per_token=i.get("output_cost_per_token"),
         supports_function_calling=bool(i.get("supports_function_calling")), supports_vision=bool(i.get("supports_vision")),
-        supports_reasoning=bool(i.get("supports_reasoning")),
+        supports_reasoning=bool(i.get("supports_reasoning")), source=_source(r),
     )
 
 
@@ -300,7 +326,8 @@ def create_app(
         await registry.refresh()  # 카탈로그 캐시(30초)가 바뀌었을 때만 DB 동기화
         shown = registry.exposed()
         default = shown[0].gateway_id if shown else None
-        return [_model_out(r, default) for r in shown]
+        health = store.model_health()
+        return [_model_out(r, default, health.get(r.gateway_id)) for r in shown]
 
     @app.get("/api/tools")
     async def list_tools() -> list[dict[str, str]]:

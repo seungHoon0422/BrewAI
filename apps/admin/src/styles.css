@@ -457,7 +457,105 @@ tr:hover .nline .ibt,.nline .ibt:focus-visible{opacity:1}
 .ginfo span{display:block}
 .ginfo .price{font:11.5px/1.5 var(--mono);color:var(--muted)}
 .ginfo .nil{color:var(--muted2)}
-@media (prefers-reduced-motion:reduce){.ico.spin,.tgl,.tgl .knob{animation:none;transition:none}}
+/* 모델 화면 v2 — 요약 카드(필터) · 붙는 도구 줄 · 회사별 목록 · 서랍. 색 = 기존 토큰만 (초록·파랑·호박 12% 배경 + 글자 토큰) */
+.mhead{display:flex;flex-wrap:wrap;align-items:stretch;gap:12px 16px;margin:0 0 14px}
+.mstats{flex:1 1 560px;margin:0}
+.mstat{display:grid;align-content:start;gap:0;text-align:left;background:var(--bg);color:var(--fg);font:inherit;cursor:pointer;transition:border-color .12s,box-shadow .12s}
+.mstat:hover{border-color:var(--muted2)}
+.mstat[aria-pressed="true"]{border-color:var(--fg);box-shadow:inset 0 0 0 .5px var(--fg)}
+.mstat .k{font-size:12px;color:var(--muted)}
+.mstat .v.info{color:var(--info-text)}
+.mstat .v.bad{color:var(--red)}
+.msync{display:flex;flex-direction:column;align-items:flex-end;justify-content:center;gap:8px;flex:0 0 auto}
+.mbtns{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px}
+.msync .btn{color:var(--fg);text-decoration:none}
+.msync .btn .ico{display:inline-grid;place-items:center}
+.msync .btn:disabled{color:var(--muted)}
+.mbar{position:sticky;top:0;z-index:3;display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;margin:0 0 12px;padding:10px 0;background:var(--bg);border-bottom:1px solid var(--line)}
+.mbar .pfilter{margin:0}
+.msearch{display:inline-flex;align-items:center;gap:6px;flex:0 1 240px;min-width:160px;padding:5px 10px;border:1px solid var(--line2);border-radius:999px;background:var(--bg);color:var(--muted)}
+.msearch .i{width:14px;height:14px}
+.msearch input{flex:1;min-width:0;border:0;outline:0;background:transparent;color:var(--fg);font:inherit;font-size:12.5px;padding:0}
+.msearch:focus-within{border-color:var(--blue);box-shadow:0 0 0 1px var(--blue)}
+.sseg{display:inline-flex;padding:2px;border-radius:999px;background:var(--tray);margin-left:auto}
+.sseg [role="radio"]{border:0;background:transparent;padding:3px 10px;border-radius:999px;font-size:12px;color:var(--muted);cursor:pointer;white-space:nowrap}
+.sseg [role="radio"][aria-checked="true"]{background:var(--bg);color:var(--fg);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.sseg [role="radio"]:focus-visible{outline-offset:-2px}
+.bulk{display:flex;align-items:center;flex-wrap:wrap;gap:8px 10px;flex:1;animation:slidein .12s ease-out}
+.bulk b{font-weight:600}
+@keyframes slidein{from{opacity:0;transform:translateY(-3px)}}
+/* 목록 = 열 선 없는 줄 (56px) · 회사 머리줄 */
+.mtable{border-radius:12px}
+.mtable td{border-bottom:1px solid var(--line);height:56px;padding-top:6px;padding-bottom:6px}
+.mtable tbody tr[data-model]{cursor:pointer}
+.mtable tbody tr[data-model]:hover{background:var(--hover)}
+.mtable tbody tr.on{background:color-mix(in srgb,var(--blue) 6%,transparent)}
+.mtable tbody tr.over td{box-shadow:inset 0 2px 0 var(--blue)}
+.mtable tbody tr.drag{opacity:.5}
+.mtable tr.grp th{padding:0;background:var(--side);border-bottom:1px solid var(--line2);border-top:1px solid var(--line2)}
+.mtable tbody:first-of-type tr.grp th{border-top:0}
+.mtable tr.grp button{display:flex;align-items:center;gap:8px;width:100%;border:0;background:transparent;padding:8px 14px;font:inherit;font-size:12.5px;color:var(--fg);cursor:pointer;text-align:left}
+.mtable tr.grp button:focus-visible{outline-offset:-2px}
+.mtable tr.grp .chev{display:inline-grid;transition:transform .12s;color:var(--muted)}
+.mtable tr.grp .chev .i{width:14px;height:14px}
+.mtable tr.grp [aria-expanded="true"] .chev{transform:rotate(90deg)}
+.mtable tr.grp .prov{font-weight:600;max-width:none;color:var(--fg)}
+.gmeta{color:var(--muted);font-weight:400}
+th.sel,td.sel{width:34px;padding-right:0}
+.cb{width:15px;height:15px;margin:0;accent-color:var(--fg);cursor:pointer}
+.grip{display:inline-grid;place-items:center;width:16px;height:24px;color:var(--muted2);cursor:grab;opacity:.5}
+.grip .i{width:14px;height:14px;stroke-width:2.6}
+tr:hover .grip{opacity:1}
+@media (hover:none){.grip{display:none}}
+.nbtn{display:inline-flex;min-width:0;max-width:100%;border:0;background:transparent;padding:0;font:inherit;color:inherit;cursor:pointer;text-align:left}
+.nbtn:hover b{text-decoration:underline;text-underline-offset:2px}
+.dupb{flex:none;font-size:10.5px;font-weight:600;padding:0 6px;border-radius:999px;line-height:16px;color:var(--warn-text);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--amber) 60%,transparent)}
+.dupb.soft{font-weight:500;color:var(--muted);box-shadow:inset 0 0 0 1px var(--line2)} /* 한쪽이 숨김 = 사용자 앱에선 안 겹친다 */
+.src{font-size:10.5px;line-height:16px;padding:0 6px;border-radius:6px;background:var(--chip);color:var(--muted);white-space:nowrap}
+.chip.st-exposed{background:color-mix(in srgb,var(--green) 12%,transparent);color:var(--ok-text);font-weight:600}
+.chip.st-candidate{background:color-mix(in srgb,var(--blue) 12%,transparent);color:var(--info-text);font-weight:600}
+.chip.st-hidden{background:var(--chip);color:var(--muted)}
+.chip.st-missing{background:color-mix(in srgb,var(--amber) 12%,transparent);color:var(--warn-text)}
+.mtable .chip{font-size:11.5px;padding:1px 9px;white-space:nowrap}
+.mtable .hcell{flex-direction:row;align-items:center;flex-wrap:wrap;gap:6px 10px}
+.hcell.wide{gap:6px}
+/* 서랍 */
+.mdrawer h2{display:flex;align-items:center;gap:8px;overflow-wrap:anywhere}
+.mdrawer h2 .pi{width:18px;height:18px}
+.mdrawer .dpart{padding:0 0 14px;border-bottom:1px solid var(--line)}
+.mdrawer .dpart:last-child{border-bottom:0}
+.mdrawer .dpart>h3 .hint{font-weight:400}
+.drow{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;margin:6px 0 0;color:var(--fg2)}
+.drow b{font-weight:600;color:var(--fg)}
+.dord{display:inline-flex;align-items:center;gap:4px;margin-left:auto;color:var(--muted)}
+.dord b{font:600 12px/1 var(--mono);color:var(--fg2);margin-right:2px}
+.dwarn{margin:8px 0 0;padding:8px 10px;border-radius:8px;background:color-mix(in srgb,var(--amber) 10%,transparent);color:var(--warn-text);font-size:12px}
+.dwarn.soft{background:var(--chip);color:var(--fg2)}
+.hcell.wide a.btn{color:var(--fg);text-decoration:none}
+.mdrawer .kv div{grid-template-columns:96px minmax(0,1fr)}
+.mdrawer dd.mono{font:12px/1.5 var(--mono)}
+@media (max-width:760px){
+  .msync{flex-direction:row;align-items:center;flex-wrap:wrap;justify-content:flex-start;flex-basis:100%}
+  .sseg{margin-left:0;overflow-x:auto;max-width:100%}
+  .msearch{flex:1 1 100%}
+}
+/* 좁은 데스크톱 창 (761~1100): 카드는 한 줄 네 칸 그대로(작게) · 동기화 줄은 카드 아래 오른쪽 정렬 한 줄 · 정보 칸은 서랍에만 */
+@media (max-width:1100px){
+  .mtable th.gi,.mtable td.gi{display:none}
+  .mhead{flex-direction:column;align-items:stretch;gap:10px}
+  .mstats{flex:none}
+  .msync{flex-direction:row;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px 12px}
+  .pf .n.on{display:none} /* 노출 수는 툴팁 · 묶음 머리줄에 */
+  .msearch{flex:1 1 130px;min-width:130px}
+  .sseg [role="radio"]{padding:3px 8px}
+}
+@media (min-width:761px) and (max-width:1100px){
+  .stats.mstats{grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+  .mstat{padding:10px 12px 9px}
+  .mstat .v{margin-top:4px;font-size:19px}
+  .mstat .sub{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+}
+@media (prefers-reduced-motion:reduce){.ico.spin,.tgl,.tgl .knob,.bulk,.mstat,.mtable tr.grp .chev{animation:none;transition:none}}
 
 @media (max-width:1020px){
   .stats{grid-template-columns:repeat(2,minmax(0,1fr))}

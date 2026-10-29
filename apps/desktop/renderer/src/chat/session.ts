@@ -1,7 +1,7 @@
 // 대화 상태 = 앱 전체 store (화면 밖). 메뉴를 옮겨도 진행 중인 답은 계속 받고, 진행 상황 화면이 같은 상태를 실시간으로 본다.
 // 대화(thread)마다 하나씩 들고 있고, 서버(conductor SQLite)가 기록의 원본이다 → 다시 열면 GET /api/threads/{id}.
 // 라이브러리 없이 useSyncExternalStore. 상태는 바꿀 때마다 새 객체 (React 가 바뀐 곳만 다시 그린다).
-import { useSyncExternalStore } from 'react';
+import { useMemo, useSyncExternalStore } from 'react';
 import {
   ApiError, getThread, listModels, listSkills, listThreads, listTools, runChat, toSteps, toUsage,
   type AgUiEvent, type Failure, type HistoryAssistant, type Model, type Reasoning, type SkillInfo, type Step, type ThreadSummary, type Usage,
@@ -43,6 +43,7 @@ export type State = {
   pickModel: string | null; // 사용자가 고른 모델 (null = 기본 모델)
   reasoning: Reasoning; // 사용자가 고른 생각 깊이 (모델이 지원할 때만 보낸다)
   modelNotice: string | null; // 고른 모델이 사라져 기본으로 돌아갔을 때 한 줄
+  recentModels: string[]; // 최근 고른 모델 id (새 것이 앞 · 모델 메뉴 '최근 사용')
   tools: Record<string, string>; // 툴 이름 → 화면 이름
   skills: Loadable<SkillInfo>; // 제품 스킬 (스킬 메뉴 · skill:<이름> 단계 이름)
   convs: Record<string, Conv>;
@@ -69,6 +70,21 @@ function writePrefs(s: State) {
     localStorage.setItem(PREF_KEY, JSON.stringify({ model: s.pickModel, reasoning: s.reasoning }));
   } catch {}
 }
+const RECENT_KEY = 'brewai.chat.prefs.recent';
+const RECENT_MAX = 5; // 메뉴엔 목록에 아직 있는 것 3개까지
+function readRecent(): string[] {
+  try {
+    const raw = JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]') as unknown;
+    return Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string').slice(0, RECENT_MAX) : [];
+  } catch {
+    return [];
+  }
+}
+function writeRecent(ids: string[]) {
+  try {
+    localStorage.setItem(RECENT_KEY, JSON.stringify(ids));
+  } catch {}
+}
 
 const prefs = readPrefs();
 let state: State = {
@@ -76,6 +92,7 @@ let state: State = {
   pickModel: prefs.model,
   reasoning: prefs.reasoning,
   modelNotice: null,
+  recentModels: readRecent(),
   tools: {},
   skills: { status: 'loading', list: [], error: null },
   convs: {},
@@ -140,8 +157,10 @@ export function loadModels(): Promise<void> {
 
 export function pickModel(id: string) {
   set((s) => {
-    const next = { ...s, pickModel: id, modelNotice: null };
+    const recentModels = [id, ...s.recentModels.filter((x) => x !== id)].slice(0, RECENT_MAX);
+    const next = { ...s, pickModel: id, modelNotice: null, recentModels };
     writePrefs(next);
+    writeRecent(recentModels);
     return next;
   });
 }
@@ -179,6 +198,25 @@ export function loadSkills(): Promise<void> {
   return skillsLoading;
 }
 export const skillLabels = (s: State): Record<string, string> => Object.fromEntries(s.skills.list.map((k) => [k.name, k.label]));
+// 화면용: 목록이 바뀔 때만 새 객체 (useSession 에 skillLabels 를 바로 주면 매번 새 객체 → 무한 다시 그리기)
+export function useSkillLabels(): Record<string, string> {
+  const list = useSession((s) => s.skills.list);
+  return useMemo(() => Object.fromEntries(list.map((k) => [k.name, k.label])), [list]);
+}
+
+// 같은 표시 이름 (대소문자 · 공백 무시) 의 다른 모델이 목록에 있나 → 화면은 이름 옆에 게이트웨이 id 를 같이 보여 준다
+// (config.yaml 모델과 LiteLLM 관리 화면 모델이 이름이 같을 때 · 모델 메뉴 · 입력창 버튼 · 답 아래 줄 · 진행 상황)
+const labelKey = (s: string) => s.normalize('NFC').toLowerCase().replace(/\s+/g, '');
+export type DupCheck = (m: { id: string; label: string }) => boolean;
+export function dupCheck(list: readonly Model[]): DupCheck {
+  const ids = new Map<string, Set<string>>();
+  for (const m of list) ids.set(labelKey(m.label), (ids.get(labelKey(m.label)) ?? new Set()).add(m.id));
+  return (m) => [...(ids.get(labelKey(m.label)) ?? [])].some((id) => id !== m.id);
+}
+export function useDupCheck(): DupCheck {
+  const list = useSession((s) => s.models.list);
+  return useMemo(() => dupCheck(list), [list]);
+}
 
 // ── 최근 대화 ──
 let threadsLoading: Promise<void> | null = null;

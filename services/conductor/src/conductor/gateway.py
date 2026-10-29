@@ -6,7 +6,7 @@ GatewayCatalogPort.list_models() → GatewayModel 목록. P1 구현 = LiteLLM `G
 from __future__ import annotations
 
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from typing import Any, Protocol
 
 import httpx2
@@ -24,6 +24,8 @@ class GatewayModel:
     supports_function_calling: bool
     supports_vision: bool
     supports_reasoning: bool
+    # 어디서 등록했나 (LiteLLM `/v1/model/info` model_info.db_model): config = config.yaml · ui = 관리 화면(DB) · mixed · None = 모름
+    source: str | None = None
 
     @property
     def is_chat(self) -> bool:
@@ -70,6 +72,20 @@ def parse_model_group(item: dict[str, Any]) -> GatewayModel:
     )
 
 
+def sources_from_model_info(data: Any) -> dict[str, str]:
+    """LiteLLM `/v1/model/info` → {model_name: config | ui | mixed}. 배포(deployment)마다 model_info.db_model 이 있다
+    (1.106.2 proxy_server.get_model_info_with_id: DB 에서 읽은 모델 = True, config.yaml = False).
+    model_name · db_model 만 읽는다 — litellm_params(키 · api_base)는 쳐다보지도 않는다."""
+    seen: dict[str, set[bool]] = {}
+    items = data.get("data") if isinstance(data, dict) else None
+    for d in items if isinstance(items, list) else ():
+        if not isinstance(d, dict) or not isinstance(d.get("model_name"), str):
+            continue
+        info = d.get("model_info") if isinstance(d.get("model_info"), dict) else {}
+        seen.setdefault(d["model_name"], set()).add(info.get("db_model") is True)
+    return {name: ("mixed" if len(v) > 1 else "ui" if True in v else "config") for name, v in seen.items()}
+
+
 def _no_db(res: httpx2.Response) -> bool:
     """LiteLLM config-only 모드(DB 없음)는 틀린 키에 401 대신 400 {"error":{"type":"no_db_connection"}} 을 준다 (1.106.2 확인)."""
     if res.status_code != 400:
@@ -85,10 +101,12 @@ class LiteLLMCatalog:
 
     def __init__(self, base_url: str, api_key: str, *, client: httpx2.AsyncClient | None = None, ttl_s: float = 30.0):
         self._url = f"{base_url.rstrip('/')}/model_group/info"
+        self._info_url = f"{base_url.rstrip('/')}/v1/model/info"
         self._headers = {"Authorization": f"Bearer {api_key}"}
         self._client = client or httpx2.AsyncClient(timeout=httpx2.Timeout(10.0))
         self._ttl_s = ttl_s
         self._cache: tuple[float, list[GatewayModel]] | None = None
+        self._sources_ok: dict[str, str] = {}  # 마지막으로 읽은 출처 — 한 번 못 읽어도 '알 수 없음'으로 깜빡이지 않게
 
     async def list_models(self, *, fresh: bool = False) -> list[GatewayModel]:
         now = time.monotonic()
@@ -106,8 +124,24 @@ class LiteLLMCatalog:
             models = [parse_model_group(item) for item in res.json()["data"]]
         except (ValueError, KeyError, TypeError) as e:
             raise GatewayError("gateway_bad_response") from e
+        sources = await self._sources()
+        if sources is None:
+            sources = self._sources_ok  # 일시 오류 = 지난 값 그대로
+        else:
+            self._sources_ok = sources
+        if sources:
+            models = [replace(m, source=sources.get(m.id)) for m in models]
         self._cache = (now, models)
         return models
+
+    async def _sources(self) -> dict[str, str] | None:
+        """등록 출처는 덤: 못 읽으면(옛 LiteLLM · 권한 · 오류) None → 지난 값 (처음이면 빈 값 = 화면은 '알 수 없음').
+        목록 읽기는 막지 않는다."""
+        try:
+            res = await self._client.get(self._info_url, headers=self._headers)
+            return sources_from_model_info(res.json()) if res.status_code == 200 else None
+        except (httpx2.HTTPError, ValueError):
+            return None
 
     async def aclose(self) -> None:
         await self._client.aclose()
