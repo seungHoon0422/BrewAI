@@ -14,7 +14,8 @@
 - 공유 기억은 **레포에만** 있다. 개인 PC 메모리에만 있는 사실은 HANDOFF.md 나 ADR로 옮긴다.
 - 시작: fetch → 최신 작업 브랜치로 전환 → `git pull --rebase` → `HANDOFF.md` 읽기 → 3줄 상태 보고.
 - 종료: `HANDOFF.md` 갱신 → 커밋 → push. 커밋 안 된 변경을 남긴 채 PC를 떠나지 않는다.
-- PC 이름표: `DESKTOP-GSJ7AIO` = (집/회사 미정) · 두 번째 PC = (첫 /wrap 때 추가)
+- 루틴(/start·/wrap·/slice)과 squash-merge 는 **main 체크아웃**에서. worktree(orca·exp) 브랜치는 push 하지 않는다 → 그 브랜치에 커밋 → main 체크아웃에서 `git merge --squash <브랜치>`(코드면 slice 브랜치로) → /wrap.
+- PC 이름표: `DESKTOP-GSJ7AIO` (Windows) = **집** · `baegseunghun-ui-MacBookPro-2.local` (macOS) = **회사**
 - Codex: 슬래시 명령이 없다 → `.claude/skills/<이름>/SKILL.md` 를 읽고 그 단계대로 수행한다.
 
 ## 제품 경계 (어기면 안 되는 것)
@@ -27,7 +28,7 @@
 ## 개발 원칙
 - 직접 만드는 건 **conductor 코어 4개**뿐: ① 능력 찾기·설치 ② 승인·정책 ③ Skill 작성·저장소(격리 → 테스트 → 승인) ④ 팀 구성(서브에이전트 자동 편성 + 활동 이벤트).
   실행 루프는 Pydantic AI를 빌려 adapter 1파일에 격리. 게이트웨이·관측·레지스트리·UI 규격·UI 부품은 기성품·표준.
-- E2E = Playwright(`e2e/`, TypeScript). projects `web` · `admin` · `desktop`. 금요일 데모 스크립트는 Playwright 스펙으로 만든다. E2E에서 게이트웨이는 mock.
+- E2E = Playwright(`e2e/`, TypeScript). projects `web` · `admin` · `desktop`. **기능 개발이 끝난 시점에** 돌린다 = 금요일 데모 스크립트(Playwright 스펙). E2E에서 게이트웨이는 mock.
 - 슬라이스는 끝까지 관통하는 얇은 수직 조각: 채팅 → conductor → gateway → tool → trace.
 - 모든 LLM·툴·에이전트 호출은 OpenTelemetry GenAI span을 남긴다 (semconv 버전 고정).
 - eval: P1은 골든 1 + 제약 2(무승인 실행·비밀 노출). P3까지 제약 5개로. 이후는 금요일 trace에서 찾은 실패만 추가.
@@ -38,7 +39,7 @@
 ## 사이클 (1주)
 - 월 `/slice` → `docs/slices/NN-이름.md` 1쪽 + `slice/NN-이름` 브랜치
 - 화~목 구현. 한 세션 = 기능 하나. 목요일 밤까지 데모가 안 되면 기간 대신 범위를 자른다.
-- 금 데모 → trace 20~50개 훑어 실패만 `evals/cases/` 에 추가 → squash-merge → `docs/roadmap.json` passes 갱신 → `/report`
+- 금 데모 → trace 20~50개 훑어 실패만 `evals/cases/` 에 추가 → eval CI green 확인 → squash-merge → `docs/roadmap.json` passes 갱신 → `/report`
 - 4주마다 반나절 cool-down: 규칙 파일 다이어트 · 의존성 업그레이드(게시 7일 지난 버전만) · `docs/ideas.md` 정리
 
 ## Git
@@ -54,4 +55,5 @@
 
 ## 공급망
 - 의존성은 `uv.lock` + 정확한 버전 고정 + 해시. LiteLLM 1.82.7 · 1.82.8 · 1.107.0 은 악성 배포 이력 → 금지.
+- GitHub Actions 는 전체 커밋 SHA 로 고정. npm 은 `package-lock.json` + `npm ci` + 정확한 버전. 도구(uv·Node)·의존성·액션 모두 게시 7일 지난 버전만 (보안 패치는 ADR-0002 대로 즉시, 사람 승인).
 - 에이전트가 설치하는 MCP 서버·Skill 은 버전·해시 고정 + 허용 목록 + 사람 승인.
