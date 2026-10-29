@@ -71,6 +71,15 @@ const PATHS = {
   ),
   external: <path d="M13.5 4.5h6v6M19.5 4.5 11 13M17.5 13.5v4a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2h4" />,
   plus: <path d="M12 6v12M6 12h12" />,
+  up: <path d="M12 19.5v-15M7 9.5l5-5 5 5" />,
+  close: <path d="M6.5 6.5l11 11M17.5 6.5l-11 11" />,
+  pen: (
+    <>
+      <path d="M4.5 19.5h4l10.2-10.2a2.1 2.1 0 0 0-3-3L5.5 16.5z" />
+      <path d="m14.5 7.5 2 2" />
+    </>
+  ),
+  refresh: <path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4.5v4h-4" />,
 } satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof PATHS;

@@ -1,15 +1,6 @@
 // 예시 데이터 — 화면 모양을 보이려고 넣은 가짜 항목. 화면에도 '예시' 로 표시한다.
-// 대화 기록·카탈로그가 연결되면 이 파일을 지운다.
+// 프로젝트·카탈로그가 연결되면 이 파일을 지운다. (최근 대화는 conductor 기록으로 바뀌었다)
 import type { IconName } from './icons';
-
-export const SAMPLE_RECENTS: readonly { title: string; project: string; unread?: boolean }[] = [
-  { title: '주간 보고서 초안', project: '업무', unread: true },
-  { title: '견적 메일 답장', project: '업무' },
-  { title: '여행 일정 정리', project: '개인', unread: true },
-  { title: '발표 자료 다듬기', project: '업무' },
-  { title: '가계부 분류', project: '개인' },
-  { title: '이사 체크리스트', project: '개인' },
-];
 
 export const SAMPLE_PROJECTS: readonly string[] = ['개인', '업무', '사이드 프로젝트'];
 

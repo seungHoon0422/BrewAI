@@ -1,6 +1,8 @@
 // 설정 — 테마(시스템 따름) · 기본 모델(허용된 모델만) · 앱 정보
 import { useSyncExternalStore } from 'react';
-import { Icon } from '../icons';
+import { ProviderIcon, providerLabel } from '../providers';
+import { effectiveModel, effectiveReasoning, useSession } from '../chat/session';
+import { reasoningLabel } from '../chat/text';
 import { Page, Section } from './Page';
 
 const dark = matchMedia('(prefers-color-scheme: dark)');
@@ -20,6 +22,9 @@ function runtime() {
 
 export function Settings() {
   const isDark = useSyncExternalStore(onScheme, () => dark.matches);
+  const model = useSession(effectiveModel);
+  const reasoning = useSession(effectiveReasoning);
+  const models = useSession((s) => s.models.status);
   return (
     <Page id="settings" sub="이 기기의 BrewAI 설정이에요.">
       <Section title="일반">
@@ -37,12 +42,24 @@ export function Settings() {
         <ul className="rows">
           <li className="row">
             <span className="row-main">
-              <b>기본 모델</b>
-              <span className="row-sub">허용된 모델 중에서만 고를 수 있어요</span>
+              <b>지금 쓰는 모델</b>
+              <span className="row-sub">대화 입력창의 모델 버튼에서 바꿔요 · 허용된 모델만 보여요</span>
             </span>
-            <button className="select" type="button" disabled title="서버 연결 후 고를 수 있어요">
-              서버 연결 후<Icon name="down" small />
-            </button>
+            {model ? (
+              <span className="val mval" title={`${providerLabel(model.provider, model.provider_label)} · ${model.id}`}>
+                <ProviderIcon provider={model.provider} />
+                <span className="ell">{model.label}</span>
+              </span>
+            ) : (
+              <span className="val">{models === 'loading' ? '불러오는 중…' : '서버 연결 후'}</span>
+            )}
+          </li>
+          <li className="row">
+            <span className="row-main">
+              <b>생각 깊이</b>
+              <span className="row-sub">생각을 지원하는 모델에만 적용돼요</span>
+            </span>
+            <span className="val">{reasoningLabel(reasoning)}</span>
           </li>
         </ul>
       </Section>

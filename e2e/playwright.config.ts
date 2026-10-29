@@ -18,7 +18,7 @@ export default defineConfig({
   use: { trace: 'retain-on-failure' },
   globalSetup: './global-setup.ts',
   projects: [
-    { name: 'desktop', testMatch: /(desktop|chat)\.spec\.ts/ },
+    { name: 'desktop', testMatch: /(desktop|chat(-[a-z]+)?)\.spec\.ts/ }, // chat-agent = 모델 · 생각 · 도구 · 기록 · 진행 상황
     { name: 'admin', testMatch: /admin(-models)?\.spec\.ts/, use: { ...browser, baseURL: ADMIN_URL } },
     { name: 'web', testMatch: 'web.spec.ts', use: browser },
   ],
@@ -46,6 +46,11 @@ export default defineConfig({
         // 셸에 export 된 개발용 값이 E2E 를 바꾸지 않게 고정 (빈 값 = 쓰지 않음)
         CONDUCTOR_PORT: new URL(API).port,
         CONDUCTOR_DEFAULT_MODEL: '',
+        // 모델 노출 · 대화 기록 DB = 메모리 (E2E 마다 새로 · 개발용 .data/ 를 건드리지 않음)
+        CONDUCTOR_DB_PATH: ':memory:',
+        // 첫 동기화 때 노출할 모델 (실제 기본값은 키 없는 brewai-mock). mock 의 채팅 모델 둘 = 노출, fake-embed = 숨김
+        CONDUCTOR_BOOTSTRAP_MODELS: 'fake-chat-small,fake-chat-large',
+        LLM_GATEWAY_UI_URL: '',
         CONDUCTOR_DESKTOP_ORIGINS: 'app://brewai',
         BREWAI_ENV_FILE: '',
         LLM_GATEWAY_URL: GATEWAY,

@@ -40,6 +40,13 @@ a{color:inherit;text-decoration:none;-webkit-user-drag:none}
 :focus-visible{outline:2px solid var(--blue);outline-offset:2px}
 .i{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
 .i.s{width:14px;height:14px}
+/* 모델 회사 아이콘 (providers.tsx): 채운 마크 + 선 아이콘. 색 = currentColor */
+.pi{width:16px;height:16px;flex:none;fill:currentColor;color:var(--fg2)}
+.pi.l{width:20px;height:20px}
+.pi.line{fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.pi.none{opacity:.55}
+.ell{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sr{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .ib{width:28px;height:28px;display:grid;place-items:center;border:0;background:transparent;color:var(--muted);border-radius:8px;cursor:pointer;padding:0}
 .ib:hover{background:var(--hover);color:var(--fg)}
 .ib:disabled{background:transparent;color:var(--muted);opacity:.45;cursor:default}
@@ -72,7 +79,15 @@ a{color:inherit;text-decoration:none;-webkit-user-drag:none}
 .row-btn:hover{background:var(--hover)}
 .label{display:flex;align-items:center;font-size:12px;color:var(--muted);margin:24px 8px 6px;white-space:nowrap}
 .list{list-style:none;margin:0;padding:0}
-.item{display:flex;align-items:center;gap:6px;width:100%;padding:7px 8px;border-radius:8px;min-width:0;color:var(--fg2)}
+.item{display:flex;align-items:center;gap:6px;width:100%;border:0;background:transparent;text-align:left;padding:7px 8px;border-radius:8px;min-width:0;color:var(--fg2)}
+button.item{cursor:pointer}
+button.item:hover{background:var(--hover)}
+.item.on{background:var(--active);color:var(--fg)}
+.item:focus-visible{outline-offset:-2px}
+.item .spin{width:10px;height:10px;border:1.5px solid var(--line2);border-top-color:var(--blue);border-radius:50%;margin-left:auto;flex:none;animation:spin .8s linear infinite}
+.item.more{color:var(--muted)}
+.item.muted{color:var(--muted);font-size:12.5px;cursor:default}
+.link{border:0;background:transparent;padding:0;margin-left:auto;color:var(--info-text);font-size:12.5px;cursor:pointer;flex:none}
 .item .t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .item .tag{color:var(--muted2);white-space:nowrap;flex:none;font-size:12.5px}
 .item .udot{width:6px;height:6px;border-radius:50%;background:var(--blue);margin-left:auto;flex:none}
@@ -113,12 +128,41 @@ textarea:focus-visible{outline:0} /* 포커스 표시는 .box:focus-within 테�
 textarea::placeholder{color:var(--muted2)}
 .ctrl{display:flex;align-items:center;gap:4px;margin-top:4px}
 .ctrl .grow{flex:1}
-.model{display:inline-flex;align-items:center;gap:5px;border:0;background:transparent;color:var(--fg2);font-size:12.5px;padding:5px 8px;border-radius:8px;cursor:pointer}
-.model:hover{background:var(--hover)}
+.model{display:inline-flex;align-items:center;gap:5px;border:0;background:transparent;color:var(--fg2);font-size:12.5px;padding:5px 8px;border-radius:8px;cursor:pointer;min-width:0;max-width:260px}
+.model:hover,.model[aria-expanded="true"]{background:var(--hover)}
 .model:disabled{background:transparent;opacity:.6;cursor:default}
 .model .i{width:13px;height:13px;color:var(--muted)}
+.model .pi{width:14px;height:14px;color:var(--fg2)}
+.model .nm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.model .eff{color:var(--muted);white-space:nowrap}
+.model:focus-visible{outline-offset:-2px}
+
+/* 모델 메뉴 — prototype .menu (회사별 묶음 · 생각 깊이 · 안내 한 줄) */
+.mpick{position:relative;display:inline-flex;min-width:0}
+.menu{position:absolute;right:-40px;bottom:calc(100% + 10px);width:288px;max-height:min(480px,calc(100vh - 140px));overflow:auto;background:var(--bg);border:1px solid var(--line2);border-radius:12px;box-shadow:var(--shadow);padding:6px;z-index:10;animation:fade .14s ease-out;scrollbar-width:thin}
+.menu:focus{outline:0}
+.menu h6{display:flex;align-items:center;gap:6px;margin:6px 8px 4px;font-size:11px;color:var(--muted);font-weight:600}
+.menu h6 .pi{width:13px;height:13px;color:var(--muted)}
+.menu h6:not(:first-child){margin-top:10px}
+.menu [role="menuitemradio"]{display:flex;width:100%;justify-content:space-between;align-items:center;gap:8px;border:0;background:transparent;padding:6px 8px;border-radius:7px;cursor:pointer;text-align:left;color:var(--fg);min-width:0}
+.menu [role="menuitemradio"]:hover,.menu [role="menuitemradio"]:focus-visible{background:var(--hover);outline:0}
+.menu [role="menuitemradio"][aria-disabled="true"]{color:var(--muted2);cursor:default;background:transparent}
+.menu .lbl{display:flex;align-items:baseline;min-width:0;gap:6px}
+.menu .lbl .nm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.menu .sub{color:var(--muted);font-size:11.5px;white-space:nowrap;flex:none}
+.menu [aria-disabled="true"] .sub{color:var(--muted2)}
+.menu .chk{visibility:hidden;color:var(--fg);display:grid;place-items:center;flex:none}
+.menu [aria-checked="true"] .chk{visibility:visible}
+.menu [aria-disabled="true"][aria-checked="true"] .chk{color:var(--muted2)}
+.menu .foot{font-size:11px;color:var(--muted);padding:7px 8px 3px;border-top:1px solid var(--line);margin-top:4px}
+.mstate{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0;padding:10px 8px;color:var(--muted);font-size:12.5px}
+.mnote{margin:2px 8px 4px;font-size:11.5px;color:var(--muted)}
+.mnotice{position:absolute;right:0;bottom:calc(100% + 8px);width:max-content;max-width:300px;padding:6px 10px;border-radius:9px;background:var(--black);color:var(--on-black);font-size:12px;box-shadow:var(--shadow);animation:fade .2s ease-out;z-index:9}
+.btn.sm{padding:3px 10px;font-size:12px}
+.btn .i{width:13px;height:13px}
 .send{width:32px;height:32px;border-radius:50%;border:0;background:var(--black);color:var(--on-black);display:grid;place-items:center;cursor:pointer;margin-left:2px}
 .send:disabled{opacity:.85;cursor:default}
+.send.stop .i{width:14px;height:14px;fill:currentColor;stroke-width:0}
 .send .i{stroke-width:2.1}
 
 /* thread — prototype .thread/.conv/.msgs/.msg. 진행 상황 패널(320px)은 툴이 생기는 slice 03 에서 둘째 칸으로 */
@@ -132,9 +176,66 @@ textarea::placeholder{color:var(--muted2)}
 .msg{margin:0 0 16px}
 .msg.user{display:flex;justify-content:flex-end}
 .msg.user .bubble{background:var(--chip);padding:8px 13px;border-radius:14px;max-width:75%;white-space:pre-wrap;overflow-wrap:anywhere}
-.msg.agent{font-size:13.5px;line-height:1.65;white-space:pre-wrap;overflow-wrap:anywhere}
+.msg.agent{font-size:13.5px;line-height:1.65;overflow-wrap:anywhere}
+.msg.agent .txt{white-space:pre-wrap}
+.msg.agent .txt+.txt,.msg.agent .tcard+.txt,.msg.agent .think+.txt{margin-top:8px}
 .msg.fail{display:flex;align-items:center;gap:12px;color:var(--fg2)}
 .msg.fail::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--red);flex:none}
+.msg.note{display:flex;align-items:center;gap:8px;margin:-8px 0 16px;color:var(--muted);font-size:12.5px}
+
+/* 생각 블록 — 흐르는 동안 펼침, 끝나면 접힘 */
+.think{margin:0 0 6px}
+.think-head{display:inline-flex;align-items:center;gap:6px;border:0;background:transparent;color:var(--muted);font-size:12.5px;line-height:1.5;padding:3px 8px 3px 4px;margin-left:-4px;border-radius:7px;cursor:pointer}
+.think-head:hover{color:var(--fg);background:var(--hover)}
+.think-head .i{width:14px;height:14px;stroke-width:1.7}
+.think-head .tm{color:var(--muted2);font-variant-numeric:tabular-nums}
+.chev{display:inline-grid;place-items:center;transition:transform .15s}
+.chev .i{width:12px;height:12px}
+[aria-expanded="true"]>.chev{transform:rotate(180deg)}
+.think[data-live="true"] .think-head{color:var(--fg2)}
+.think-body{margin:2px 0 8px 3px;padding:2px 0 2px 13px;border-left:2px solid var(--line2);color:var(--muted);font-size:12.5px;line-height:1.6;white-space:pre-wrap;max-height:240px;overflow:auto;scrollbar-width:thin}
+.think-body[hidden]{display:none}
+
+/* 도구 카드 — prototype .card 결 (작게) */
+.tcard{border:1px solid var(--line);border-radius:12px;padding:10px 14px 11px;margin:6px 0 8px;background:var(--bg);font-size:12.5px;line-height:1.5}
+.tcard .th{display:flex;align-items:center;gap:8px;min-width:0}
+.tcard .th b{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ttile{width:22px;height:22px;border-radius:7px;background:var(--chip);color:var(--fg2);display:grid;place-items:center;flex:none}
+.ttile .i{width:13px;height:13px}
+.tcard .tst{margin-left:auto;display:inline-flex;align-items:center;gap:5px;color:var(--muted);font-size:11.5px;white-space:nowrap}
+.tcard .tst .tm{color:var(--muted2);font-variant-numeric:tabular-nums}
+.tcard[data-state="done"] .tst{color:var(--ok-text)}
+.tcard[data-state="done"] .tst .i{stroke-width:2.2}
+.tcard[data-state="error"] .tst{color:var(--red)}
+.tcard dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:3px 14px;margin:8px 0 0 30px}
+.tcard dl div{display:contents}
+.tcard dt{color:var(--muted)}
+.tcard dd{margin:0;color:var(--fg);overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.tcard dd.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}
+.tcard .err dd{color:var(--red)}
+
+/* 상태 줄 — prototype .act (지금 하는 일 · 걸린 시간) + 답한 모델 */
+.afoot{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;margin-top:10px;white-space:normal}
+.act{display:inline-flex;align-items:center;gap:7px;color:var(--fg2);font-size:12.5px;line-height:1.4;padding:5px 9px 5px 11px;border:1px solid var(--line2);border-radius:999px;cursor:pointer;background:var(--bg)}
+.act:hover{background:var(--hover)}
+.act .d{width:7px;height:7px;border-radius:50%;background:var(--amber);animation:pulse 1.2s infinite;flex:none}
+.act.done .d{background:var(--green);animation:none}
+.act.stop .d{background:var(--muted2);animation:none}
+.act .tm{color:var(--muted);font-variant-numeric:tabular-nums}
+.by{display:inline-flex;align-items:center;gap:6px;min-width:0;max-width:100%;color:var(--muted);font-size:12px}
+.by .pi{width:14px;height:14px;color:var(--muted)}
+.by .nm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.by .x{white-space:nowrap}
+.asteps{list-style:none;margin:8px 0 0;padding:8px 12px;border:1px solid var(--line);border-radius:12px;display:grid;gap:4px;font-size:12px;color:var(--fg2);max-width:360px;animation:fade .18s ease-out}
+.asteps li{display:flex;align-items:center;gap:8px}
+.asteps .nm{flex:1;min-width:0}
+.asteps .tm{color:var(--muted);font-variant-numeric:tabular-nums}
+.asteps .none{color:var(--muted)}
+.asteps .dot,.chain .dot,.run-live>.dot,.runs .dot{width:7px;height:7px}
+:is(.asteps,.chain) li[data-state=run] .dot{background:var(--amber);animation:pulse 1.2s infinite}
+:is(.asteps,.chain) li[data-state=ok] .dot{background:var(--green)}
+:is(.asteps,.chain) li[data-state=fail] .dot{background:var(--red)}
+:is(.asteps,.chain) li[data-state=stop] .dot{background:var(--muted2)}
 .waittext{display:inline-flex;align-items:center;gap:8px;color:var(--muted);font-size:12.5px}
 .spin12{width:12px;height:12px;border:1.5px solid var(--line2);border-top-color:var(--blue);border-radius:50%;animation:spin .8s linear infinite;flex:none}
 .enter{animation:fade .28s ease-out}
@@ -202,6 +303,25 @@ textarea::placeholder{color:var(--muted2)}
 .steps .gate .num{background:color-mix(in srgb,var(--blue) 12%,transparent);color:var(--info-text)}
 .steps b{font-weight:600}
 .steps span:last-child{color:var(--muted);font-size:12px;text-wrap:pretty} /* 좁은 창에서 마지막 줄에 한 단어만 남지 않게 */
+
+/* 진행 상황 — 지금 하는 일 · 최근 실행 */
+.rows.live,.rows.runs{overflow:hidden}
+.rows.live .row,.rows.runs .row{align-items:flex-start}
+.rows.live .row>.dot,.rows.runs .row>.dot{margin-top:7px}
+.row-link{display:flex;max-width:100%;border:0;background:transparent;padding:0;color:inherit;text-align:left;cursor:pointer;min-width:0}
+.row-link:hover b{text-decoration:underline;text-underline-offset:2px}
+.row-main b.ell{display:block}
+.row-sub .doing{color:var(--fg2)}
+.chain{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;font-size:12px;color:var(--fg2)}
+.chain li{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.chain .tm{color:var(--muted);font-variant-numeric:tabular-nums}
+.chain .arr{color:var(--muted2);display:inline-grid}
+.chain .arr .i{width:11px;height:11px}
+.mtag{display:inline-flex;align-items:center;gap:6px;min-width:0;max-width:200px;flex:none;color:var(--muted);font-size:12px;margin-top:2px}
+.mtag .pi{color:var(--fg2)}
+.run-live{background:color-mix(in srgb,var(--amber) 5%,transparent)}
+.rows-state{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;margin:0;padding:14px 16px;border:1px solid var(--line);border-radius:16px;color:var(--muted)}
+.mval{display:inline-flex;align-items:center;gap:6px;min-width:0;max-width:240px}
 
 @keyframes fade{from{opacity:0;transform:translateY(4px)}}
 @keyframes pulse{50%{opacity:.35}}

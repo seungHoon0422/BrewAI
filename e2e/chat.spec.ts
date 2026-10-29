@@ -20,7 +20,7 @@ async function launch(apiUrl: string) {
 
 const ui = (win: Page) => ({
   box: win.getByRole('textbox', { name: '요청 입력' }),
-  send: win.getByRole('button', { name: '보내기' }),
+  send: win.getByRole('button', { name: '보내기', exact: true }), // exact: 사이드바 최근(대화 제목)과 안 겹치게
   log: win.getByRole('log', { name: '대화 내용' }),
   model: win.locator('.composer .model'),
 });
@@ -71,7 +71,8 @@ test.describe('conductor 켜짐', () => {
     await ask(win, '두 번째');
     const { log } = ui(win);
     await expect(log.locator('.msg.user')).toHaveText(['E2E 안녕', '두 번째']);
-    await expect(log.locator('.msg.agent').last()).toContainText('받은 질문: 두 번째', { timeout: 15_000 });
+    // 멀티턴: conductor 가 저장한 앞 대화를 모델에 준다 → mock 답 끝에 앞 질문
+    await expect(log.locator('.msg.agent').last()).toContainText('받은 질문: 두 번째 · 이전 질문: E2E 안녕', { timeout: 15_000 });
   });
 
   test('게이트웨이 오류는 안내 + 다시 시도', async () => {

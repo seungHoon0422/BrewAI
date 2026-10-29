@@ -1,10 +1,14 @@
 // 대화 — 프로토타입 홈(마크 · 제목 · 제안 3줄 · 입력창) → 보내면 대화 화면(.thread: 제목 줄 · 메시지 · 아래 입력창).
-// 글은 conductor 에서 조각으로 흘러 들어온다 (AG-UI TEXT_MESSAGE_CONTENT). 툴·승인 카드·진행 상황 패널은 slice 03 부터.
-// '새 대화' = App 이 key 를 바꿔 이 화면을 새로 만든다 → 상태가 비고, 진행 중인 요청은 unmount 에서 끊는다.
-import { useEffect, useRef, useState, type KeyboardEvent, type RefObject } from 'react';
-import { ApiError, listModels, runChat, type Failure, type Model, type Turn } from '../api';
+// 상태는 chat/session.ts (앱 전체 store): 메뉴를 옮겨도 답은 계속 받고, 진행 상황 화면이 같은 실행을 본다.
+// 답 = 생각 블록 · 도구 카드 · 글 + 상태 줄 (chat/Answer.tsx). 모델 · 생각 깊이 = 입력창 모델 버튼 (chat/ModelPicker.tsx).
+// App 이 대화가 바뀔 때마다 key 를 바꿔 이 화면을 새로 만든다 → 입력 중인 글이 비고 입력창에 포커스.
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from 'react';
 import { Icon, Mark, type IconName } from '../icons';
 import { href } from '../menu';
+import { AnswerView } from '../chat/Answer';
+import { ModelPicker } from '../chat/ModelPicker';
+import { FAILURE_TEXT } from '../chat/text';
+import { convBusy, reloadThread, send, stop, useSession, type Conv } from '../chat/session';
 
 const SUGGESTIONS: readonly { icon: IconName; text: string; prompt: string; need?: string }[] = [
   { icon: 'mail', text: "'견적 요청' 메일에 답장 초안 쓰기", prompt: "'견적 요청' 메일에 답장 초안 써줘", need: '연결 필요' },
@@ -13,91 +17,31 @@ const SUGGESTIONS: readonly { icon: IconName; text: string; prompt: string; need
 ];
 const PH_HOME = '예: 이번 주 메일에서 할 일만 뽑아줘';
 const PH_THREAD = '이어서 요청하거나 질문하세요';
-
-const FAILURE_TEXT: Record<Failure, string> = {
-  offline: '서버에 연결할 수 없어요',
-  gateway: '모델에 연결하지 못했어요. 잠시 뒤 다시 시도해 주세요',
-  config: '이 모델을 지금 쓸 수 없어요. 관리자에게 알려 주세요',
-  no_models: '쓸 수 있는 모델이 없어요. 관리자에게 알려 주세요',
-  cut: '답이 중간에 끊겼어요',
-  server: '답을 받지 못했어요',
-};
-
-type Status = 'idle' | 'waiting' | 'streaming' | 'failed';
+const PH_LOADING = '대화 기록을 불러오는 중이에요';
 
 export function Chat() {
+  const conv = useSession((s) => (s.current ? s.convs[s.current] : undefined));
+  const busy = useSession((s) => convBusy(s, s.current));
   const [text, setText] = useState('');
-  const [turns, setTurns] = useState<Turn[]>([]);
-  const [status, setStatus] = useState<Status>('idle');
-  const [failure, setFailure] = useState<Failure | null>(null);
-  const [model, setModel] = useState<Model | null>(null);
-  const [modelErr, setModelErr] = useState(false);
   const input = useRef<HTMLTextAreaElement>(null);
-  const run = useRef<AbortController | null>(null);
-  const thread = useRef(crypto.randomUUID());
-  const busy = status === 'waiting' || status === 'streaming';
-  const canSend = text.trim() !== '' && !busy;
+  const loading = conv?.load === 'loading';
+  const canSend = text.trim() !== '' && !busy && !loading;
 
-  useEffect(() => input.current?.focus(), [turns.length === 0]);
+  useEffect(() => input.current?.focus(), []);
 
-  // 기본 모델 = /api/models 첫 항목. 실패하면 '기본 모델' 그대로 두고 보낼 때 서버가 고른다
-  useEffect(() => {
-    const ctrl = new AbortController();
-    listModels(ctrl.signal).then(
-      (ms) => setModel(ms[0] ?? null),
-      (e) => { if ((e as Error).name !== 'AbortError') setModelErr(true); },
-    );
-    return () => ctrl.abort();
-  }, []);
-
-  useEffect(() => () => run.current?.abort(), []); // 새 대화 · 메뉴 이동 = 진행 중인 답 끊기
-
-  const start = (history: Turn[]) => {
-    const ctrl = new AbortController();
-    run.current = ctrl;
-    const answer: Turn = { id: crypto.randomUUID(), role: 'assistant', content: '' };
-    setTurns([...history, answer]);
-    setStatus('waiting');
-    setFailure(null);
-    runChat({
-      threadId: thread.current,
-      turns: history,
-      model: model?.id,
-      signal: ctrl.signal,
-      onDelta: (d) => {
-        setStatus('streaming');
-        setTurns((ts) => ts.map((t) => (t.id === answer.id ? { ...t, content: t.content + d } : t)));
-      },
-    }).then(
-      () => setStatus('idle'),
-      (e) => {
-        if ((e as Error).name === 'AbortError') return;
-        setFailure(e instanceof ApiError ? e.kind : 'server');
-        setStatus('failed');
-        // 받은 글이 없으면 빈 답 칸은 지운다 (다시 시도 = 같은 질문을 다시 보낸다)
-        setTurns((ts) => ts.filter((t) => t.id !== answer.id || t.content !== ''));
-      },
-    );
-  };
-
-  const send = () => {
+  const onSend = () => {
     if (!canSend) return;
-    const ask: Turn = { id: crypto.randomUUID(), role: 'user', content: text.trim() };
-    setText('');
-    start([...turns.filter((t) => t.content !== ''), ask]);
-  };
-  // 마지막 사용자 질문까지 남기고 다시 보낸다 (끊긴 답 조각은 버린다)
-  const retry = () => {
-    const last = turns.map((t) => t.role).lastIndexOf('user');
-    if (last >= 0) start(turns.slice(0, last + 1));
+    if (send(text)) setText('');
+    input.current?.focus();
   };
 
   const composer = (
-    <Composer input={input} text={text} onText={setText} onSend={send} canSend={canSend}
-      placeholder={turns.length ? PH_THREAD : PH_HOME} model={model} modelErr={modelErr} />
+    <Composer input={input} text={text} onText={setText} onSend={onSend} canSend={canSend}
+      busy={busy} onStop={() => conv && stop(conv.id)}
+      placeholder={loading ? PH_LOADING : conv?.turns.length ? PH_THREAD : PH_HOME} />
   );
 
-  if (turns.length === 0) {
+  if (!conv) {
     return (
       <section className="view home">
         <div className="hero">
@@ -122,50 +66,50 @@ export function Chat() {
     );
   }
 
-  const title = turns.find((t) => t.role === 'user')?.content ?? '새 대화';
   return (
     <section className="view thread">
       <div className="conv">
         <div className="conv-head">
-          <h1 className="t">{title}</h1>
+          <h1 className="t" title={conv.title}>{conv.title}</h1>
         </div>
-        <Messages turns={turns} status={status} failure={failure} onRetry={retry} />
+        <Messages conv={conv} />
         <div className="dock2"><div className="col">{composer}</div></div>
       </div>
     </section>
   );
 }
 
-function Messages({ turns, status, failure, onRetry }: {
-  turns: Turn[];
-  status: Status;
-  failure: Failure | null;
-  onRetry: () => void;
-}) {
+function Messages({ conv }: { conv: Conv }) {
   const box = useRef<HTMLDivElement>(null);
-  const last = turns[turns.length - 1];
-  useEffect(() => {
+  const stick = useRef(true); // 맨 아래를 보고 있으면 새 글을 따라 내려간다 (위로 올려 읽는 중이면 그대로)
+  const turns = conv.turns.length;
+  useLayoutEffect(() => {
     const el = box.current;
-    if (el) el.scrollTop = el.scrollHeight; // 프로토타입 scrollDown()
-  }, [turns, status]);
+    if (el && stick.current) el.scrollTop = el.scrollHeight;
+  });
+  useLayoutEffect(() => {
+    stick.current = true; // 새 질문 = 아래로
+  }, [turns]);
+  const onScroll = () => {
+    const el = box.current;
+    if (el) stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+  };
   return (
-    <div className="msgs" ref={box}>
+    <div className="msgs" ref={box} onScroll={onScroll}>
       <div className="col" role="log" aria-label="대화 내용" aria-live="polite">
-        {turns.map((t) =>
-          t.role === 'user' ? (
-            <div key={t.id} className="msg user enter"><div className="bubble">{t.content}</div></div>
-          ) : (
-            <div key={t.id} className="msg agent enter" aria-busy={t === last && (status === 'waiting' || status === 'streaming')}>
-              {t.content || (status === 'waiting' && t === last && (
-                <span className="waittext"><span className="spin12" aria-hidden="true" />생각하는 중</span>
-              ))}
-            </div>
-          ),
+        {conv.turns.map((t, i) => (
+          <div key={t.id} className="turn">
+            <div className="msg user enter"><div className="bubble">{t.ask}</div></div>
+            <AnswerView turn={t} latest={i === conv.turns.length - 1} threadId={conv.id} />
+          </div>
+        ))}
+        {conv.load === 'loading' && (
+          <p className="msg note"><span className="spin12" aria-hidden="true" />대화 기록을 불러오는 중…</p>
         )}
-        {status === 'failed' && failure && (
-          <div className="msg agent fail enter" role="alert">
-            <span>{FAILURE_TEXT[failure]}</span>
-            <button className="btn" type="button" onClick={onRetry}>다시 시도</button>
+        {conv.load === 'error' && conv.loadError && (
+          <div className="msg agent fail" role="alert">
+            <span>{conv.loadError === 'not_found' ? '대화를 찾지 못했어요. 지워졌을 수 있어요' : `대화 기록을 불러오지 못했어요 · ${FAILURE_TEXT[conv.loadError]}`}</span>
+            {conv.loadError !== 'not_found' && <button className="btn" type="button" onClick={() => reloadThread(conv.id)}>다시 시도</button>}
           </div>
         )}
       </div>
@@ -173,15 +117,15 @@ function Messages({ turns, status, failure, onRetry }: {
   );
 }
 
-function Composer({ input, text, onText, onSend, canSend, placeholder, model, modelErr }: {
+function Composer({ input, text, onText, onSend, canSend, busy, onStop, placeholder }: {
   input: RefObject<HTMLTextAreaElement | null>;
   text: string;
   onText: (v: string) => void;
   onSend: () => void;
   canSend: boolean;
+  busy: boolean;
+  onStop: () => void;
   placeholder: string;
-  model: Model | null;
-  modelErr: boolean;
 }) {
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     // 한글 조합 중 Enter 는 글자 확정이라 보내지 않는다
@@ -208,16 +152,19 @@ function Composer({ input, text, onText, onSend, canSend, placeholder, model, mo
             <Icon name="plus" />
           </button>
           <span className="grow" />
-          <button className="model" type="button" disabled
-            title={modelErr ? '서버에 연결할 수 없어요' : '허용된 모델만 보여요 · 고르기는 준비 중'}>
-            {model?.label ?? '기본 모델'}<Icon name="down" />
-          </button>
+          <ModelPicker />
           <button className="ib" type="button" aria-label="음성 입력" title="음성 입력 · 준비 중" disabled>
             <Icon name="mic" />
           </button>
-          <button className="send" type="button" aria-label="보내기" title="보내기" disabled={!canSend} onClick={onSend}>
-            <Icon name="up" />
-          </button>
+          {busy ? (
+            <button className="send stop" type="button" aria-label="멈추기" title="멈추기" onClick={onStop}>
+              <Icon name="stop" />
+            </button>
+          ) : (
+            <button className="send" type="button" aria-label="보내기" title="보내기" disabled={!canSend} onClick={onSend}>
+              <Icon name="up" />
+            </button>
+          )}
         </div>
       </div>
     </div>

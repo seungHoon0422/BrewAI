@@ -28,10 +28,20 @@ function gatewayStats(g: Gateway): Stat[] {
       { label: '노출 모델', value: '—', sub: '게이트웨이 연결 후', icon: 'cube' },
     ];
   }
-  const shown = g.rows.filter((r) => r.exposed).length;
+  // 게이트웨이에 지금 있는 모델만 센다 (사라진 모델은 따로)
+  const present = g.rows.filter((r) => r.status === 'present');
+  const shown = present.filter((r) => r.state === 'exposed').length;
+  const candidates = present.filter((r) => r.state === 'candidate').length;
+  const missing = g.rows.length - present.length;
+  const providers = new Set(present.map((r) => r.provider)).size;
   return [
-    { label: '게이트웨이', value: '연결됨', sub: `LiteLLM · 모델 ${g.rows.length}개`, icon: 'plug' },
-    { label: '노출 모델', value: String(shown), sub: `후보 0 · 숨김 ${g.rows.length - shown}`, icon: 'cube' },
+    { label: '게이트웨이', value: '연결됨', sub: `LiteLLM · 모델 ${present.length}개${providers > 1 ? ` · 회사 ${providers}곳` : ''}`, icon: 'plug' },
+    {
+      label: '노출 모델',
+      value: String(shown),
+      sub: `후보 ${candidates} · 숨김 ${present.length - shown - candidates}${missing ? ` · 사라짐 ${missing}` : ''}`,
+      icon: 'cube',
+    },
   ];
 }
 
@@ -45,7 +55,7 @@ const LATER: Stat[] = [
 const NEXT = [
   { id: 'P1-2', what: '승인 기록', how: '승인 카드의 허용 · 거절을 감사 기록으로' },
   { id: 'P1-3', what: '트레이스', how: 'user.id · session.id 로 Langfuse trace 열기' },
-  { id: 'P2-1·2', what: '모델', how: '노출 · 표시 이름 · 순서 편집 · 새 모델은 후보로 숨김' },
+  { id: 'P2-1·2', what: '모델', how: '노출 · 표시 이름 · 순서 · 기본 모델 편집 → 금요일 E2E 로 판정 (새 모델은 후보로 숨김)' },
   { id: 'P2-3', what: '관리자 로그인', how: '사용자 앱과 따로 배포 · 인증' },
   { id: 'P3', what: '카탈로그', how: 'MCP · Skill 허용 목록 · 버전/해시 고정' },
   { id: 'P6', what: '사용자·예산', how: '월 예산 · 사용량 · 정책' },
