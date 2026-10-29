@@ -31,3 +31,8 @@ playwright-report/
 blob-report/
 out/
 release/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
