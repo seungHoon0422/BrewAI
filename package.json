@@ -9,6 +9,12 @@
     "admin": "npm run dev -w apps/admin",
     "gateway": "node scripts/gateway.mjs",
     "api": "node scripts/api.mjs",
+    "stack": "node scripts/stack.mjs up",
+    "stack:trace": "node scripts/stack.mjs up trace",
+    "stack:down": "node scripts/stack.mjs down",
+    "stack:status": "node scripts/stack.mjs status",
+    "stack:logs": "node scripts/stack.mjs logs",
+    "stack:reset": "node scripts/stack.mjs reset",
     "build": "npm run build -w apps/desktop && npm run build -w apps/admin",
     "typecheck": "npm run typecheck -w apps/desktop && npm run typecheck -w apps/admin",
     "e2e": "npm run build && npm test -w e2e"

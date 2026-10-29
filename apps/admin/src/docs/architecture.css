@@ -74,6 +74,7 @@
 .bi-clickhouse{--c:#d4a900}
 .bi-redis{--c:#ff4438}
 .bi-minio{--c:#c72e49}
+.bi-docker{--c:#1d63ed}
 /* github · anthropic · modelcontextprotocol = 검은 마크 → currentColor */
 @media (prefers-color-scheme: dark){
   .bi-electron{--c:#6fb3bf}
@@ -83,6 +84,7 @@
   .bi-postgresql{--c:#7393f0}
   .bi-clickhouse{--c:#ffcc01}
   .bi-minio{--c:#e5566f}
+  .bi-docker{--c:#4d8ff5}
   .ax-zone{background:color-mix(in srgb,var(--z) 12%,var(--bg))}
   .ax-zone.z-sub{background:color-mix(in srgb,var(--z) 6%,var(--bg))}
 }

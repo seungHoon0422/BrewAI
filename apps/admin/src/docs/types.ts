@@ -11,6 +11,7 @@ export const ARCH_PATHS = [
   'apps/web/index.html',
   'services/conductor',
   'infra/litellm',
+  'infra/compose.yaml',
   'runtime/skills',
   'evals/cases',
 ] as const;

@@ -7,27 +7,32 @@
 ## 연결 (127.0.0.1 만)
 | 누가 | 주소 | 무엇 |
 |---|---|---|
-| 게이트웨이 `npm run gateway` | :4000 | LiteLLM 1.106.2 · config-only(DB 없음) · `brewai-mock`(키 없음) + claude-sonnet-5-5 · claude-haiku-5-5 · gpt-6.1-sol |
+| 게이트웨이 `npm run stack` (Docker · 대체 `npm run gateway` venv) | :4000 | LiteLLM 1.106.2 · config-only(DB 없음) · `brewai-mock`(키 없음) + claude-sonnet-5-5 · claude-haiku-5-5 · gpt-6.1-sol |
+| Langfuse `npm run stack:trace` (선택) | :3000 | 셀프호스트 4.67.0 · OTLP `/api/public/otel` · conductor 연결은 slice 03 (ADR-0009) |
 | conductor `npm run api` | :8787 | `GET /healthz` · `GET /api/models` · `GET /api/admin/models` · `POST /api/chat`(AG-UI SSE) |
 | 관리자 · 데스크톱 | 5174 · app:// | conductor 만 부른다 (키 없음) |
 
 ## 데모 스크립트 (금요일 — 두 PC 각각)
 1. `npm run e2e` → desktop · admin · web 전부 green. `uv run --locked pytest` (evals + conductor) green.
    한 번에: `npm run dev` (또는 start 파일) = 아래 2~5 를 한 창에서.
-2. 터미널 1 `npm run gateway` → `Uvicorn running on http://127.0.0.1:4000`. `config.yaml` 을 열어 "모델 등록은 여기뿐".
+2. 터미널 1 `npm run stack` → `[stack] 준비됐어요` (Docker LiteLLM 만 · `npm run stack:status` 로 메모리). `config.yaml` 을 열어 "모델 등록은 여기뿐".
+   trace 도 보여 줄 때: `npm run stack:trace` → http://localhost:3000 로그인 `dev@brewai.local` / `.env` 비번 → 프로젝트 `brewai-dev` (대화 trace 는 slice 03 부터).
+   Docker 가 없는 PC: `npm run gateway` (venv) → `Uvicorn running on http://127.0.0.1:4000`.
 3. 터미널 2 `npm run api` → `curl -s http://127.0.0.1:8787/api/models` → `brewai-mock` 이 첫 항목.
 4. 터미널 3 `npm run admin` → '모델': 4행 모두 노출 1~4, 입력칸 없음.
 5. 터미널 4 `npm run desktop` → 모델 버튼 `brewai-mock` → "안녕" → "Hello from the BrewAI mock model." (LiteLLM mock 은 조각을 몇 ms 안에 다 보내서 한 번에 뜬 것처럼 보임 · 조각 흐름은 E2E `chat.spec` 또는 키 있는 모델로) → 하나 더 물어 쌓임.
 6. 키가 있는 PC: `CONDUCTOR_DEFAULT_MODEL=claude-sonnet-5-5 npm run api` → 한국어 답. 키가 없으면 "이 모델을 지금 쓸 수 없어요. 관리자에게 알려 주세요" = 정상(`provider_auth_failed` · OpenAI 키 없음은 LiteLLM 이 500 "Missing credentials" 로 줘서 conductor 가 같은 코드로 바꾼다).
-7. 실패 보기: 터미널 2 Ctrl+C → 보내기 → "서버에 연결할 수 없어요" → `npm run api` → 다시 시도 → 답. 게이트웨이를 끄면 관리자 '모델' 이 "게이트웨이에 연결할 수 없어요".
+7. 실패 보기: 터미널 2 Ctrl+C → 보내기 → "서버에 연결할 수 없어요" → `npm run api` → 다시 시도 → 답. 게이트웨이를 끄면(`npm run stack:down`) 관리자 '모델' 이 "게이트웨이에 연결할 수 없어요".
+8. 끝: `npm run stack:down` (데이터는 남음).
 
 ## done
 - [x] 게이트웨이: hash lock 121개(다이제스트 `760700c6…`) · `--only-binary :all:` sync · 회사 맥에서 1.106.2 기동 · mock 스트림
 - [x] conductor: 4개 경로 · RUN_ERROR 코드 정리(키·본문 안 실림) · 단위 테스트 23 + eval 1 green · eval CI 에 한 단계
 - [x] `npm run gateway` 가 `LITELLM_LICENSE` · 약한/예시 마스터 키 · 차 있는 포트를 거부
 - [x] 관리자 '모델' 표 · 개요 게이트웨이 카드 · 데스크톱 대화 화면 · E2E 42 green (chat 6 · admin-models 6 · desktop API 출처 1) · `npm run dev` 가 게이트웨이·conductor 도 띄움
-- [ ] 회사 맥: `.env` 에 새 `LITELLM_MASTER_KEY` (사람이 직접) → 데모 1~7
-- [ ] 집 윈도우: 게이트웨이 venv 1회 · `.env` 의 `LLM_GATEWAY_URL` 을 127.0.0.1 로 · 데모 1~7 · 창 버튼과 대화 제목 줄 안 겹침(눈으로)
+- [x] 로컬 Docker 스택 (ADR-0009): `infra/compose.yaml` 기본 LiteLLM · profile `trace` = Langfuse 묶음(한도 합 ~2.4 GiB) · `npm run stack[:trace|:down]` · `npm run dev` 가 Docker LiteLLM 을 쓰고 Docker 가 없으면 venv 로 · 회사 맥에서 확인
+- [ ] 회사 맥: `.env` 의 Langfuse Cloud 줄을 `.env.example` 의 로컬 구역으로 (사람이 직접) → `npm run stack` 이 비밀값을 채움 → 데모 1~8
+- [ ] 집 윈도우: Docker Desktop(WSL2 메모리 6 GB) → `npm run stack` 첫 실행(amd64 이미지) · `npm run stack:trace` 한 번 · `.env` 의 `LLM_GATEWAY_URL` 을 127.0.0.1 로 · 데모 1~8 · Docker 를 끄고 `npm run dev` → venv 대체 안내 · 창 버튼과 대화 제목 줄 안 겹침(눈으로)
 - [ ] 금요일 전 `uv` 로 OSV 재확인 (2026-10-21 게시 핀이 많음)
 
 ## 범위 밖

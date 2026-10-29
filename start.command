@@ -1,5 +1,5 @@
 #!/bin/bash
-# BrewAI: 데스크톱 앱 + 관리자 콘솔을 한 번에 (Finder 에서 더블클릭).
+# BrewAI: 게이트웨이(Docker 가 켜져 있으면 Docker LiteLLM · 없으면 venv) + conductor + 데스크톱 앱 + 관리자 콘솔을 한 번에 (Finder 에서 더블클릭).
 # 끄기 = 이 창에서 Ctrl+C, 또는 데스크톱 앱 ⌘Q (맥은 창을 닫아도 앱이 남는다)
 cd "$(dirname "$0")" || exit 1
 

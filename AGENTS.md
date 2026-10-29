@@ -23,7 +23,7 @@
 - 모델은 LLM 게이트웨이(LiteLLM)에서 가져온다. 모델을 **등록**하는 코드·화면(가격·컨텍스트·provider 입력)은 만들지 않는다. 우리는 노출 여부·표시 이름·순서만.
 - UI는 Codex를 **보고 따라 그린다**(클린룸). Codex 앱 바이너리 추출·디컴파일, 아이콘·문구·CSS 재사용 금지 (ADR-0005).
 - 데스크톱 앱에 게이트웨이·Langfuse 키를 넣지 않는다. 데스크톱은 우리 API만 호출.
-- trace = Langfuse. 모든 span에 `user.id`·`session.id`.
+- trace = Langfuse (로컬 Docker 셀프호스트, ADR-0009). 모든 span에 `user.id`·`session.id`.
 
 ## 개발 원칙
 - 직접 만드는 건 **conductor 코어 4개**뿐: ① 능력 찾기·설치 ② 승인·정책 ③ Skill 작성·저장소(격리 → 테스트 → 승인) ④ 팀 구성(서브에이전트 자동 편성 + 활동 이벤트).

@@ -4,8 +4,9 @@ import './architecture.css';
 import { Sources, St } from './parts';
 import type { ArchPath, DocsData } from './types';
 
-// 전체 시스템 아키텍처 = AGENTS.md · ADR-0001~0008 · slice 02(conductor + LiteLLM)
-// 로컬 스택 = ADR-0003 (Docker 없이 · LiteLLM 은 infra/litellm venv). Langfuse self-host 묶음은 아직 아이디어(docs/ideas.md) → 예정 점만
+// 전체 시스템 아키텍처 = AGENTS.md · ADR-0001~0009 · slice 02(conductor + LiteLLM)
+// 로컬 Docker = ADR-0009 (infra/compose.yaml: 기본 LiteLLM · profile trace = Langfuse 셀프호스트 묶음). venv LiteLLM(infra/litellm)은 대체 경로
+// Langfuse · 저장소 점 = infra/compose.yaml 이 있으면 '있음' (conductor → Langfuse trace 연결은 slice 03)
 // 회사 게이트웨이 = LiteLLM 뒤가 아니라 그 자리 대신 (ADR-0008: LLM_GATEWAY_URL · 키만 바꾼다)
 // 그림 = 고정 논리 캔버스(W×H) 위의 영역(제목만) · 노드(아이콘 + 이름) · 선(짧은 라벨). 폭에 맞춰 줄고, 좁으면 상자 안에서 가로 스크롤
 // 노드 상태(점)는 빌드할 때 레포에서 계산: path 가 있으면 '있음', 없으면 '예정 · <완료 기준>'.
@@ -51,18 +52,18 @@ const MAP: Item[] = [
     ],
   },
   {
-    kind: 'zone', id: 'local', title: '로컬 스택', tone: 'local', rect: [640, 40, 200, 400],
+    kind: 'zone', id: 'local', title: '로컬 Docker', icon: { brand: 'docker' }, tone: 'local', rect: [640, 40, 200, 400],
     items: [
       node('LiteLLM', { line: 'router' }, [740, 98], { st: { path: 'infra/litellm', plan: 'P1-1' } }),
       node('또는 회사 게이트웨이', { line: 'building' }, [666, 158], { size: 'row' }),
       {
         kind: 'zone', id: 'langfuse', tone: 'sub', rect: [655, 182, 170, 243],
         items: [
-          node('Langfuse', { line: 'trace' }, [740, 228], { st: { plan: 'P1-3' } }),
-          node('Postgres', { brand: 'postgresql' }, [697, 310], { size: 'sm', st: { plan: 'P1-3' } }),
-          node('ClickHouse', { brand: 'clickhouse' }, [783, 310], { size: 'sm', st: { plan: 'P1-3' } }),
-          node('Redis', { brand: 'redis' }, [697, 375], { size: 'sm', st: { plan: 'P1-3' } }),
-          node('MinIO', { brand: 'minio' }, [783, 375], { size: 'sm', st: { plan: 'P1-3' } }),
+          node('Langfuse', { line: 'trace' }, [740, 228], { st: { path: 'infra/compose.yaml', plan: 'P1-3' } }),
+          node('Postgres', { brand: 'postgresql' }, [697, 310], { size: 'sm', st: { via: 'infra/compose.yaml', plan: 'P1-3' } }),
+          node('ClickHouse', { brand: 'clickhouse' }, [783, 310], { size: 'sm', st: { via: 'infra/compose.yaml', plan: 'P1-3' } }),
+          node('Redis', { brand: 'redis' }, [697, 375], { size: 'sm', st: { via: 'infra/compose.yaml', plan: 'P1-3' } }),
+          node('MinIO', { brand: 'minio' }, [783, 375], { size: 'sm', st: { via: 'infra/compose.yaml', plan: 'P1-3' } }),
         ],
       },
     ],
@@ -132,12 +133,13 @@ const RULES: { title: string; body: ReactNode; src: { label: string; href?: stri
     title: 'trace = Langfuse',
     body: (
       <>
-        모든 LLM · 툴 · 에이전트 span 에 <code>user.id</code> · <code>session.id</code>. OTel GenAI semconv 는 버전 고정.
+        로컬 Docker 셀프호스트 (Cloud 안 씀). 모든 LLM · 툴 · 에이전트 span 에 <code>user.id</code> · <code>session.id</code>. OTel GenAI semconv 는 버전 고정.
       </>
     ),
     src: [
       { label: 'AGENTS.md 개발 원칙' },
       { label: 'ADR-0006', href: '#/docs/adr/0006' },
+      { label: 'ADR-0009', href: '#/docs/adr/0009' },
     ],
   },
 ];

@@ -1,4 +1,5 @@
 // scripts/gateway.mjs — npm run gateway: LiteLLM 프록시 1.106.2 를 127.0.0.1:4000 에. 전용 venv = infra/litellm/.venv (ADR-0003).
+// 대체 경로 (ADR-0009): 기본 게이트웨이는 Docker 스택(npm run stack). 이건 Docker 를 못 쓰는 PC 용.
 // 설치는 하지 않는다 (README "게이트웨이 설치 1회"). 없으면 방법만 알려 준다.
 // uv run --no-project: 루트 워크스페이스(conductor)를 sync 하지 않고 그 venv 의 litellm 만 실행.
 // 실행 파일은 venv 안의 절대 경로로 부른다 (맥 bin/litellm · 윈도우 Scripts\litellm.exe). 이름만 주면 venv 에 없을 때

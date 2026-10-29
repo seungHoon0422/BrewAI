@@ -1,0 +1,224 @@
+# BrewAI local stack (ADR-0009): LiteLLM gateway + self-hosted Langfuse v4 (no cloud, no cost).
+# Default = litellm only (`npm run stack`). Profile "trace" adds the Langfuse bundle
+# (`npm run stack:trace`: web, worker, postgres, clickhouse, redis, minio; mem limits sum ~2.4 GiB; litellm alone 768m).
+# Start/stop with `node scripts/stack.mjs up [trace]|down` (it creates missing secrets in .env first).
+# Rules: every image tag@sha256 (minio: digest only, Chainguard free = :latest only),
+#        multi-arch index, published >= 7 days before pin date 2026-10-29,
+#        host ports on 127.0.0.1 only, named volumes only, LITELLM_LICENSE never set,
+#        LiteLLM logging callbacks off (the conductor owns the trace, ADR-0006).
+# ASCII only (Windows cp949). The only bind mount is the read-only LiteLLM config.
+name: brewai
+
+x-langfuse-env: &langfuse-env
+  NEXTAUTH_URL: http://localhost:${LANGFUSE_PORT:-3000}
+  DATABASE_URL: postgresql://postgres:${LANGFUSE_POSTGRES_PASSWORD:?run node scripts/stack.mjs}@postgres:5432/postgres
+  SALT: ${LANGFUSE_SALT:?run node scripts/stack.mjs}
+  ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY:?run node scripts/stack.mjs}
+  TELEMETRY_ENABLED: "false"
+  LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: "false"
+  CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
+  CLICKHOUSE_URL: http://clickhouse:8123
+  CLICKHOUSE_USER: clickhouse
+  CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD:?run node scripts/stack.mjs}
+  CLICKHOUSE_CLUSTER_ENABLED: "false"
+  LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+  LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
+  LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minio
+  LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_MINIO_PASSWORD:?run node scripts/stack.mjs}
+  LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+  LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+  LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
+  LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+  LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
+  LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: minio
+  LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_MINIO_PASSWORD:?run node scripts/stack.mjs}
+  LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://minio:9000
+  LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+  LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
+  LANGFUSE_S3_BATCH_EXPORT_ENABLED: "false"
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  REDIS_AUTH: ${LANGFUSE_REDIS_PASSWORD:?run node scripts/stack.mjs}
+  REDIS_TLS_ENABLED: "false"
+
+x-lf-deps: &lf-deps
+  postgres: { condition: service_healthy }
+  clickhouse: { condition: service_healthy }
+  redis: { condition: service_healthy }
+  minio: { condition: service_healthy }
+
+services:
+  # ---------- LLM gateway (no DB, config-only) ----------
+  litellm:
+    image: ghcr.io/berriai/litellm-non_root:v1.106.2@sha256:07fabea33dfc2b127e865c03112dfc76936334b29028ec05cdd355af2385dc04
+    mem_limit: 768m
+    restart: unless-stopped
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    read_only: true
+    tmpfs: ["/tmp", "/app/.cache", "/nonexistent"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    volumes:
+      - ./litellm/config.yaml:/app/config.yaml:ro
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?run node scripts/stack.mjs}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      LITELLM_LOCAL_MODEL_COST_MAP: "True"   # no remote fetches at startup (same 5 flags as scripts/gateway.mjs)
+      LITELLM_LOCAL_BLOG_POSTS: "True"
+      LITELLM_LOCAL_POLICY_TEMPLATES: "True"
+      LITELLM_LOCAL_ANTHROPIC_BETA_HEADERS: "True"
+      LITELLM_LOCAL_AUTOROUTER_PRESETS: "True"
+      PYTHON_DOTENV_DISABLED: "1"
+      # LITELLM_LICENSE: never (GHSA-w4c7 until 1.106.5). DATABASE_URL: none (config-only).
+    ports:
+      - 127.0.0.1:${LITELLM_PORT:-4000}:4000
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:4000/health/liveliness', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+      start_interval: 1s
+
+  # ---------- Langfuse v4 (traces) ----------
+  langfuse-web:
+    image: docker.io/langfuse/langfuse:4.67.0@sha256:8e2b58b5086bfc955452a12c72eb2306bf3cb2ec59de8115454514c4c8e36e33
+    profiles: [trace]
+    mem_limit: 896m
+    restart: unless-stopped
+    depends_on: *lf-deps
+    ports:
+      - 127.0.0.1:${LANGFUSE_PORT:-3000}:3000
+    environment:
+      <<: *langfuse-env
+      NODE_OPTIONS: --max-old-space-size=640   # Node sizes the heap from mem_limit (~50%) -> too small for Next.js init
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:?run node scripts/stack.mjs}
+      # Media uploads use presigned URLs -> must be the host-reachable MinIO port.
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://localhost:${LANGFUSE_MEDIA_PORT:-9090}
+      AUTH_DISABLE_SIGNUP: "true"
+      LANGFUSE_DISABLE_SIGNUP_ONBOARDING: "true"
+      # Headless init: only creates what is missing (changing these later does nothing; use down -v).
+      LANGFUSE_INIT_ORG_ID: brewai-local
+      LANGFUSE_INIT_ORG_NAME: BrewAI Local
+      LANGFUSE_INIT_PROJECT_ID: brewai-dev
+      LANGFUSE_INIT_PROJECT_NAME: brewai-dev
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:?run node scripts/stack.mjs}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_SECRET_KEY:?run node scripts/stack.mjs}
+      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL:-dev@brewai.local}
+      LANGFUSE_INIT_USER_NAME: dev
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:?run node scripts/stack.mjs}
+    healthcheck:
+      # Next.js binds $HOSTNAME, not localhost.
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://$$HOSTNAME:3000/api/public/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 180s
+      start_interval: 1s
+
+  langfuse-worker:
+    image: docker.io/langfuse/langfuse-worker:4.67.0@sha256:a0ec08090953ad8d710565a23cda1b24e84dc889c9122e88df2c5b8ada4cfe1f
+    profiles: [trace]
+    mem_limit: 576m
+    restart: unless-stopped
+    depends_on: *lf-deps
+    environment:
+      <<: *langfuse-env
+      NODE_OPTIONS: --max-old-space-size=384
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://$$HOSTNAME:3030/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 180s
+      start_interval: 1s
+
+  postgres:
+    image: docker.io/library/postgres:17.10@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317
+    profiles: [trace]
+    mem_limit: 160m
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${LANGFUSE_POSTGRES_PASSWORD:?run node scripts/stack.mjs}
+      POSTGRES_DB: postgres
+      TZ: UTC
+      PGTZ: UTC
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 60s
+      start_interval: 1s
+
+  clickhouse:
+    image: docker.io/clickhouse/clickhouse-server:26.4.5.143@sha256:c7796a1335d14385c052f10061cf719f4a368a908432ec25980860b1333e9ccd
+    profiles: [trace]
+    mem_limit: 640m
+    restart: unless-stopped
+    user: "101:101"
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD:?run node scripts/stack.mjs}
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - clickhouse_logs:/var/log/clickhouse-server
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+      start_interval: 1s
+
+  redis:
+    image: docker.io/library/redis:7.2.16@sha256:1009f15ccd9ed271996d1c65745a1ab1dadedea188feb3f1ab938602a32e50a3
+    profiles: [trace]
+    mem_limit: 48m
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${LANGFUSE_REDIS_PASSWORD:?run node scripts/stack.mjs}", "--maxmemory-policy", "noeviction"]
+    environment:
+      REDISCLI_AUTH: ${LANGFUSE_REDIS_PASSWORD:?run node scripts/stack.mjs}
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+      start_interval: 1s
+
+  minio:
+    image: cgr.dev/chainguard/minio@sha256:ad4a4c0a39ad7b71408124fe3df07b1b2e9d2959a369fac8754d2ef3311b5c20
+    profiles: [trace]
+    mem_limit: 160m
+    restart: unless-stopped
+    entrypoint: sh
+    command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: ${LANGFUSE_MINIO_PASSWORD:?run node scripts/stack.mjs}
+    ports:
+      - 127.0.0.1:${LANGFUSE_MEDIA_PORT:-9090}:9000
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+      start_interval: 1s
+
+volumes:
+  postgres_data:
+  clickhouse_data:
+  clickhouse_logs:
+  minio_data:
+  redis_data:

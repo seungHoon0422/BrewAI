@@ -1,5 +1,5 @@
 @echo off
-rem BrewAI: desktop app + admin console together (double-click this file).
+rem BrewAI: gateway (Docker LiteLLM if Docker Desktop runs, else venv) + conductor + desktop app + admin console (double-click this file).
 rem Runs node directly (no npm layer): the PowerShell policy (npm.ps1) does not matter, and
 rem Ctrl+C is not reported as an error (npm on Windows exits 1 when it forwards Ctrl+C).
 rem Stop: Ctrl+C in this window (answer Y), or close the desktop app window.

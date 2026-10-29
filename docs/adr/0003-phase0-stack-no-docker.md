@@ -1,6 +1,6 @@
 # ADR-0003 · P1 스택: Docker 없이 Python + uv + Node
 
-- 상태: 제안 · 2026-10-28 (UI 초안·Langfuse 확정 반영)
+- 상태: 제안 · 2026-10-28 (UI 초안·Langfuse 확정 반영) · **"Docker 없이"·관측(Langfuse Cloud) 행은 ADR-0009 로 대체** (로컬 Docker · venv LiteLLM 은 대체 경로)
 - 맥락: 현재 PC에 Python 3.13 + uv만 있음. Docker 없음. UI 초안(ADR-0005)과 Playwright 때문에 Node 24.22.1 은 P1에 설치.
 - 결정 (P1 뼈대 관통 + UI 초안):
 

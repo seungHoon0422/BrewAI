@@ -1,5 +1,7 @@
 // npm run dev = 게이트웨이(LiteLLM 4000) + conductor(8787) + 데스크톱 앱(Vite 5173 + Electron) + 관리자 콘솔(Vite 5174) 을 한 번에 띄운다.
-// - 게이트웨이·conductor 는 설치돼 있을 때만 (infra/litellm/.venv · uv sync 한 .venv · .env). 못 띄우면 이유를 말하고 데스크톱·관리자만 띄운다
+// - 게이트웨이 = Docker 가 켜져 있으면 로컬 스택의 LiteLLM 컨테이너 (scripts/stack.mjs up auto · ADR-0009).
+//   .env 에 BREWAI_TRACE=1 이면 Langfuse 묶음도. Docker 가 없거나 꺼져 있으면 예전 venv 게이트웨이(scripts/gateway.mjs) · BREWAI_STACK=0(셸 또는 .env) = 일부러 venv
+// - 게이트웨이·conductor 는 설치돼 있을 때만 (Docker 또는 infra/litellm/.venv · uv sync 한 .venv · .env). 못 띄우면 이유를 말하고 데스크톱·관리자만 띄운다
 // - 더블클릭: start.cmd (윈도우) · start.command (맥)
 // - 끄기: 이 창에서 Ctrl+C, 또는 데스크톱 앱을 끄면(윈도우 = 창 닫기 · 맥 = ⌘Q) 둘 다 닫히고 포트도 비운다
 // - 셸을 거치지 않는다 (shell:false). npm 은 node + npm-cli.js 로 부른다
@@ -19,10 +21,26 @@ const PORTS = [
   { port: 5173, what: '데스크톱 개발 서버' },
   { port: 5174, what: '관리자 콘솔' },
 ];
-// 게이트웨이·conductor 는 없어도 된다. 끝낼 때 비었는지 볼 포트에는 띄운 것만 넣는다
-const GATEWAY = { port: Number(process.env.LITELLM_PORT ?? 4000), what: '게이트웨이', health: '/health/liveliness' };
-const API = { port: Number(process.env.CONDUCTOR_PORT ?? 8787), what: 'conductor', health: '/healthz' };
 const ENV_FILE = process.env.BREWAI_ENV_FILE ? path.resolve(process.env.BREWAI_ENV_FILE) : path.join(root, '.env');
+// .env 의 값 (stack.mjs readEnv 와 같은 규칙). 쓰는 건 BREWAI_STACK · LITELLM_PORT · LLM_GATEWAY_URL 뿐 · 셸 값이 이긴다
+const DOTENV = (() => {
+  const values = {};
+  let text = '';
+  try { text = fs.readFileSync(ENV_FILE, 'utf8'); } catch { return values; }
+  for (const line of text.split(/\r?\n/)) {
+    const m = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/);
+    if (!m) continue;
+    const t = m[2].trim();
+    const q = t.match(/^(['"])(.*)\1/);
+    values[m[1]] = t.startsWith('#') ? '' : (q ? q[2] : t.replace(/\s+#.*$/, '')).trim();
+  }
+  return values;
+})();
+const setting = (k) => process.env[k] || DOTENV[k] || '';
+// 게이트웨이·conductor 는 없어도 된다. 끝낼 때 비었는지 볼 포트에는 띄운 것만 넣는다
+const GATEWAY = { port: Number(setting('LITELLM_PORT') || 4000), what: '게이트웨이', health: '/health/liveliness' };
+const API = { port: Number(process.env.CONDUCTOR_PORT ?? 8787), what: 'conductor', health: '/healthz' };
+const NO_STACK = setting('BREWAI_STACK') === '0';
 const NO_OPEN = process.argv.includes('--no-open') || process.env.BREWAI_NO_OPEN === '1';
 const TTY = process.stdout.isTTY;
 const color = (code, s) => (TTY ? `\x1b[${code}m${s}\x1b[0m` : s);
@@ -112,8 +130,10 @@ const env = { ...process.env };
 delete env.ELECTRON_RUN_AS_NODE;
 if (TTY && !env.NO_COLOR) env.FORCE_COLOR ??= '1'; // 파이프로 받아도 색은 그대로
 // 포트를 바꿨으면 그 주소를 서로에게 알려 준다 (셸에서 직접 준 값이 이긴다).
-// LLM_GATEWAY_URL 은 LITELLM_PORT 를 줬을 때만 (안 주면 .env 값 그대로 · 셸 값은 uv 에서 .env 보다 이긴다)
-if (process.env.LITELLM_PORT) env.LLM_GATEWAY_URL ??= `http://127.0.0.1:${GATEWAY.port}`;
+// LLM_GATEWAY_URL 은 셸에서 LITELLM_PORT 를 줬거나 어디에도 LLM_GATEWAY_URL 이 없을 때만 (아니면 .env 값 그대로 · 셸 값은 uv 에서 .env 보다 이긴다)
+// LITELLM_PORT 는 .env 에만 있어도 gateway.mjs 가 같은 포트로 뜨게 넘긴다
+env.LITELLM_PORT = String(GATEWAY.port);
+if (process.env.LITELLM_PORT || !setting('LLM_GATEWAY_URL')) env.LLM_GATEWAY_URL ??= `http://127.0.0.1:${GATEWAY.port}`;
 if (process.env.CONDUCTOR_PORT) {
   env.BREWAI_API_URL ??= `http://127.0.0.1:${API.port}`; // 데스크톱
   env.VITE_BREWAI_API_URL ??= `http://127.0.0.1:${API.port}`; // 관리자 콘솔
@@ -122,6 +142,7 @@ if (process.env.CONDUCTOR_PORT) {
 const children = [];
 let stopping = false;
 let exitCode = 0;
+let stackTried = false; // stack.mjs up 을 불렀나 → 끝낼 때 "스택은 켜 둬요" 안내
 
 // optional = 게이트웨이·conductor: 멈춰도 데스크톱·관리자는 그대로 둔다 (이유만 말한다)
 function start(name, tag, args, { node = false, optional = false } = {}) {
@@ -217,13 +238,15 @@ async function finish() {
     if (i === 10) for (const c of children) kill(c, true);
     await new Promise((r) => setTimeout(r, 250));
   }
-  say('모두 닫았어요.');
+  say(stackTried && stackRunning()
+    ? '모두 닫았어요. Docker 스택은 켜 둬요 (Docker Desktop 을 다시 켜도 자동으로 떠요 · 끄기 = npm run stack:down)'
+    : '모두 닫았어요.');
   process.exit(exitCode);
 }
 
 for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
   process.on(sig, () => {
-    if (!stopping) say(`닫는 중… (${children.map((c) => c.name).join(' · ')})`);
+    if (!stopping) say(`닫는 중…${children.length ? ` (${children.map((c) => c.name).join(' · ')})` : ''}`);
     stopAll(0);
   });
 }
@@ -260,12 +283,15 @@ function hasUv() {
 }
 
 // 띄웠거나 이미 떠 있으면 true. 아니면 이유를 말하고 false
-// reuse = false (게이트웨이): 이미 떠 있는 건 쓰지 않는다. gateway.mjs 의 검사(venv 1.106.2 · LITELLM_LICENSE 금지 ·
-// 강한 master key)를 거쳤는지 알 수 없는데 conductor 가 그쪽으로 master key 를 보내게 되므로
+// reuse = false (venv 게이트웨이): 이미 떠 있는 건 쓰지 않는다. gateway.mjs 의 검사(venv 1.106.2 · LITELLM_LICENSE 금지 ·
+// 강한 master key)를 거쳤는지 알 수 없는데 conductor 가 그쪽으로 master key 를 보내게 되므로.
+// reuse = true 는 4000 이 brewai 스택의 healthy litellm 컨테이너일 때만 (stackGatewayHealthy)
 async function startBackend(svc, name, tag, script, why, seconds, { reuse = true } = {}) {
   if (await answers(svc.port)) {
     if (!reuse) {
-      say(color('33', `${svc.what}: 127.0.0.1:${svc.port} 에 이미 무언가 떠 있어요 → 검사 안 된 ${svc.what}는 쓰지 않아요. 그걸 끄고(npm run gateway 창 등) 다시 실행하세요`));
+      say(color('33', svc === GATEWAY && stackGatewayHealthy()
+        ? `${svc.what}: Docker 스택 LiteLLM 이 ${svc.port} 에 떠 있어요 → npm run stack:down 후 다시 (또는 BREWAI_STACK=0 을 빼고 실행)`
+        : `${svc.what}: 127.0.0.1:${svc.port} 에 이미 무언가 떠 있어요 → 검사 안 된 ${svc.what}는 쓰지 않아요. 그걸 끄고(npm run gateway 창 등) 다시 실행하세요`));
       return false;
     }
     const ok = await healthy(svc, null, 2);
@@ -290,15 +316,48 @@ async function startBackend(svc, name, tag, script, why, seconds, { reuse = true
 }
 
 const exists = (...p) => fs.existsSync(path.join(root, ...p));
+
+// ---------- 로컬 스택 (Docker: 게이트웨이 · BREWAI_TRACE=1 이면 Langfuse 도 · ADR-0009) ----------
+// scripts/stack.mjs up auto 종료 코드: 0 = 모두 healthy · 3 = Docker 없음/꺼짐 → 예전 venv 게이트웨이로 · 그 밖 = 스택 실패
+// spawn(비동기) → 기다리는 중 Ctrl+C 가 위 SIGINT 처리로 간다. 스택은 Ctrl+C 뒤에도 남는다 (끄기 = npm run stack:down)
+async function startStack() {
+  if (NO_STACK || !exists('infra', 'compose.yaml')) return 3;
+  stackTried = true;
+  say('로컬 스택(Docker LiteLLM)을 올려요… (처음엔 이미지를 받아요 · PC 마다 한 번)');
+  const child = spawn(process.execPath, [path.join(root, 'scripts', 'stack.mjs'), 'up', 'auto'], { cwd: root, env, stdio: 'inherit', windowsHide: true });
+  return new Promise((r) => child.on('exit', (c) => r(c ?? 1)).on('error', () => r(1)));
+}
+// 4000 에 떠 있는 게 brewai 스택의 litellm 컨테이너(고정 digest · LICENSE 거부 · 강한 키 검사를 거친 것)일 때만 재사용
+function stackPs(...filters) {
+  const r = spawnSync('docker', ['ps', '-q', '--filter', 'label=com.docker.compose.project=brewai', ...filters.flatMap((f) => ['--filter', f])],
+    { encoding: 'utf8', windowsHide: true, timeout: 10000 });
+  return r.status === 0 && r.stdout.trim().length > 0;
+}
+function stackGatewayHealthy() {
+  return stackPs('label=com.docker.compose.service=litellm', 'health=healthy');
+}
+function stackRunning() {
+  return stackPs();
+}
+const stackCode = stopping ? 1 : await startStack();
+if (stopping) await finish(); // 스택을 올리는 중에 Ctrl+C → 아무것도 더 띄우지 않고 끝낸다 (finish 가 스택 상태를 말한다)
+const stackGw = stackCode !== 3 && stackGatewayHealthy();
+if (stackGw) say('게이트웨이 = Docker LiteLLM 컨테이너 (끄기 = npm run stack:down · Ctrl+C 로는 안 꺼져요)');
+else if (stackCode === 3 && !NO_STACK && exists('infra', 'compose.yaml'))
+  say(color('33', 'Docker 를 쓸 수 없어서(위 [stack] 줄) 예전 venv 게이트웨이(npm run gateway)로 해 볼게요'));
+const noStackHint = WIN ? '.env 에 BREWAI_STACK=0 (또는 set BREWAI_STACK=0 && npm.cmd run dev)' : '.env 에 BREWAI_STACK=0 (또는 BREWAI_STACK=0 npm run dev)';
 const uv = hasUv();
 const noEnv = !fs.existsSync(ENV_FILE)
   ? `${process.env.BREWAI_ENV_FILE ? `BREWAI_ENV_FILE 파일(${ENV_FILE})` : '.env'} 가 없어요 → ${WIN ? 'copy .env.example .env' : 'cp .env.example .env'} 후 LITELLM_MASTER_KEY 를 넣으세요 (README 5단계)`
   : null;
-const gatewayWhy = !exists('infra', 'litellm', 'config.yaml') ? 'infra/litellm/config.yaml 이 없어요'
+// stackGw 면 gateway.mjs 는 절대 띄우지 않는다 (재사용하거나 건너뛰거나)
+const gatewayWhy = stackGw ? `Docker LiteLLM 이 127.0.0.1:${GATEWAY.port} 에서 응답이 없어요 → npm run stack:status`
+  : stackCode !== 3 ? `로컬 스택을 못 올렸어요 (위 [stack] 줄) → 고치고 다시, 또는 ${noStackHint} (venv 게이트웨이)`
+  : !exists('infra', 'litellm', 'config.yaml') ? 'infra/litellm/config.yaml 이 없어요'
   : !uv ? 'uv 를 찾지 못했어요 → README 1단계 (uv 0.13.5)'
-  : !exists('infra', 'litellm', '.venv', ...(WIN ? ['Scripts', 'litellm.exe'] : ['bin', 'litellm'])) ? 'infra/litellm/.venv 에 litellm 이 없어요 → README "게이트웨이 설치 1회"'
+  : !exists('infra', 'litellm', '.venv', ...(WIN ? ['Scripts', 'litellm.exe'] : ['bin', 'litellm'])) ? 'Docker 도 infra/litellm/.venv 도 없어요 → Docker Desktop 을 켜거나 README "Docker 를 못 쓰는 PC 만"'
   : noEnv;
-const gatewayUp = await startBackend(GATEWAY, 'gateway', '33', 'gateway.mjs', gatewayWhy, 90, { reuse: false });
+const gatewayUp = stopping ? false : await startBackend(GATEWAY, 'gateway', '33', 'gateway.mjs', gatewayWhy, 90, { reuse: stackGw });
 const apiWhy = !exists('services', 'conductor', 'pyproject.toml') ? 'services/conductor 가 없어요'
   : !uv ? 'uv 를 찾지 못했어요 → README 1단계 (uv 0.13.5)'
   : !exists('.venv') ? '파이썬 의존성이 없어요 → 이 폴더에서 한 번: uv sync --locked'
@@ -308,7 +367,8 @@ if (!stopping && !(gatewayUp && apiUp)) say(color('33', '데스크톱 · 관리�
 
 // ---------- 데스크톱 · 관리자 ----------
 
-if (stopping) await new Promise(() => {}); // 기다리는 중에 Ctrl+C → finish() 가 끝낸다
+// 기다리는 중에 Ctrl+C → 살아 있는 자식이 끝날 때 finish() 가 끝낸다 (없으면 바로)
+if (stopping) await (children.every((c) => !c.alive) ? finish() : new Promise(() => {}));
 say(`데스크톱 앱 + 관리자 콘솔을 띄워요. 끄기 = 이 창에서 Ctrl+C, 또는 ${WIN ? '데스크톱 창 닫기' : '데스크톱 앱 ⌘Q (창만 닫으면 앱이 남아요)'}`);
 start('desktop', '36', ['run', 'dev', '-w', 'apps/desktop']);
 start('admin', '35', ['run', 'dev', '-w', 'apps/admin']);
