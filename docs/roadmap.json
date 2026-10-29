@@ -1,6 +1,6 @@
 {
-  "updated": "2026-10-28",
-  "rule": "passes 는 금요일 데모(Playwright 스펙)가 exit_criteria 를 모두 통과했을 때만 true 로 바꾼다. 항목을 지우거나 고쳐 쓰지 않는다.",
+  "updated": "2026-10-29",
+  "rule": "passes 는 기능 개발이 끝난 시점의 Playwright E2E(= 금요일 데모 스펙)가 exit_criteria 를 모두 통과했을 때만 true 로 바꾼다. 기능이 없는 P0 은 증거 링크(CI run · 두 PC /start 3줄)로 판정한다. 항목을 지우거나 고쳐 쓰지 않는다 — 사용자가 방향을 바꿀 때만 ADR 을 먼저 남기고 고친다(ADR-0007).",
   "phases": [
     {
       "id": "P0",
@@ -16,31 +16,33 @@
     },
     {
       "id": "P1",
-      "name": "뼈대 관통 + UI 초안",
+      "name": "데스크톱 골격 + 대화 관통",
       "weeks": 2,
-      "goal": "Codex 레퍼런스 3-pane 웹 UI → conductor → LiteLLM → MCP 툴 → 승인 카드 → Langfuse trace 를 한 번 관통",
+      "goal": "데스크톱(Electron) 메뉴 골격(+ 관리자 콘솔 · 랜딩) 위에서 대화 → conductor → LiteLLM → MCP 툴 → 승인 카드 → Langfuse trace 를 한 번 관통",
       "exit_criteria": [
-        "P1-1 웹 앱(design/prototype.html 과 같은 화면)에서 질문 1개 → 툴 호출 → 결과 카드",
+        "P1-1 데스크톱 앱(design/prototype.html 과 같은 화면)에서 질문 1개 → 툴 호출 → 결과 카드",
         "P1-2 승인 필요 툴은 승인 카드에서 OK 해야만 실행된다",
         "P1-3 Langfuse 에 agent·LLM·tool span 이 user·session 과 함께 한 trace tree 로, 토큰 비용과 함께 보인다",
-        "P1-4 위 데모가 Playwright web 스펙(게이트웨이 mock)으로 CI green + eval 3건(골든 1 · 제약 2)"
+        "P1-4 위 데모가 Playwright desktop 스펙(게이트웨이 mock)으로 CI green + eval 3건(골든 1 · 제약 2)",
+        "P1-5 데스크톱 앱 6개 메뉴와 관리자 콘솔 7개 메뉴가 각자 화면을 열고, 랜딩에 OS별 다운로드 버튼이 있다 (Playwright desktop · admin · web)"
       ],
       "slice_hint": [
-        "01 design/prototype.html 을 React(shadcn·assistant-ui)로 이식 → 대화 → Pydantic AI → LiteLLM → FastMCP 툴 1개 → Langfuse (P1-1, P1-3)",
-        "02 승인 필요 툴(deferred tool) + 승인 카드 + Playwright 스펙 + eval 3건 CI — CI는 키 없이 TestModel·mock (P1-2, P1-4)"
+        "01 메뉴 골격: Electron 창에 prototype 프레임 + 메뉴별 빈 화면 · 관리자 콘솔 메뉴별 빈 화면 · 랜딩 · Playwright desktop·admin·web (P1-5)",
+        "02 대화 관통: 대화 화면 → conductor(Pydantic AI) → LiteLLM → MCP 툴 1개 → Langfuse — 키 전엔 TestModel (P1-1, P1-3)",
+        "03 승인 필요 툴(deferred tool) + 승인 카드 + Playwright desktop 스펙 CI + eval 3건 — CI는 키 없이 TestModel·mock (P1-2, P1-4)"
       ],
       "passes": false
     },
     {
       "id": "P2",
-      "name": "관리자 콘솔 + 데스크톱",
+      "name": "관리자 콘솔 기능 + 설치본",
       "weeks": 2,
-      "goal": "게이트웨이 모델 카탈로그 동기화·노출 관리, 사용자/관리자 분리, Electron 데스크톱",
+      "goal": "게이트웨이 모델 카탈로그 동기화·노출 관리, 사용자/관리자 분리, 랜딩에서 데스크톱 설치본(미서명) 받기",
       "exit_criteria": [
         "P2-1 관리자가 모델을 숨기면 사용자 앱 모델 목록에서 사라진다 (코드 변경 0)",
         "P2-2 게이트웨이에 모델이 추가되면 관리자 콘솔에 '후보'로만 뜨고 기본 숨김",
         "P2-3 사용자 앱에는 관리자 기능·경로가 없다 (별도 배포·인증)",
-        "P2-4 데스크톱 앱에서 같은 대화가 되고, 같은 Playwright 스위트가 web · admin · desktop 에서 green"
+        "P2-4 랜딩에서 OS별 데스크톱 설치본(미서명)을 받아 설치·실행되고, Playwright desktop · admin · web 스위트가 green"
       ],
       "passes": false
     },
