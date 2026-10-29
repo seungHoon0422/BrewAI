@@ -1,0 +1,22 @@
+# BrewAI 파이썬 워크스페이스 루트 (설치되는 패키지 아님). uv.lock 은 여기 하나만.
+# P1: [tool.uv.workspace] members = ["services/conductor"] 를 더하고 evals 가 conductor 를 import 한다.
+[project]
+name = "brewai"
+version = "0.0.0"
+requires-python = "==3.13.*"
+dependencies = []
+
+[dependency-groups]
+dev = ["pytest==9.1.1"]
+
+[tool.uv]
+package = false
+# emSign 사고: GHSA-hq85-5cpj-mr62(<0.13.4, uv 자체 루트) + 0.13.5(손상 중간 인증서 거부 · managed CPython 3.13.17). CI 는 정확히 0.13.5 (.github/workflows/eval.yml)
+required-version = ">=0.13.5"
+# 게시 7일 지난 버전만 (AGENTS.md 공급망). cool-down·새 의존성 때만 '오늘-7일'로 올리고 uv lock --upgrade
+exclude-newer = "2026-10-22T00:00:00Z"
+
+[tool.pytest.ini_options]
+testpaths = ["evals"]
+addopts = ["-ra", "--strict-markers", "--strict-config", "--import-mode=importlib"]
+empty_parameter_set_mark = "fail_at_collect"  # 케이스 0건 = 빨강 (빈 green 금지)

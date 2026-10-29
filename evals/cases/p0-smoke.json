@@ -1,0 +1,7 @@
+{
+  "kind": "smoke",
+  "task": "echo",
+  "input": "ping",
+  "expected": "ping",
+  "note": "P0-2 더미 eval. 하네스·CI·uv.lock 이 도는지만 본다. P1 골든·제약 케이스와 따로 센다."
+}
