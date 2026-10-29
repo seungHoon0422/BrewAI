@@ -30,7 +30,18 @@ export type AdminModel = {
   supports_function_calling: boolean;
   supports_vision: boolean;
   supports_reasoning: boolean;
+  // ↓ 연결 상태 (conductor 가 본 것: 대화 결과 · 연결 시험). last_error_code = 실패 이유 (Models.tsx ERROR_DETAIL)
+  last_ok_at: string | null;
+  last_error_code: string | null;
+  last_error_at: string | null;
 };
+// POST /api/admin/models/{id}/test — 짧은 호출 한 번
+export type ProbeResult = { model: string; ok: boolean; code: string | null; detail: string | null; status: number | null; at: string; duration_ms: number };
+// GET /api/admin/skills — 제품 스킬 카탈로그 (읽기 전용)
+export type AdminSkill = {
+  name: string; label: string; description: string; tools: string[]; version: string; source: string; builtin: boolean; used: number; lines: number;
+};
+export type SkillCatalog = { source: string; skills: AdminSkill[]; errors: { dir: string; code: string; message: string }[] };
 export type ModelPatch = Partial<Pick<AdminModel, 'exposed' | 'display_name' | 'order' | 'is_default'>>;
 export type SyncResult = { added: string[]; missing: string[]; restored: string[]; first_sync: boolean; synced_at: string; models: AdminModel[] };
 export type GatewayInfo = { kind: string; url: string; ui_url: string; last_sync_at: string | null };
@@ -102,6 +113,9 @@ function toModel(m: Record<string, unknown>, i: number): AdminModel {
     supports_function_calling: m.supports_function_calling === true,
     supports_vision: m.supports_vision === true,
     supports_reasoning: m.supports_reasoning === true,
+    last_ok_at: typeof m.last_ok_at === 'string' ? m.last_ok_at : null,
+    last_error_code: typeof m.last_error_code === 'string' ? m.last_error_code : null,
+    last_error_at: typeof m.last_error_at === 'string' ? m.last_error_at : null,
   };
 }
 
@@ -125,6 +139,34 @@ export async function patchModel(id: string, patch: ModelPatch): Promise<AdminMo
   });
   if (!isObj(data)) throw new AdminApiError('server', 'bad_shape');
   return toModel(data, 0);
+}
+
+const modelPath = (id: string) => id.split('/').map(encodeURIComponent).join('/');
+
+export async function testModel(id: string): Promise<ProbeResult> {
+  const data = await call(`/api/admin/models/${modelPath(id)}/test`, { method: 'POST' });
+  if (!isObj(data)) throw new AdminApiError('server', 'bad_shape');
+  const s = (v: unknown) => (typeof v === 'string' ? v : null);
+  return {
+    model: str(data.model, id), ok: data.ok === true, code: s(data.code), detail: s(data.detail), status: num(data.status),
+    at: str(data.at), duration_ms: num(data.duration_ms) ?? 0,
+  };
+}
+
+export async function listAdminSkills(signal?: AbortSignal): Promise<SkillCatalog> {
+  const data = await call('/api/admin/skills', { signal });
+  if (!isObj(data) || !Array.isArray(data.skills)) throw new AdminApiError('server', 'bad_shape');
+  const strs = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
+  return {
+    source: str(data.source, 'runtime/skills'),
+    skills: data.skills.filter(isObj).map((k) => ({
+      name: str(k.name), label: str(k.label, str(k.name)), description: str(k.description), tools: strs(k.tools),
+      version: str(k.version), source: str(k.source), builtin: k.builtin === true, used: num(k.used) ?? 0, lines: num(k.lines) ?? 0,
+    })),
+    errors: Array.isArray(data.errors)
+      ? data.errors.filter(isObj).map((e) => ({ dir: str(e.dir), code: str(e.code), message: str(e.message) }))
+      : [],
+  };
 }
 
 export async function syncModels(): Promise<SyncResult> {

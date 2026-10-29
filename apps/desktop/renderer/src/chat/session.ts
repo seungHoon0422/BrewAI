@@ -3,8 +3,8 @@
 // 라이브러리 없이 useSyncExternalStore. 상태는 바꿀 때마다 새 객체 (React 가 바뀐 곳만 다시 그린다).
 import { useSyncExternalStore } from 'react';
 import {
-  ApiError, getThread, listModels, listThreads, listTools, runChat, toSteps, toUsage,
-  type AgUiEvent, type Failure, type HistoryAssistant, type Model, type Reasoning, type Step, type ThreadSummary, type Usage,
+  ApiError, getThread, listModels, listSkills, listThreads, listTools, runChat, toSteps, toUsage,
+  type AgUiEvent, type Failure, type HistoryAssistant, type Model, type Reasoning, type SkillInfo, type Step, type ThreadSummary, type Usage,
 } from '../api';
 import { stepLabel, titleOf } from './text';
 
@@ -24,6 +24,7 @@ export type Answer = {
   runId: string;
   status: AnswerStatus;
   failure: Failure | null;
+  failureDetail: string | null; // RUN_ERROR.detail (chat/text.ts DETAIL)
   parts: Part[];
   steps: Step[];
   model: ModelTag | null;
@@ -43,6 +44,7 @@ export type State = {
   reasoning: Reasoning; // 사용자가 고른 생각 깊이 (모델이 지원할 때만 보낸다)
   modelNotice: string | null; // 고른 모델이 사라져 기본으로 돌아갔을 때 한 줄
   tools: Record<string, string>; // 툴 이름 → 화면 이름
+  skills: Loadable<SkillInfo>; // 제품 스킬 (스킬 메뉴 · skill:<이름> 단계 이름)
   convs: Record<string, Conv>;
   current: string | null; // null = 새 대화 (홈)
   threads: Loadable<ThreadSummary>;
@@ -75,6 +77,7 @@ let state: State = {
   reasoning: prefs.reasoning,
   modelNotice: null,
   tools: {},
+  skills: { status: 'loading', list: [], error: null },
   convs: {},
   current: null,
   threads: { status: 'loading', list: [], error: null },
@@ -99,6 +102,7 @@ export function useSession<T>(pick: (s: State) => T): T {
 }
 
 const failureOf = (e: unknown): Failure => (e instanceof ApiError ? e.kind : 'server');
+const detailOf = (e: unknown): string | null => (e instanceof ApiError && e.detail ? e.detail : null);
 const isAbort = (e: unknown) => (e as Error)?.name === 'AbortError';
 
 // ── 모델 ──
@@ -162,6 +166,20 @@ export function loadTools() {
   );
 }
 
+// 스킬 목록 = 스킬 메뉴 + 단계 이름. 실행이 끝날 때마다 다시 읽는다 (사용 횟수)
+let skillsLoading: Promise<void> | null = null;
+export function loadSkills(): Promise<void> {
+  if (skillsLoading) return skillsLoading;
+  skillsLoading = listSkills().then(
+    (list) => set((s) => ({ ...s, skills: { status: 'ready', list, error: null } })),
+    (e) => set((s) => ({ ...s, skills: { ...s.skills, status: 'error', error: failureOf(e) } })),
+  ).finally(() => {
+    skillsLoading = null;
+  });
+  return skillsLoading;
+}
+export const skillLabels = (s: State): Record<string, string> => Object.fromEntries(s.skills.list.map((k) => [k.name, k.label]));
+
 // ── 최근 대화 ──
 let threadsLoading: Promise<void> | null = null;
 export function loadThreads(): Promise<void> {
@@ -210,7 +228,7 @@ function historyAnswer(m: HistoryAssistant): Answer {
     };
   });
   return {
-    runId: m.run_id, status: 'done', failure: null, parts, steps: [],
+    runId: m.run_id, status: 'done', failure: null, failureDetail: null, parts, steps: [],
     model: { id: m.model, label: m.model_label, provider: m.provider, provider_label: m.provider_label },
     reasoning: m.reasoning_level, startedAt: 0, durationMs: m.duration_ms, usage: m.usage, fromHistory: true,
   };
@@ -259,7 +277,7 @@ export const convBusy = (s: State, id: string | null) => (id ? s.convs[id]?.turn
 function freshAnswer(s: State): Answer {
   const m = effectiveModel(s);
   return {
-    runId: crypto.randomUUID(), status: 'sending', failure: null, parts: [], steps: [],
+    runId: crypto.randomUUID(), status: 'sending', failure: null, failureDetail: null, parts: [], steps: [],
     model: m ? { id: m.id, label: m.label, provider: m.provider, provider_label: m.provider_label } : null,
     reasoning: effectiveReasoning(s), startedAt: Date.now(), durationMs: null, usage: null, fromHistory: false,
   };
@@ -304,6 +322,12 @@ export function retry(threadId: string) {
     return { ...s, convs: { ...s.convs, [threadId]: { ...s.convs[threadId], turns } } };
   });
   void start(threadId, answer);
+}
+
+// 생각(추론) 설정 때문에 거절됐을 때: 이 기기의 생각 깊이를 끄고 같은 질문을 다시
+export function retryWithoutReasoning(threadId: string) {
+  pickReasoning('off');
+  retry(threadId);
 }
 
 // 멈춘 직후엔 서버가 아직 끊김을 모를 수 있다 (409 thread_busy) → 그 대화에 한해 잠깐 기다렸다 다시 보낸다
@@ -371,14 +395,16 @@ async function start(threadId: string, answer: Answer) {
   } catch (e) {
     const stopped = isAbort(e) || ctrl.signal.aborted;
     const failure = stopped ? null : failureOf(e);
+    const failureDetail = stopped ? null : detailOf(e);
     patchAnswer(threadId, answer.runId, (a) => ({
       ...closeOpen(a, stopped ? 'cancelled' : 'error'),
-      status: stopped ? 'stopped' : 'failed', failure, durationMs: now(a),
+      status: stopped ? 'stopped' : 'failed', failure, failureDetail, durationMs: now(a),
     }));
     if (failure === 'model_gone' || failure === 'no_models') void loadModels(); // 숨겨진 모델 → 목록 새로
   } finally {
     if (runs.get(threadId) === ctrl) runs.delete(threadId);
     void loadThreads();
+    void loadSkills(); // 사용 횟수
     set((s) => ({ ...s, runsVersion: s.runsVersion + 1 }));
   }
 }
@@ -420,7 +446,8 @@ function apply(a: Answer, ev: AgUiEvent): Answer {
     case 'STEP_STARTED': {
       const name = s_(ev.stepName);
       // 진행 중 단계의 이름표는 화면에서 다시 만든다 (툴 이름표가 늦게 와도 맞게)
-      return { ...a, status: 'running', steps: [...a.steps, { name, label: stepLabel(name, state.tools), status: 'running', started_ms: now(a), duration_ms: null }] };
+      const label = stepLabel(name, state.tools, skillLabels(state));
+      return { ...a, status: 'running', steps: [...a.steps, { name, label, status: 'running', started_ms: now(a), duration_ms: null }] };
     }
     case 'STEP_FINISHED': {
       const name = s_(ev.stepName);
@@ -494,5 +521,6 @@ function apply(a: Answer, ev: AgUiEvent): Answer {
 export function boot() {
   void loadModels();
   void loadThreads();
+  void loadSkills();
   loadTools();
 }

@@ -15,7 +15,10 @@ from conductor.agent import ChatRuntime, _Activity, _RunStream
 from conductor.models import ModelChoice
 from conductor.store import Store
 
+TOOL_NAMES = ("current_time", "calculator", "unit_convert", "date_calc", "text_stats")
+
 THOUGHT = "질문을 나눠 보면"
+DROP = {"extra_body": {"drop_params": True}}  # 생각을 보낼 때만: LiteLLM 이 모르는 파라미터는 400 대신 버린다
 
 
 def user_texts(messages: list[ModelMessage]) -> list[str]:
@@ -160,7 +163,7 @@ def test_reasoning_streams_as_ag_ui_reasoning_events(make_api, h) -> None:
     assert start["role"] == "reasoning"
     assert events[1]["value"] | {"reasoning": "high", "reasoning_requested": "high", "provider": "anthropic"} == events[1]["value"]
     # LiteLLM 으로 가는 설정: reasoning_effort + Anthropic thinking 이 들어갈 max_tokens
-    assert seen["settings"][0] == {"openai_reasoning_effort": "high", "max_tokens": 16000}
+    assert seen["settings"][0] == {"openai_reasoning_effort": "high", "max_tokens": 16000, **DROP}
     thread = api.client.get("/api/threads/thread-1").json()
     assert thread["messages"][1]["reasoning"] == f"{THOUGHT} 두 단계예요."
     assert [p["type"] for p in thread["messages"][1]["parts"]] == ["reasoning", "text"]
@@ -185,7 +188,7 @@ def test_reasoning_ignored_for_models_without_it(make_api) -> None:
     assert events[1]["value"] | {"reasoning": "off", "reasoning_requested": "low", "reasoning_supported": False} == events[1]["value"]
     assert ChatRuntime.model_settings(
         ModelChoice("m", "m", "openai", "OpenAI", supports_reasoning=True, supports_tools=True, max_output_tokens=100000), "low"
-    ) == {"openai_reasoning_effort": "low"}  # max_tokens 는 thinking budget 이 있는 provider 에만
+    ) == {"openai_reasoning_effort": "low", **DROP}  # max_tokens 는 thinking budget 이 있는 provider 에만
 
 
 # ── 툴: calculator 왕복 ───────────────────────────────────────────────────────────────
@@ -222,10 +225,10 @@ def test_tool_call_round_trip_streams_tool_events_and_steps(make_api, h) -> None
     result = next(e for e in events if e["type"] == "TOOL_CALL_RESULT")
     assert result["toolCallId"] == "call_1" and json.loads(result["content"]) == {"expression": "12*(3+4)", "result": "84"}
     assert seen["tool_result"] == {"expression": "12*(3+4)", "result": "84"}
-    assert seen["tools"] == ["current_time", "calculator"]
+    assert seen["tools"] == list(TOOL_NAMES)
     assert "".join(e["delta"] for e in events if e["type"] == "TEXT_MESSAGE_CONTENT") == "계산 결과는 84입니다."
     assert [e["stepName"] for e in events if e["type"] == "STEP_STARTED"] == ["tool:calculator", "writing"]
-    assert events[1]["value"]["tools"] == ["current_time", "calculator"]
+    assert events[1]["value"]["tools"] == list(TOOL_NAMES) and events[1]["value"]["skills"] == []
 
     run = api.client.get("/api/runs").json()[0]
     assert [(s["name"], s["label"], s["status"]) for s in run["steps"]] == [("tool:calculator", "계산기", "done"), ("writing", "답 쓰기", "done")]
@@ -257,16 +260,16 @@ def test_claude_thinking_is_only_sent_before_the_tool_call(make_api, h) -> None:
     api = make_api(lambda _: FunctionModel(stream_function=stream), [*h.fixture_items(), claude], bootstrap_models=("claude-think",))
     events = api.chat("3*3 은?", reasoning="low")
     assert events[-1]["type"] == "RUN_FINISHED" and events[1]["value"]["reasoning"] == "low"
-    assert calls == [{"openai_reasoning_effort": "low", "max_tokens": 16000}, {"max_tokens": 16000}]
+    assert calls == [{"openai_reasoning_effort": "low", "max_tokens": 16000, **DROP}, {"max_tokens": 16000, **DROP}]
     api.chat("한 번 더", reasoning="low")  # 새 턴의 첫 호출 = 다시 생각 (지난 턴의 tool_use 는 서명이 없어도 된다)
-    assert calls[2] == {"openai_reasoning_effort": "low", "max_tokens": 16000} and calls[3] == {"max_tokens": 16000}
+    assert calls[2] == {"openai_reasoning_effort": "low", "max_tokens": 16000, **DROP} and calls[3] == {"max_tokens": 16000, **DROP}
 
     # OpenAI 계열은 그대로 (reasoning 을 툴 왕복 내내 보낸다)
     calls.clear()
     gpt = h.group("gpt-think", ["openai"], supports_reasoning=True, supports_function_calling=True)
     api2 = make_api(lambda _: FunctionModel(stream_function=stream), [*h.fixture_items(), gpt], bootstrap_models=("gpt-think",))
     api2.chat("3*3 은?", reasoning="high")
-    assert calls == [{"openai_reasoning_effort": "high"}, {"openai_reasoning_effort": "high"}]
+    assert calls == [{"openai_reasoning_effort": "high", **DROP}, {"openai_reasoning_effort": "high", **DROP}]
 
 
 def test_tools_are_not_offered_to_models_without_function_calling(make_api) -> None:

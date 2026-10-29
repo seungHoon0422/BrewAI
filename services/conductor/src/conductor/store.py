@@ -1,7 +1,8 @@
 """conductor 로컬 저장소 = SQLite (표준 라이브러리 sqlite3). 파일 = CONDUCTOR_DB_PATH (기본 .data/conductor.sqlite3, gitignore).
 
-표 4개
+표 5개
   meta            키·값 (첫 동기화 여부 · 마지막 동기화 시각)
+  model_health    모델별 마지막 성공 · 마지막 실패(code = diagnose detail) — 채팅 결과와 관리자 '연결 시험' 이 남긴다
   model_exposure  관리자 소유: 노출 · 표시 이름 · 순서 · 기본값 + 게이트웨이 정보 스냅샷 (ADR-0006. 등록·가격 입력 없음)
   threads         대화 (id = AG-UI threadId)
   runs            실행 한 번 = 질문 하나. 완료(done) 실행의 messages 를 이어 붙인 것 = 대화 기록 (서버가 원본)
@@ -20,7 +21,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 1  # 표 추가(IF NOT EXISTS)는 버전을 올리지 않는다 — 옛 conductor 는 새 표를 그냥 무시한다
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -65,6 +66,13 @@ CREATE TABLE IF NOT EXISTS runs (
   duration_ms INTEGER
 );
 CREATE INDEX IF NOT EXISTS runs_thread ON runs (thread_id, seq);
+CREATE TABLE IF NOT EXISTS model_health (
+  gateway_id      TEXT PRIMARY KEY,
+  last_ok_at      TEXT,
+  last_error_code TEXT,
+  last_error_at   TEXT,
+  last_source     TEXT CHECK (last_source IN ('chat', 'probe'))
+);
 """
 
 
@@ -236,3 +244,39 @@ class Store:
             "SELECT r.*, t.title AS thread_title FROM runs r JOIN threads t ON t.id = r.thread_id ORDER BY r.seq DESC LIMIT ?",
             (limit,),
         )
+
+    # ── model_health ──
+    def record_model_result(self, gateway_id: str, *, error_code: str | None, source: str) -> str:
+        """성공(error_code None) = last_ok_at · 실패 = last_error_code/at. 시각을 돌려준다."""
+        at = now_iso()
+        with self._lock:
+            if error_code is None:
+                self._db.execute(
+                    "INSERT INTO model_health (gateway_id, last_ok_at, last_source) VALUES (?, ?, ?)"
+                    " ON CONFLICT (gateway_id) DO UPDATE SET last_ok_at = excluded.last_ok_at, last_source = excluded.last_source",
+                    (gateway_id, at, source),
+                )
+            else:
+                self._db.execute(
+                    "INSERT INTO model_health (gateway_id, last_error_code, last_error_at, last_source) VALUES (?, ?, ?, ?)"
+                    " ON CONFLICT (gateway_id) DO UPDATE SET last_error_code = excluded.last_error_code,"
+                    " last_error_at = excluded.last_error_at, last_source = excluded.last_source",
+                    (gateway_id, error_code[:64], at, source),
+                )
+        return at
+
+    def model_health(self) -> dict[str, sqlite3.Row]:
+        return {r["gateway_id"]: r for r in self.query("SELECT * FROM model_health")}
+
+    # ── 스킬 사용 횟수 = 실행 단계(skill:<이름>) 에서 센다 (실행마다 한 번) ──
+    def skill_usage(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for r in self.query("SELECT steps FROM runs WHERE steps LIKE '%\"skill:%'"):
+            try:
+                steps = json.loads(r["steps"] or "[]")
+            except ValueError:
+                continue
+            names = {s.get("name", "")[6:] for s in steps if isinstance(s, dict) and str(s.get("name", "")).startswith("skill:")}
+            for n in names:
+                counts[n] = counts.get(n, 0) + 1
+        return counts

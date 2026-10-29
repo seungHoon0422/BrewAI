@@ -16,6 +16,7 @@ ADMIN_ORIGINS = ("http://localhost:5174", "http://localhost:4174")
 # 첫 동기화 때 노출할 모델 = 키 없이 답하는 mock (infra/litellm/config.yaml). 나머지 새 모델은 후보(숨김)
 BOOTSTRAP_MODELS = ("brewai-mock",)
 DEFAULT_DB_PATH = Path(".data") / "conductor.sqlite3"  # npm run api 는 레포 루트에서 돈다 → <레포>/.data/ (gitignore)
+DEFAULT_SKILLS_DIR = Path("runtime") / "skills"  # 제품 스킬 (AGENTS.md: .claude/skills = 개발 루틴과 섞지 않는다)
 
 
 @dataclass(frozen=True)
@@ -30,6 +31,7 @@ class Settings:
     bootstrap_models: tuple[str, ...] = BOOTSTRAP_MODELS
     gateway_ui_url: str | None = None  # 관리자 '모델 추가' 링크 (LiteLLM Admin UI). 없으면 gateway_url + /ui
     model_sync_interval_s: float = 0.0  # 게이트웨이 모델 자동 동기화 주기. 0 = 끔 (테스트 기본값). load_settings 는 60초
+    skills_dir: str | None = None  # 제품 스킬 폴더 (None = 스킬 없음 · 테스트 기본값). load_settings 는 runtime/skills
 
 
 def _csv(raw: str | None, default: tuple[str, ...]) -> tuple[str, ...]:
@@ -55,6 +57,7 @@ def load_settings(env: Mapping[str, str] = os.environ) -> Settings:
         bootstrap_models=_csv(env.get("CONDUCTOR_BOOTSTRAP_MODELS"), BOOTSTRAP_MODELS),
         gateway_ui_url=(env.get("LLM_GATEWAY_UI_URL") or "").rstrip("/") or None,
         model_sync_interval_s=_seconds(env.get("MODEL_SYNC_INTERVAL_S"), 60.0),
+        skills_dir=env.get("CONDUCTOR_SKILLS_DIR") or str(DEFAULT_SKILLS_DIR),
     )
 
 

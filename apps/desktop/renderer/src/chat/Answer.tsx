@@ -3,8 +3,8 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { Icon, type IconName } from '../icons';
 import { ProviderIcon, providerLabel } from '../providers';
-import { FAILURE_TEXT, STEP_DOT, reasoningLabel, seconds, stepDoing } from './text';
-import { isLive, retry, useSession, type Answer, type ReasoningPart, type ToolPart, type Turn } from './session';
+import { FAILURE_TEXT, detailText, STEP_DOT, reasoningLabel, seconds, stepDoing } from './text';
+import { isLive, retry, retryWithoutReasoning, useSession, type Answer, type ReasoningPart, type ToolPart, type Turn } from './session';
 
 // 살아 있는 동안만 시계를 돌린다 (200ms) — 끝나면 멈춘다
 export function useNow(active: boolean, every = 200): number {
@@ -37,14 +37,33 @@ export function AnswerView({ turn, latest, threadId }: { turn: Turn; latest: boo
         </div>
       )}
       {a.status === 'failed' && a.failure && (latest ? (
-        <div className="msg agent fail enter" role="alert">
-          <span>{FAILURE_TEXT[a.failure]}</span>
-          <button className="btn" type="button" onClick={() => retry(threadId)}>다시 시도</button>
-        </div>
+        <Failed a={a} threadId={threadId} />
       ) : (
-        <p className="msg note">{FAILURE_TEXT[a.failure]}</p>
+        <p className="msg note">{failText(a)}</p>
       ))}
     </>
+  );
+}
+
+const failText = (a: Answer) => detailText(a.failureDetail)?.text || (a.failure ? FAILURE_TEXT[a.failure] : '');
+
+// 실패 = 한 줄(왜) + 고치는 곳(hint) + 다시 시도 (생각 때문이면 '생각 끄고 다시'도)
+function Failed({ a, threadId }: { a: Answer; threadId: string }) {
+  const d = detailText(a.failureDetail);
+  return (
+    <div className="msg agent fail enter" role="alert" data-detail={a.failureDetail ?? undefined}>
+      <span className="fmain">
+        <span className="ftxt">{failText(a)}</span>
+        {d && <span className="fhint">{d.hint}</span>}
+        {a.model && d && <span className="fmodel">{a.model.label} · {a.model.id}</span>}
+      </span>
+      <span className="facts">
+        {d?.reasoningOff && a.reasoning !== 'off' && (
+          <button className="btn" type="button" onClick={() => retryWithoutReasoning(threadId)}>생각 끄고 다시</button>
+        )}
+        <button className="btn" type="button" onClick={() => retry(threadId)}>다시 시도</button>
+      </span>
+    </div>
   );
 }
 
@@ -134,7 +153,9 @@ function Thinking({ p }: { p: ReasoningPart }) {
   );
 }
 
-const TOOL_ICON: Record<string, IconName> = { calculator: 'calc', current_time: 'clock' };
+const TOOL_ICON: Record<string, IconName> = {
+  calculator: 'calc', current_time: 'clock', unit_convert: 'ruler', date_calc: 'cal', text_stats: 'text', use_skill: 'layers',
+};
 const TOOL_STATE: Record<ToolPart['status'], { text: string; icon?: IconName }> = {
   running: { text: '실행 중' },
   done: { text: '완료', icon: 'check' },
@@ -152,12 +173,28 @@ function toolRows(p: ToolPart): { k: string; v: string; mono?: boolean; err?: bo
   const rows: { k: string; v: string; mono?: boolean; err?: boolean }[] = [];
   if (p.name === 'calculator') rows.push({ k: '수식', v: show(args?.expression) || p.argsText || '…', mono: true });
   else if (p.name === 'current_time') rows.push({ k: '시간대', v: show(args?.timezone) || 'Asia/Seoul' });
+  else if (p.name === 'use_skill') rows.push({ k: '스킬', v: show(res?.label) || show(args?.name) || '…' });
+  else if (p.name === 'unit_convert') rows.push({ k: '변환', v: args ? `${show(args.value)} ${show(args.from_unit)} → ${show(args.to_unit)}` : p.argsText || '…', mono: true });
+  else if (p.name === 'date_calc') rows.push({ k: '계산', v: args ? [show(args.operation), show(args.date), show(args.other_date), args.days != null ? `${show(args.days)}일` : ''].filter(Boolean).join(' · ') : p.argsText || '…' });
+  else if (p.name === 'text_stats') rows.push({ k: '글', v: typeof args?.text === 'string' ? `${Array.from(args.text).length}자 받음` : '…' });
   else if (p.argsText || p.args !== undefined) rows.push({ k: '입력', v: p.args !== undefined ? show(p.args) : p.argsText, mono: true });
   if (p.status === 'running' || p.status === 'cancelled') return rows;
   if (res && 'error' in res) {
     rows.push({ k: '오류', v: show(res.message) || show(res.error), err: true });
   } else if (p.name === 'calculator' && res && 'result' in res) {
     rows.push({ k: '결과', v: show(res.result), mono: true });
+  } else if (p.name === 'use_skill' && res) {
+    // 지침 본문은 모델만 본다 — 카드엔 줄 수만 (기록에서 연 답은 서버가 본문을 빼고 lines 를 준다)
+    const lines = typeof res.lines === 'number' ? res.lines : typeof res.instructions === 'string' ? res.instructions.split('\n').length : null;
+    rows.push({ k: '결과', v: `지침 불러옴${lines != null ? ` · ${lines}줄` : ''}` });
+  } else if (p.name === 'unit_convert' && res && 'text' in res) {
+    rows.push({ k: '결과', v: show(res.text), mono: true });
+  } else if (p.name === 'date_calc' && res && 'date' in res) {
+    rows.push({ k: '결과', v: `${show(res.date)} ${show(res.weekday)}` });
+  } else if (p.name === 'date_calc' && res && 'days' in res) {
+    rows.push({ k: '결과', v: `${show(res.text)} (${show(res.days)}일)` });
+  } else if (p.name === 'text_stats' && res && 'characters' in res) {
+    rows.push({ k: '결과', v: `${show(res.characters)}자 · 공백 빼고 ${show(res.characters_no_spaces)}자 · 단어 ${show(res.words)} · ${show(res.lines)}줄` });
   } else if (p.name === 'current_time' && res && 'date' in res) {
     rows.push({ k: '결과', v: `${show(res.date)} ${show(res.time)} ${show(res.weekday)}${res.utc_offset ? ` (UTC${show(res.utc_offset)})` : ''}` });
   } else if (p.result !== undefined) {
@@ -169,7 +206,8 @@ function toolRows(p: ToolPart): { k: string; v: string; mono?: boolean; err?: bo
 function ToolCard({ p }: { p: ToolPart }) {
   const st = TOOL_STATE[p.status];
   return (
-    <div className="tcard enter" data-state={p.status} role="group" aria-label={`${p.label} 도구`}>
+    <div className="tcard enter" data-state={p.status} data-tool={p.name} role="group"
+      aria-label={p.name === 'use_skill' ? '스킬 사용' : `${p.label} 도구`}>
       <div className="th">
         <span className="ttile" aria-hidden="true"><Icon name={TOOL_ICON[p.name] ?? 'wrench'} /></span>
         <b title={p.name}>{p.label}</b>

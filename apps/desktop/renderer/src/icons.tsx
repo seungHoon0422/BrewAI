@@ -48,6 +48,9 @@ const PATHS = {
     </>
   ),
   refresh: <path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4.5v4h-4" />,
+  // 자 (단위 변환) · 글 (글자 수) — 같은 결로 새로 그렸다
+  ruler: <><rect x="3" y="8" width="18" height="8" rx="1.5" /><path d="M7 8v3M11 8v4M15 8v3M19 8v2" /></>,
+  text: <path d="M5 6.5h14M5 11h14M5 15.5h9" />,
   // 톱니 8개 (끝 r9 · 뿌리 r6.8) + 가운데 구멍
   gear: (
     <>

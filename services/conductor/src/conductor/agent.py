@@ -4,7 +4,8 @@ POST /api/chat 본문 = AG-UI RunAgentInput, 응답 = AG-UI SSE. 이벤트 순�
   RUN_STARTED → CUSTOM brewai.run → (STEP_STARTED thinking → REASONING_* → STEP_FINISHED)?
   → (STEP_STARTED tool:<name> → TOOL_CALL_START/ARGS/END → TOOL_CALL_RESULT → STEP_FINISHED)*
   → STEP_STARTED writing → TEXT_MESSAGE_START/CONTENT…/END → STEP_FINISHED → CUSTOM brewai.run_summary → RUN_FINISHED
-  실패 = … → STEP_FINISHED → RUN_ERROR {code, message} (마지막 이벤트)
+  스킬 = (STEP_STARTED skill:<스킬> → TOOL_CALL_START use_skill …/RESULT → STEP_FINISHED) — 툴 단계 이름이 tool:use_skill 대신 skill:<이름>
+  실패 = … → STEP_FINISHED → RUN_ERROR {code, message, detail?} (마지막 이벤트. detail = diagnose.py DETAILS · 화면 안내용)
   생각 이벤트 = ag-ui-protocol 0.1.22 의 REASONING_START · REASONING_MESSAGE_START{role:"reasoning"} · REASONING_MESSAGE_CONTENT{delta}
   · REASONING_MESSAGE_END · (REASONING_ENCRYPTED_VALUE — 화면은 무시) · REASONING_END (Pydantic AI AG-UI adapter 2.59 가 낸다)
 모델 = LiteLLM 프록시의 OpenAI 호환 /v1/chat/completions (LiteLLMProvider, api_base = LLM_GATEWAY_URL + /v1).
@@ -13,6 +14,7 @@ POST /api/chat 본문 = AG-UI RunAgentInput, 응답 = AG-UI SSE. 이벤트 순�
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import time
@@ -30,7 +32,7 @@ from ag_ui.core import (
     StepStartedEvent,
     UserMessage,
 )
-from openai import AsyncOpenAI
+from openai import APIConnectionError, APIStatusError, AsyncOpenAI
 from pydantic import ValidationError
 from pydantic_ai import Agent, FunctionToolset, Tool
 from pydantic_ai.exceptions import ModelConnectionError, ModelHTTPError, UsageLimitExceeded
@@ -56,14 +58,18 @@ from pydantic_ai.usage import UsageLimits
 from starlette.requests import Request
 from starlette.responses import Response
 
+from . import diagnose as dx
 from .models import ModelChoice
-from .tools import BUILTIN_TOOLS, ToolSpec, step_label, tool_label
+from .skills import NAME_RE as SKILL_NAME_RE
+from .skills import SkillRegistry
+from .tools import BUILTIN_TOOLS, USE_SKILL, ToolSpec, step_label, tool_label
 
 log = logging.getLogger("conductor.agent")
 
 INSTRUCTIONS = (
     "너는 BrewAI 의 conductor 에이전트다. 한국어로 짧고 정확하게 답한다. "
-    "숫자 계산은 calculator 도구로, 오늘 날짜·지금 시각은 current_time 도구로 확인한 뒤 답한다. "
+    "숫자 계산은 calculator, 단위 환산은 unit_convert, 날짜 차이·며칠 뒤·요일은 date_calc, 글자 수는 text_stats, "
+    "오늘 날짜·지금 시각은 current_time 도구로 확인한 뒤 답한다 (암산·추측하지 않는다). "
     "앞선 대화를 기억하고 이어서 답한다."
 )
 
@@ -72,14 +78,17 @@ REASONING_LEVELS: tuple[Reasoning, ...] = ("off", "low", "high")
 MAX_MODEL_REQUESTS = 8  # 툴 왕복 포함 한 실행의 모델 호출 상한 (무한 툴 루프 방지)
 MAX_PROMPT_CHARS = 32_000
 THINKING_MAX_TOKENS = 16_000  # Anthropic thinking 은 max_tokens > budget 이어야 한다 (LiteLLM high = 4096)
+PROBE_MAX_TOKENS = 16  # 관리자 '연결 시험' (LiteLLM 자체 health check 기본값과 같다. 1 은 생각 모델에서 거절될 수 있다)
 _ID = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 
 ModelFactory = Callable[[str], Model]
 
-# 스트림 중 오류는 RUN_ERROR 한 줄로. 게이트웨이 응답 본문·키는 내보내지 않는다 (eval 제약: 비밀 노출 0).
+# 스트림 중 오류는 RUN_ERROR 한 줄로 (code · detail). 게이트웨이 응답 본문·키는 내보내지 않는다 (eval 제약: 비밀 노출 0).
+# provider 문구는 conductor 로그에만 (diagnose.sanitize: 키처럼 보이는 것을 가리고 300자까지).
 PUBLIC_ERRORS = {
     "gateway_auth_failed": "게이트웨이 인증에 실패했어요. 관리자에게 알려 주세요.",
     "provider_auth_failed": "이 모델의 API 키가 없거나 틀려요. 관리자에게 알려 주세요.",
+    "provider_rejected": "모델 설정 문제로 요청이 거절됐어요. 관리자에게 알려 주세요.",
     "gateway_unreachable": "모델 게이트웨이에 연결하지 못했어요.",
     "run_limit": "작업 단계가 너무 많아 멈췄어요. 질문을 나눠서 다시 시도해 주세요.",
     "model_error": "모델이 응답하지 못했어요. 잠시 뒤 다시 시도해 주세요.",
@@ -120,6 +129,7 @@ class RunSink(Protocol):
         messages: str | None,
         usage: dict[str, Any] | None,
         error_code: str | None,
+        error_detail: str | None,
     ) -> None: ...
 
 
@@ -127,32 +137,31 @@ class RunSink(Protocol):
 Prepare = Callable[[ChatRequest], Awaitable[tuple[ModelChoice, list[str], RunSink]]]
 
 
-def error_code(error: BaseException) -> str:
-    # Pydantic AI 가 OpenAI SDK 오류를 ModelHTTPError · ModelConnectionError 로 감싸서 준다
+def diagnose(error: BaseException) -> dx.Diagnosis:
+    """Pydantic AI 가 OpenAI SDK 오류를 ModelHTTPError · ModelConnectionError 로 감싸서 준다 → diagnose.classify_http.
+    게이트웨이 키 실패(LiteLLM 프록시 type)와 provider 키 실패(provider type · …Exception 문구)를 type 으로 가른다."""
     if isinstance(error, ModelHTTPError):
-        if error.status_code == 400 and error.provider_error_type == "no_db_connection":
-            return "gateway_auth_failed"  # LiteLLM config-only 모드: 틀린 게이트웨이 키 = 400 "No connected db."
-        if error.status_code in (401, 403):
-            # 게이트웨이 키는 스트림 전에 카탈로그 호출(같은 키)로 이미 통과했다 → 여기 401 = provider 키 (예: ANTHROPIC_API_KEY 없음)
-            return "provider_auth_failed"
-        if error.status_code == 500 and "Missing credentials" in str(error.body):
-            # LiteLLM 1.106.2 는 OPENAI_API_KEY 없음을 401 이 아니라 500 "OpenAIException - Missing credentials" 로 준다.
-            # 본문은 분류에만 쓰고 내보내지 않는다
-            return "provider_auth_failed"
+        return dx.classify_http(error.status_code, error.provider_error_type, error.body)
     if isinstance(error, ModelConnectionError):
-        return "gateway_unreachable"
+        return dx.unreachable()
     if isinstance(error, UsageLimitExceeded):
-        return "run_limit"
-    return "model_error"
+        return dx.Diagnosis(code="run_limit", detail=None)
+    return dx.Diagnosis(code="model_error", detail=None)
+
+
+def error_code(error: BaseException) -> str:
+    return diagnose(error).code
 
 
 class _EventStream(AGUIEventStream):
     async def on_error(self, error: Exception) -> AsyncIterator[BaseEvent]:
-        code = error_code(error)
-        log.warning("chat run failed: %s (%s)", code, type(error).__name__)  # 본문·키는 안 찍는다
+        d = diagnose(error)
+        # 진단 한 줄: status · LiteLLM type · 가린 provider 문구 (요청 본문 · 키는 안 찍는다)
+        log.warning("chat run failed: %s error=%s", d.log_fields(), type(error).__name__)
         async for event in super().on_error(error):
             if isinstance(event, RunErrorEvent):
-                event = RunErrorEvent(message=PUBLIC_ERRORS[code], code=code, timestamp=event.timestamp)
+                extra = {"detail": d.detail} if d.detail else {}
+                event = RunErrorEvent(message=PUBLIC_ERRORS[d.code], code=d.code, timestamp=event.timestamp, **extra)
             yield event
 
 
@@ -255,6 +264,13 @@ def load_history(blobs: Sequence[str]) -> list[ModelMessage]:
     return out
 
 
+def skill_card(result: Any) -> Any:
+    """use_skill 결과 → 화면용 (지침 본문은 모델만 본다 · 화면엔 이름과 줄 수)."""
+    if isinstance(result, dict) and isinstance(result.get("instructions"), str):
+        return {k: v for k, v in result.items() if k != "instructions"} | {"lines": len(result["instructions"].splitlines())}
+    return result
+
+
 def render_run(blob: str | None) -> dict[str, Any]:
     """저장된 실행 하나 → 화면용 답 (GET /api/threads/{id}). parts = 생각 · 툴 · 글 을 나온 순서대로."""
     parts: list[dict[str, Any]] = []
@@ -288,7 +304,7 @@ def render_run(blob: str | None) -> dict[str, Any]:
                 for p in m.parts:
                     if isinstance(p, ToolReturnPart) and p.tool_call_id in tools:
                         t = tools[p.tool_call_id]
-                        t["result"] = p.content
+                        t["result"] = skill_card(p.content) if t["name"] == USE_SKILL else p.content
                         t["status"] = "error" if isinstance(p.content, dict) and "error" in p.content else "done"
                     elif isinstance(p, RetryPromptPart) and p.tool_call_id in tools:
                         tools[p.tool_call_id].update(status="error", result={"error": "retry", "message": p.model_response()})
@@ -302,11 +318,13 @@ class _Activity:
     """AG-UI 이벤트를 보며 단계(생각 → 툴 → 쓰기)를 만든다. STEP_STARTED/FINISHED 를 끼워 넣고 sink 에 남긴다."""
 
     sink: RunSink
+    labels: dict[str, str] = field(default_factory=dict)  # 스킬 이름 → 화면 이름 (skill:<이름> 단계)
     started: float = field(default_factory=time.monotonic)
     steps: list[dict[str, Any]] = field(default_factory=list)
     key: str | None = None
     status: Literal["done", "error", "cancelled"] = "cancelled"
     code: str | None = "client_disconnected"
+    detail: str | None = None
     closed: bool = False
     messages: str | None = None
     usage: dict[str, Any] | None = None
@@ -317,7 +335,9 @@ class _Activity:
     def open(self, key: str, name: str) -> list[BaseEvent]:
         out = self.close("done")
         self.key = key
-        self.steps.append({"name": name, "label": step_label(name), "status": "running", "started_ms": self._ms(), "duration_ms": None})
+        self.steps.append(
+            {"name": name, "label": step_label(name, self.labels), "status": "running", "started_ms": self._ms(), "duration_ms": None}
+        )
         out.append(StepStartedEvent(step_name=name))
         try:
             self.sink.steps_changed(self.steps)
@@ -344,6 +364,7 @@ class _Activity:
                 status=self.status, steps=self.steps, duration_ms=self._ms(),
                 messages=self.messages if self.status == "done" else None, usage=self.usage,
                 error_code=None if self.status == "done" else self.code,
+                error_detail=None if self.status == "done" else self.detail,
             )
         except Exception:  # 기록 실패가 스트림·종료를 막지 않게
             log.exception("failed to record run end")
@@ -379,9 +400,42 @@ class _RunStream:
         # TEXT_MESSAGE_START (와 바로 뒤 빈 END) 는 다음 이벤트까지 잡아 둔다: 글이면 '쓰기' 단계 뒤에, 툴 앞 빈 메시지면
         # 툴 단계 뒤에 내보낸다 → STEP_STARTED 가 언제나 그 단계의 첫 이벤트보다 먼저 온다
         held: list[BaseEvent] = []
+        # use_skill: 스킬 이름은 인자(TOOL_CALL_ARGS)에 있다 → TOOL_CALL_END 까지 잡아 두고 skill:<이름> 단계를 연다
+        skill: dict[str, Any] | None = None
+
+        def open_skill() -> list[BaseEvent]:
+            nonlocal skill
+            assert skill is not None
+            try:
+                name = json.loads(skill["args"] or "{}").get("name")
+            except (ValueError, AttributeError):
+                name = None
+            name = name.strip() if isinstance(name, str) else ""
+            step = f"skill:{name if SKILL_NAME_RE.match(name) else 'unknown'}"
+            out = [*act.open(f"{step}#{skill['id']}", step), *skill["events"]]
+            skill = None
+            return out
+
         try:
             async for ev in events:
                 t = ev.type
+                if skill is not None:
+                    same = getattr(ev, "tool_call_id", None) == skill["id"]
+                    if t == EventType.TOOL_CALL_ARGS and same:
+                        skill["args"] += getattr(ev, "delta", "") or ""
+                        skill["events"].append(ev)
+                        continue
+                    if t == EventType.TOOL_CALL_END and same:
+                        skill["events"].append(ev)
+                        for e in open_skill():
+                            yield e
+                        continue
+                    for e in open_skill():  # 끝 신호 전에 다른 이벤트 (오류 등) → 이름 없이 연다
+                        yield e
+                if t == EventType.TOOL_CALL_START and ev.tool_call_name == USE_SKILL:  # type: ignore[attr-defined]
+                    skill = {"id": ev.tool_call_id, "args": "", "events": [*held, ev]}  # type: ignore[attr-defined]
+                    held.clear()
+                    continue
                 if t == EventType.TEXT_MESSAGE_START or (
                     t == EventType.TEXT_MESSAGE_END and held and held[-1].type == EventType.TEXT_MESSAGE_START
                 ):
@@ -405,9 +459,13 @@ class _RunStream:
                 elif t == EventType.RUN_ERROR:
                     pre = act.close("error")
                     act.status, act.code = "error", getattr(ev, "code", None) or "model_error"
+                    act.detail = getattr(ev, "detail", None)
                 for e in (*pre, *held, ev, *post):
                     yield e
                 held.clear()
+            if skill is not None:  # 끝 신호 없이 스트림이 끝남
+                for e in open_skill():
+                    yield e
         finally:
             act.finish()
 
@@ -422,16 +480,22 @@ class ChatRuntime:
         gateway_key: str,
         model_factory: ModelFactory | None = None,
         tools: Sequence[ToolSpec] = BUILTIN_TOOLS,
+        skills: SkillRegistry | None = None,
+        openai_client: AsyncOpenAI | None = None,  # 테스트 = httpx2.MockTransport 를 단 클라이언트
     ) -> None:
         # 재시도 0: 게이트웨이(num_retries 0)도 안 하고, 사용자는 '다시 시도' 버튼이 있다. 기본 2회면 실패가 3배 늦다.
-        self._client = AsyncOpenAI(
+        self._client = openai_client or AsyncOpenAI(
             base_url=f"{gateway_url.rstrip('/')}/v1", api_key=gateway_key, max_retries=0, timeout=120.0
         )
         self._provider = LiteLLMProvider(openai_client=self._client)
         self._model_factory = model_factory or (lambda model_id: OpenAIChatModel(model_id, provider=self._provider))
-        self._toolset = build_toolset(tools)
-        self.tools = tuple(tools)
-        self.agent: Agent[None, str] = Agent(name="conductor", instructions=INSTRUCTIONS)
+        self.skills = skills or SkillRegistry()
+        skill_tool = self.skills.tool()
+        self.tools = (*tools, *([skill_tool] if skill_tool else []))
+        self._toolset = build_toolset(self.tools)
+        # 점진 공개: 스킬 이름·설명만 시스템 프롬프트에 (본문은 use_skill 로)
+        self.instructions = INSTRUCTIONS + self.skills.prompt()
+        self.agent: Agent[None, str] = Agent(name="conductor", instructions=self.instructions)
 
     async def __aenter__(self) -> ChatRuntime:  # 앱 수명 = provider HTTP 클라이언트 수명
         await self._provider.__aenter__()
@@ -447,10 +511,31 @@ class ChatRuntime:
         게이트웨이가 생각을 지원한다고 한 모델에만 보낸다 (안 그러면 LiteLLM 이 UnsupportedParams 400)."""
         if reasoning == "off" or not model.supports_reasoning:
             return None
-        settings = OpenAIChatModelSettings(openai_reasoning_effort=reasoning)
+        # drop_params: 게이트웨이 값(supports_reasoning)과 LiteLLM 모델 표(provider 변환)가 어긋나도 400 대신 그 파라미터만 버린다
+        # (예: 관리 화면에서 model_info 로 '생각 지원' 을 켰는데 LiteLLM 1.106.2 표에 없는 모델 이름). 이 요청에만 · LiteLLM 1.106.2 확인
+        settings = OpenAIChatModelSettings(openai_reasoning_effort=reasoning, extra_body={"drop_params": True})
         if model.provider in ("anthropic", "bedrock", "google") and model.max_output_tokens:
             settings["max_tokens"] = min(model.max_output_tokens, THINKING_MAX_TOKENS)
         return settings
+
+    async def probe(self, model_id: str) -> dx.Diagnosis | None:
+        """관리자 '연결 시험': 짧은 호출 한 번 (max_tokens 16 · 생각 없음 · 툴 없음). 성공 = None, 실패 = Diagnosis."""
+        try:
+            await self._client.chat.completions.create(
+                model=model_id,
+                messages=[{"role": "user", "content": "ping"}],
+                max_tokens=PROBE_MAX_TOKENS,
+                extra_body={"drop_params": True},
+                timeout=30.0,
+            )
+        except APIStatusError as e:
+            d = dx.classify_http(e.status_code, getattr(e, "type", None), e.body)
+            log.warning("model probe failed: model=%s %s", model_id, d.log_fields())
+            return d
+        except APIConnectionError:
+            log.warning("model probe failed: model=%s gateway unreachable", model_id)
+            return dx.unreachable()
+        return None
 
     @staticmethod
     def parse(adapter: _Adapter) -> ChatRequest:
@@ -485,7 +570,7 @@ class ChatRuntime:
             return Response(e.json(include_input=False), status_code=422, media_type="application/json")
         req = self.parse(adapter)
         model, blobs, sink = await prepare(req)
-        activity = _Activity(sink=sink)  # 여기부터 실행 기록이 열려 있다 → 어떤 길로 나가든 finish
+        activity = _Activity(sink=sink, labels=self.skills.labels())  # 여기부터 실행 기록이 열려 있다 → 어떤 길로 나가든 finish
         try:
             return self._stream(adapter, req, model, blobs, activity)
         except BaseException:
@@ -522,6 +607,7 @@ class ChatRuntime:
             "reasoning_requested": req.reasoning,
             "reasoning_supported": model.supports_reasoning,
             "tools": [t.name for t in self.tools] if model.supports_tools else [],
+            "skills": [s.name for s in self.skills.list()] if model.supports_tools else [],
             "turn": len(blobs) + 1,
         }
         llm = self._model_factory(model.id)

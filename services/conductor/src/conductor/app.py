@@ -4,6 +4,7 @@
   GET    /healthz                    살아 있음 (게이트웨이는 안 부른다)
   GET    /api/models                 노출 모델만 · 기본 모델이 첫 항목(is_default) · 나머지는 관리자 순서
   GET    /api/tools                  conductor 툴 [{name, label, description}] (활동 단계 tool:<name> 의 화면 이름)
+  GET    /api/skills                 제품 스킬 (runtime/skills) [{name, label, description, tools, builtin, used}] (단계 skill:<name>)
   POST   /api/chat                   AG-UI RunAgentInput → AG-UI SSE (agent.py 머리말 = 이벤트 순서)
   GET    /api/threads                최근 대화 (제목 = 첫 질문 첫 줄)
   GET    /api/threads/{id}           대화 기록 (완료된 턴만)
@@ -16,6 +17,8 @@
                                      칸 값이 틀리면 422 {detail: bad_<칸>} · 모르는 칸 = 422 (FastAPI 기본 목록)
   관리자 경로에 관리자 출처가 아닌 Origin 이 붙은 요청 = 403 origin_not_allowed (단순 요청 POST sync 도 막는다)
   POST   /api/admin/models/sync      게이트웨이에서 다시 읽기
+  POST   /api/admin/models/{id}/test 연결 시험 = 짧은 호출 한 번 → {ok, code, detail, status, at, duration_ms} (결과는 model_health 에)
+  GET    /api/admin/skills           스킬 카탈로그 (읽기 전용: 출처 runtime/skills · 버전 = sha256 앞 12자) + 읽지 못한 스킬
   GET    /api/admin/gateway          게이트웨이 주소 · LiteLLM Admin UI 링크 ('LiteLLM 에서 추가')
 """
 
@@ -25,6 +28,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import time
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from typing import Any, Literal
@@ -39,11 +43,14 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from .agent import ChatRequest, ChatRequestError, ChatRuntime, render_run
+from .diagnose import MODEL_HEALTH_CODES
 from .gateway import GatewayCatalogPort, GatewayError, LiteLLMCatalog
 from .models import ExposureRow, ModelChoice, ModelPatchError, ModelRegistry
 from .providers import provider_label
 from .settings import Settings, load_settings
+from .skills import load_skills
 from .store import Store, StoreConflict
+from .tools import BUILTIN_TOOLS
 
 ADMIN_PREFIX = "/api/admin/"
 TITLE_CHARS = 80
@@ -90,6 +97,10 @@ class AdminModelRow(BaseModel):
     supports_function_calling: bool
     supports_vision: bool
     supports_reasoning: bool
+    # ↓ 연결 상태 (conductor 가 본 것: 채팅 결과 · 연결 시험). last_error_code = diagnose detail (없으면 공개 code)
+    last_ok_at: str | None = None
+    last_error_code: str | None = None
+    last_error_at: str | None = None
 
 
 class ModelPatch(BaseModel):
@@ -133,9 +144,12 @@ def _model_out(r: ExposureRow, default: str | None) -> ModelOut:
     )
 
 
-def _admin_row(r: ExposureRow, order: int, default: str | None) -> AdminModelRow:
+def _admin_row(r: ExposureRow, order: int, default: str | None, health: Any = None) -> AdminModelRow:
     i = r.info
+    h = health or {}
     return AdminModelRow(
+        last_ok_at=h["last_ok_at"] if health else None, last_error_code=h["last_error_code"] if health else None,
+        last_error_at=h["last_error_at"] if health else None,
         id=r.gateway_id, label=r.label, display_name=r.display_name, default_label=r.default_label, family=r.family,
         provider=r.provider, provider_label=r.provider_label, provider_ids=list(r.providers), state=r.state, status=r.status,
         exposed=r.state == "exposed", is_default=r.gateway_id == default, order=order, is_chat=r.is_chat,
@@ -159,18 +173,24 @@ def _json(value: str | None) -> Any:
 class _Sink:
     """실행 기록 = runs 표 (agent.RunSink)."""
 
-    def __init__(self, store: Store, req: ChatRequest) -> None:
+    def __init__(self, store: Store, req: ChatRequest, model_id: str) -> None:
         self._store = store
         self._req = req
+        self._model = model_id
 
     def steps_changed(self, steps: list[dict[str, Any]]) -> None:
         self._store.update_steps(self._req.run_id, steps)
 
-    def finish(self, *, status, steps, duration_ms, messages, usage, error_code) -> None:  # type: ignore[no-untyped-def]
+    def finish(self, *, status, steps, duration_ms, messages, usage, error_code, error_detail) -> None:  # type: ignore[no-untyped-def]
         self._store.finish_run(
             self._req.run_id, status=status, steps=steps, duration_ms=duration_ms, messages=messages, usage=usage,
             error_code=error_code, title=_title(self._req.prompt),
         )
+        # 관리자 모델 표의 '연결' 칸: 성공 · 모델 탓인 실패만 (멈춤 · 단계 초과 · 서버 오류는 안 남긴다)
+        if status == "done":
+            self._store.record_model_result(self._model, error_code=None, source="chat")
+        elif status == "error" and error_code in MODEL_HEALTH_CODES:
+            self._store.record_model_result(self._model, error_code=error_detail or error_code, source="chat")
 
 
 def create_app(
@@ -182,7 +202,11 @@ def create_app(
 ) -> FastAPI:
     settings = settings or load_settings()
     catalog = catalog or LiteLLMCatalog(settings.gateway_url, settings.gateway_key, ttl_s=settings.catalog_ttl_s)
-    runtime = runtime or ChatRuntime(gateway_url=settings.gateway_url, gateway_key=settings.gateway_key)
+    runtime = runtime or ChatRuntime(
+        gateway_url=settings.gateway_url,
+        gateway_key=settings.gateway_key,
+        skills=load_skills(settings.skills_dir, known_tools=[t.name for t in BUILTIN_TOOLS]),
+    )
     store = store or Store(settings.db_path)
     registry = ModelRegistry(store, catalog, bootstrap=settings.bootstrap_models, default_model=settings.default_model)
 
@@ -259,7 +283,12 @@ def create_app(
     def admin_rows() -> list[AdminModelRow]:
         rows = registry.rows()
         default = registry.default_id(rows)
-        return [_admin_row(r, i, default) for i, r in enumerate(rows, 1)]
+        health = store.model_health()
+        return [_admin_row(r, i, default, health.get(r.gateway_id)) for i, r in enumerate(rows, 1)]
+
+    def skill_rows() -> list[dict[str, Any]]:
+        used = store.skill_usage()
+        return [s.row() | {"used": used.get(s.name, 0)} for s in runtime.skills.list()]
 
     # ── 데스크톱 ──
     @app.get("/healthz")
@@ -276,6 +305,11 @@ def create_app(
     @app.get("/api/tools")
     async def list_tools() -> list[dict[str, str]]:
         return [{"name": t.name, "label": t.label, "description": t.description} for t in runtime.tools]
+
+    @app.get("/api/skills")
+    async def list_skills() -> list[dict[str, Any]]:
+        keys = ("name", "label", "description", "tools", "builtin", "used")
+        return [{k: r[k] for k in keys} for r in skill_rows()]
 
     @app.post("/api/chat")
     async def chat(request: Request) -> Response:
@@ -294,7 +328,7 @@ def create_app(
                 )
             except StoreConflict as e:
                 raise ChatRequestError(409, e.code) from e
-            return choice, blobs, _Sink(store, req)
+            return choice, blobs, _Sink(store, req, choice.id)
 
         return await runtime.handle(request, prepare)
 
@@ -380,6 +414,29 @@ def create_app(
             "added": result.added, "missing": result.missing, "restored": result.restored,
             "first_sync": result.first_sync, "synced_at": result.synced_at, "models": admin_rows(),
         }
+
+    @app.post("/api/admin/models/{gateway_id:path}/test")
+    async def test_model(gateway_id: str) -> dict[str, Any]:
+        row = next((r for r in registry.rows() if r.gateway_id == gateway_id), None)
+        if row is None:
+            raise ModelPatchError(404, "model_not_found")
+        if row.status == "missing":
+            raise ModelPatchError(409, "model_missing")
+        if not row.is_chat:
+            raise ModelPatchError(409, "not_chat_model")
+        started = time.monotonic()
+        result = await runtime.probe(gateway_id)  # 숨긴 모델·후보도 시험할 수 있다 (노출 전에 확인)
+        code = None if result is None else (result.detail or result.code)
+        at = store.record_model_result(gateway_id, error_code=code, source="probe")
+        return {
+            "model": gateway_id, "ok": result is None, "code": None if result is None else result.code,
+            "detail": None if result is None else result.detail, "status": None if result is None else result.status,
+            "at": at, "duration_ms": int((time.monotonic() - started) * 1000),
+        }
+
+    @app.get("/api/admin/skills")
+    async def admin_skills() -> dict[str, Any]:
+        return {"source": runtime.skills.source, "skills": skill_rows(), "errors": runtime.skills.errors}
 
     @app.get("/api/admin/gateway")
     async def admin_gateway() -> dict[str, Any]:

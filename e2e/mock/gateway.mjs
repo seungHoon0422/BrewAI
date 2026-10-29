@@ -14,10 +14,16 @@
 // 툴: 요청 tools 에 그 툴이 있을 때만 tool_calls 로 부른다 → 다음 요청(role tool 결과)에서 결과로 답한다 (OpenAI 왕복 그대로)
 // Anthropic 생각 + 툴 (진짜 Anthropic · LiteLLM modify_params 없음): 생각이 켜진 요청에서 이번 질문 뒤 assistant tool_calls 가
 //   서명된 thinking_blocks 없이 다시 오면 400 (실제 오류 문구 흉내). conductor 는 툴 결과를 들고 가는 요청에서 생각을 꺼야 한다
-// 마지막 사용자 메시지에 넣는 표시: [fake:500] → 500 · [fake:401] → 401 (provider 키 없음 흉내) · [fake:cut] → 스트림 중간에 끊기 · [fake:slow] → 조각마다 250ms (중지 버튼 등)
-//   [fake:think] → reasoning_effort 없이도 생각 조각 · [fake:calc] <수식> → calculator 툴 호출 (수식 없으면 12*(3+4)) · [fake:time] → current_time 툴 호출
-// 테스트 조작 (Bearer 필요): POST /__fake/catalog {"late": true|false, "hide": ["fake-chat-large"], "reset": true}
-//   → 카탈로그를 바꾼다 (새 모델 = 관리자 '후보', 숨긴 모델 = '사라짐'). 응답 {"models": [id…]}
+// 마지막 사용자 메시지에 넣는 표시: [fake:500] → 500 · [fake:cut] → 스트림 중간에 끊기 · [fake:slow] → 조각마다 250ms (중지 버튼 등)
+//   실패 흉내 (LiteLLM 1.106.2 의 실제 status · type · 문구 — FAILURES 표): [fake:401] provider 키 없음 · [fake:key-invalid] provider 키 틀림
+//   · [fake:gateway-key] 게이트웨이 키 틀림(DB 모드) · [fake:model-404] provider 에 없는 모델 · [fake:reasoning-400] 생각 파라미터 거절
+//   · [fake:bad-request] provider 400 · [fake:openai-missing] OpenAI 키 없음(500 Missing credentials)
+//   [fake:think] → reasoning_effort 없이도 생각 조각
+//   툴 (적은 순서대로 하나씩 부른다 · 요청 tools 에 있을 때만): [fake:skill <이름>] → use_skill · [fake:convert <값> <단위> <단위>] → unit_convert
+//   · [fake:calc] <수식> → calculator (줄 끝까지가 수식, 없으면 12*(3+4)) · [fake:time] → current_time. 다 부르면 결과들로 답한다
+// drop_params: 요청에 drop_params true 면 (LiteLLM 처럼) 모델이 지원 안 하는 reasoning_effort 를 400 대신 버린다
+// 테스트 조작 (Bearer 필요): POST /__fake/catalog {"late": true|false, "hide": ["fake-chat-large"], "broken": {"<모델>": "<FAILURES 이름>"}, "reset": true}
+//   → 카탈로그를 바꾼다 (새 모델 = 관리자 '후보', 숨긴 모델 = '사라짐', broken = 그 모델의 모든 채팅 호출이 그 실패). 응답 {"models": [id…]}
 import http from 'node:http';
 import fs from 'node:fs';
 
@@ -70,7 +76,19 @@ const BASE_GROUPS = [
 ];
 // LiteLLM 에 나중에 등록되는 모델 (관리자 '후보' 흉내). provider = gemini → conductor 는 google 로 묶는다
 const LATE_GROUP = group({ id: 'fake-chat-late', providers: ['gemini'], maxIn: 1000000, maxOut: 8192, inCost: 1e-7, outCost: 4e-7, tools: true });
-const catalog = { late: process.env.FAKE_GATEWAY_LATE === '1', hide: new Set() };
+const catalog = { late: process.env.FAKE_GATEWAY_LATE === '1', hide: new Set(), broken: new Map() };
+
+// LiteLLM 1.106.2 실패 모양 [status, type, message] (infra/litellm/.venv 소스로 확인). 키처럼 보이는 값은 가짜
+const FAILURES = {
+  '401': [401, 'authentication_error', 'litellm.AuthenticationError: Missing Anthropic API Key - A call is being made to anthropic but no key is set either in the environment variables or via params. Please set `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` in your environment vars'],
+  'key-invalid': [401, 'authentication_error', 'litellm.AuthenticationError: AnthropicException - {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"},"request_id":"req_fake0123456789abcdefghijklmn"}'],
+  'gateway-key': [401, 'token_not_found_in_db', 'Authentication Error, Invalid proxy server token passed. Received API Key = sk-...fake, Key Hash (Token) =4c1f0e7b2d9a8f6e5d4c3b2a19087f6e5d4c3b2a19087f6e5d4c3b2a19087f6e. Unable to find token in cache or `LiteLLM_VerificationTokenTable`'],
+  'model-404': [404, 'invalid_request_error', 'litellm.NotFoundError: AnthropicException - {"type":"error","error":{"type":"not_found_error","message":"model: claude-sonnet-9-9"}}'],
+  'reasoning-400': [400, 'invalid_request_error', 'litellm.BadRequestError: AnthropicException - {"type":"error","error":{"type":"invalid_request_error","message":"thinking: this model does not support thinking"}}'],
+  'bad-request': [400, 'invalid_request_error', 'litellm.BadRequestError: AnthropicException - {"type":"error","error":{"type":"invalid_request_error","message":"messages: text content blocks must be non-empty"}}'],
+  'openai-missing': [500, 'internal_server_error', 'litellm.InternalServerError: OpenAIException - Missing credentials. Please pass an `api_key`, or set the `OPENAI_API_KEY` environment variable.'],
+};
+const failureIn = (question) => Object.keys(FAILURES).find((k) => question.includes(`[fake:${k}]`));
 const modelGroups = () =>
   [...BASE_GROUPS, ...(catalog.late ? [LATE_GROUP] : [])].filter((m) => !catalog.hide.has(m.model_group));
 const findGroup = (id) => modelGroups().find((m) => m.model_group === id);
@@ -146,28 +164,41 @@ function replyFor(model, messages) {
 
 const THOUGHT = '질문을 살펴보는 중이에요. 무엇을 묻는지 나눠 보고, 필요한 도구가 있는지 확인해요.';
 
-// 툴 결과(role tool) 로 답 쓰기. content = conductor(Pydantic AI) 가 보낸 JSON 문자열
-function replyFromTool(messages) {
-  const last = messages.at(-1);
+// 툴 결과(role tool) 하나 → 한 문장. content = conductor(Pydantic AI) 가 보낸 JSON 문자열
+function sentenceFromTool(message) {
   let out;
   try {
-    out = JSON.parse(textOf(last.content));
+    out = JSON.parse(textOf(message.content));
   } catch {
-    out = { raw: textOf(last.content) };
+    out = { raw: textOf(message.content) };
   }
   if (out?.error) return `도구가 오류를 냈어요: ${out.message ?? out.error}`;
+  if (out?.instructions !== undefined) return `스킬 '${out.label ?? out.name}' 지침을 따랐어요.`;
+  if (out?.text !== undefined && out?.from_unit !== undefined) return `변환 결과는 ${out.text}예요.`;
   if (out?.result !== undefined) return `계산 결과는 ${out.result}예요. (수식 ${out.expression})`;
   if (out?.iso) return `지금은 ${out.date} ${out.time} ${out.weekday}이에요. (${out.timezone})`;
   return `도구 결과를 받았어요: ${JSON.stringify(out)}`;
 }
 
-// 마지막 user 메시지의 표시 → 부를 툴 (요청 tools 에 그 이름이 있을 때만)
-function toolCallFor(body, question) {
+// 이번 질문 뒤 툴 결과들 → 답 (부른 순서대로)
+function replyFromTools(messages) {
+  const lastUser = messages.findLastIndex((m) => m?.role === 'user');
+  return messages.slice(lastUser + 1).filter((m) => m?.role === 'tool').map(sentenceFromTool).join(' ');
+}
+
+// 마지막 user 메시지의 표시 → 부를 툴 목록 (적은 순서대로 · 요청 tools 에 그 이름이 있을 때만)
+function plannedCalls(body, question) {
   const offered = new Set((body.tools ?? []).map((t) => t?.function?.name).filter(Boolean));
+  const found = [];
+  for (const m of question.matchAll(/\[fake:skill\s+([a-z0-9-]+)\]/g)) found.push({ at: m.index, name: 'use_skill', args: { name: m[1] } });
+  for (const m of question.matchAll(/\[fake:convert\s+([-\d.]+)\s+(\S+)\s+([^\]\s]+)\]/g)) {
+    found.push({ at: m.index, name: 'unit_convert', args: { value: Number(m[1]), from_unit: m[2], to_unit: m[3] } });
+  }
   const calc = question.match(/\[fake:calc\]\s*([^\n]*)/);
-  if (calc && offered.has('calculator')) return { name: 'calculator', args: { expression: calc[1].trim() || '12*(3+4)' } };
-  if (question.includes('[fake:time]') && offered.has('current_time')) return { name: 'current_time', args: { timezone: 'Asia/Seoul' } };
-  return null;
+  if (calc) found.push({ at: calc.index, name: 'calculator', args: { expression: calc[1].trim() || '12*(3+4)' } });
+  const time = question.indexOf('[fake:time]');
+  if (time >= 0) found.push({ at: time, name: 'current_time', args: { timezone: 'Asia/Seoul' } });
+  return found.sort((x, y) => x.at - y.at).filter((c) => offered.has(c.name));
 }
 
 // 조각 나누기: 코드 포인트 기준 6글자씩 (한글이 깨지지 않게)
@@ -209,7 +240,14 @@ async function chatCompletions(req, res) {
   const messages = Array.isArray(body.messages) ? body.messages : [];
   const question = lastUserText(messages);
   if (question.includes('[fake:500]')) return error(res, 500, 'fake upstream failure', 'internal_server_error');
-  if (question.includes('[fake:401]')) return error(res, 401, 'AuthenticationError: fake missing provider key', 'auth_error');
+  const failure = catalog.broken.get(model) ?? failureIn(question);
+  if (failure) {
+    const [status, type, message] = FAILURES[failure];
+    return error(res, status, message, type);
+  }
+  if (body.reasoning_effort !== undefined && !info.supports_reasoning && body.drop_params === true) {
+    delete body.reasoning_effort; // LiteLLM drop_params: 지원 안 하는 파라미터는 버린다
+  }
   if (body.reasoning_effort !== undefined && !info.supports_reasoning) {
     // LiteLLM drop_params 없음 = 지원 안 하는 파라미터는 400 (conductor 가 생각 미지원 모델엔 안 보내야 한다)
     return error(res, 400, `litellm.UnsupportedParamsError: ${model} does not support parameters: ['reasoning_effort']`, 'invalid_request_error');
@@ -231,9 +269,11 @@ async function chatCompletions(req, res) {
   }
 
   const afterTool = messages.at(-1)?.role === 'tool';
-  const call = afterTool ? null : toolCallFor(body, question);
+  const lastUser = messages.findLastIndex((m) => m?.role === 'user');
+  const done = messages.slice(lastUser + 1).filter((m) => m?.role === 'tool').length; // 이번 질문에서 이미 부른 툴 수
+  const call = plannedCalls(body, question)[done] ?? null;
   const thinking = !afterTool && (body.reasoning_effort !== undefined || question.includes('[fake:think]'));
-  const reply = call ? '' : afterTool ? replyFromTool(messages) : replyFor(model, messages);
+  const reply = call ? '' : afterTool ? replyFromTools(messages) : replyFor(model, messages);
   const toolCall = call && { index: 0, id: `call_fake_${messages.length}`, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args) } };
   const id = 'chatcmpl-fake';
   const base = { id, created: CREATED, model, system_fingerprint: null };
@@ -305,9 +345,13 @@ async function fakeCatalog(req, res) {
   if (body.reset) {
     catalog.late = process.env.FAKE_GATEWAY_LATE === '1';
     catalog.hide.clear();
+    catalog.broken.clear();
   }
   if (typeof body.late === 'boolean') catalog.late = body.late;
   if (Array.isArray(body.hide)) catalog.hide = new Set(body.hide.filter((x) => typeof x === 'string'));
+  if (body.broken && typeof body.broken === 'object') {
+    catalog.broken = new Map(Object.entries(body.broken).filter(([, v]) => typeof v === 'string' && v in FAILURES));
+  }
   return send(res, 200, { models: modelGroups().map((m) => m.model_group) });
 }
 

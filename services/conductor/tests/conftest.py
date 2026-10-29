@@ -20,6 +20,7 @@ from conductor.settings import Settings
 from conductor.store import Store
 
 FIXTURE = Path(__file__).parent / "fixtures" / "litellm-1.106.2-model_group_info.json"
+SKILLS_DIR = Path(__file__).resolve().parents[3] / "runtime" / "skills"  # 레포의 제품 스킬 (스타터 5개)
 # 테스트 기본: fixture 의 채팅 모델 둘을 첫 동기화 때 노출 (실제 기본값은 brewai-mock 하나)
 SETTINGS = Settings(
     gateway_url="http://gateway.invalid",
@@ -98,12 +99,17 @@ def make_api() -> Callable[..., Api]:
         *,
         settings: Settings = SETTINGS,
         store: Store | None = None,
+        skills: Any = None,  # SkillRegistry (기본 = 스킬 없음)
+        openai_client: Any = None,  # 연결 시험용 AsyncOpenAI (httpx2.MockTransport)
         **overrides: Any,
     ) -> Api:
         settings = replace(settings, **overrides) if overrides else settings
         catalog = MemoryCatalog(items if items is not None else fixture_items())
         store = store or Store(":memory:")
-        runtime = ChatRuntime(gateway_url=settings.gateway_url, gateway_key=settings.gateway_key, model_factory=model_factory)
+        runtime = ChatRuntime(
+            gateway_url=settings.gateway_url, gateway_key=settings.gateway_key, model_factory=model_factory,
+            skills=skills, openai_client=openai_client,
+        )
         client = TestClient(create_app(settings, catalog=catalog, runtime=runtime, store=store), base_url="http://127.0.0.1")
         client.__enter__()  # lifespan = 첫 동기화
         opened.append(client)
@@ -126,5 +132,5 @@ def h() -> Any:
 
     return _types.SimpleNamespace(
         chat_body=chat_body, sse_events=sse_events, types=types, group=group, fixture_items=fixture_items,
-        FIXTURE=FIXTURE, SETTINGS=SETTINGS,
+        FIXTURE=FIXTURE, SETTINGS=SETTINGS, SKILLS_DIR=SKILLS_DIR,
     )

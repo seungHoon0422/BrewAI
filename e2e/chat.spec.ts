@@ -78,15 +78,43 @@ test.describe('conductor 켜짐', () => {
   test('게이트웨이 오류는 안내 + 다시 시도', async () => {
     await ask(win, '[fake:500] 실패해 줘');
     const alert = ui(win).log.getByRole('alert');
-    await expect(alert).toContainText('답을 받지 못했어요', { timeout: 15_000 });
+    // 500 = provider 서버 오류 (detail provider_unavailable) → '잠시 뒤 다시'
+    await expect(alert).toContainText('모델 쪽 서버가 지금 응답하지 않아요', { timeout: 15_000 });
+    await expect(alert).toContainText('잠시 뒤 다시 시도해 주세요');
     await expect(alert.getByRole('button', { name: '다시 시도' })).toBeVisible();
     await expect(ui(win).log.locator('.msg.user').last()).toHaveText('[fake:500] 실패해 줘'); // 질문은 남는다
   });
 
-  test('모델 키 문제는 "관리자에게 알려 주세요" (잠시 뒤 다시가 아니라)', async () => {
+  test('모델 키 없음 = 무엇이 문제인지 + 고치는 곳 (LiteLLM 1.106.2: 401 authentication_error "Missing Anthropic API Key")', async () => {
     await ask(win, '[fake:401] 키 없음');
     const alert = ui(win).log.getByRole('alert');
-    await expect(alert).toContainText('이 모델을 지금 쓸 수 없어요. 관리자에게 알려 주세요', { timeout: 15_000 });
+    await expect(alert).toHaveAttribute('data-detail', 'provider_key_missing', { timeout: 15_000 });
+    await expect(alert.locator('.ftxt')).toHaveText('이 모델의 API 키가 설정돼 있지 않아요');
+    await expect(alert.locator('.fhint')).toContainText('LiteLLM 관리 화면 › Models › 이 모델의 Credential 키 확인');
+    await expect(alert.locator('.fmodel')).toHaveText('fake-chat-small · fake-chat-small'); // 어느 모델인지
+    await expect(alert).not.toContainText('Missing'); // provider 문구는 화면에 안 온다 (conductor 로그에만)
+    await expect(alert.getByRole('button', { name: '생각 끄고 다시' })).toHaveCount(0); // 키 문제 = 생각과 무관
+    await win.screenshot({ path: shot('desktop-error-hint'), animations: 'disabled' });
+  });
+
+  test('실패 종류마다 다른 안내 (키 틀림 · 게이트웨이 키 · 모델 이름 · 생각 설정)', async () => {
+    const cases = [
+      ['[fake:key-invalid]', 'provider_key_invalid', '이 모델의 API 키가 틀렸거나 권한이 없어요', 'Credential 키 확인'],
+      ['[fake:gateway-key]', 'gateway_key_invalid', '게이트웨이 키가 맞지 않아요', 'LLM_GATEWAY_KEY'],
+      ['[fake:model-404]', 'provider_model_not_found', '모델 이름이 provider 에 없어요', 'LiteLLM 모델 이름 확인'],
+      ['[fake:reasoning-400]', 'reasoning_unsupported', '이 모델이 생각 깊이 설정을 받지 않아요', '생각 깊이를 끄기로 바꾸고 다시'],
+    ] as const;
+    for (const [mark, detail, text, hint] of cases) {
+      await ask(win, `${mark} 실패 종류`);
+      const alert = ui(win).log.getByRole('alert');
+      await expect(alert).toHaveAttribute('data-detail', detail, { timeout: 15_000 });
+      await expect(alert.locator('.ftxt')).toHaveText(text);
+      await expect(alert.locator('.fhint')).toContainText(hint);
+      await expect(ui(win).log.locator('p.msg.note').last()).not.toHaveText(''); // 앞 실패는 한 줄로 남는다
+    }
+    // 진행 상황 목록엔 짧은 이유
+    const runs = (await (await fetch(`${API}/api/runs`)).json()) as { error_code: string | null }[];
+    expect(runs.slice(0, 4).map((r) => r.error_code)).toEqual(['provider_rejected', 'provider_rejected', 'gateway_auth_failed', 'provider_auth_failed']);
   });
 
   test('답이 중간에 끊기면 받은 글은 남고 안내가 뜬다', async () => {

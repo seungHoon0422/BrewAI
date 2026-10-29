@@ -1,4 +1,6 @@
-"""conductor 툴 목록 (한곳). 지금은 안전한 내장 툴 2개 — 네트워크·파일 접근 없음.
+"""conductor 툴 목록 (한곳). 안전한 내장 툴 5개 — 네트워크·파일 접근 없음 · 결정적 (같은 입력 = 같은 답, 현재 시각만 예외).
+  current_time · calculator · unit_convert(길이·무게·온도·데이터 크기) · date_calc(날짜 차이·더하기·요일) · text_stats(글자·단어·줄)
+스킬(runtime/skills)을 불러오는 use_skill 은 skills.py 가 같은 ToolSpec 모양으로 만든다 (스킬이 있을 때만).
 
 여기 함수는 순수 파이썬이다 (Pydantic AI import 없음, ADR-0002). agent.py 가 ToolSpec → Pydantic AI Tool 로 감싼다.
 MCP 툴(slice 03+)은 같은 모양(ToolSpec: name · label · 함수)으로 이 목록 옆에 꽂는다 — 승인이 필요한 툴은 requires_approval.
@@ -10,11 +12,13 @@ from __future__ import annotations
 import ast
 import math
 import operator
+import re
+import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from datetime import timezone as fixed_zone
-from typing import Any
+from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 DEFAULT_TIMEZONE = "Asia/Seoul"
@@ -99,8 +103,8 @@ _FUNCS: dict[str, tuple[Callable[..., Any], int, int]] = {  # 이름 → (함수
     "sin": (math.sin, 1, 1),
     "cos": (math.cos, 1, 1),
     "tan": (math.tan, 1, 1),
-    "min": (min, 1, 10),
-    "max": (max, 1, 10),
+    "min": (min, 2, 10),  # min(1) 은 TypeError (숫자 하나는 반복 가능한 값이 아니다)
+    "max": (max, 2, 10),
 }
 _CONSTS = {"pi": math.pi, "e": math.e}
 
@@ -150,7 +154,7 @@ def _eval(node: ast.AST) -> int | float:
             raise _CalcError("bad_arguments", "round 의 자릿수는 -15~15 정수여야 해요.")
         try:
             return _check(func(*args))
-        except (ValueError, OverflowError) as e:
+        except (ValueError, OverflowError, ZeroDivisionError, TypeError) as e:  # log(x, 1) = ZeroDivisionError
             raise _CalcError("math_domain", f"{node.func.id} 에 쓸 수 없는 값이에요.") from e
     raise _CalcError("unsupported", "숫자, + - * / // % **, 괄호, sqrt·log·sin 같은 함수만 쓸 수 있어요.")
 
@@ -185,6 +189,229 @@ def calculator(expression: str) -> dict[str, Any]:
     return {"expression": text, "result": _format(value)}
 
 
+# ── unit_convert ──────────────────────────────────────────────────────────────────
+# 단위 → (종류, 기준 단위로 곱할 값). 온도는 곱셈이 아니라 따로 계산한다. 데이터 = KB·MB 는 1000 배, KiB·MiB 는 1024 배.
+
+# 정규 기호 → (종류, 기준 단위 배수, 한국어 이름). 별칭(소문자) → 정규 기호
+_UNITS: dict[str, tuple[str, float, str]] = {}
+_ALIASES: dict[str, str] = {}
+_UNIT_TABLE: tuple[tuple[str, str, float, str, tuple[str, ...]], ...] = (
+    ("length", "mm", 0.001, "밀리미터", ("millimeter", "millimeters")),
+    ("length", "cm", 0.01, "센티미터", ("센치", "centimeter", "centimeters")),
+    ("length", "m", 1.0, "미터", ("meter", "meters", "metre")),
+    ("length", "km", 1000.0, "킬로미터", ("킬로", "kilometer", "kilometers")),
+    ("length", "in", 0.0254, "인치", ("inch", "inches")),
+    ("length", "ft", 0.3048, "피트", ("feet", "foot")),
+    ("length", "yd", 0.9144, "야드", ("yard", "yards")),
+    ("length", "mi", 1609.344, "마일", ("mile", "miles")),
+    ("weight", "mg", 0.001, "밀리그램", ("milligram",)),
+    ("weight", "g", 1.0, "그램", ("gram", "grams")),
+    ("weight", "kg", 1000.0, "킬로그램", ("kilogram", "kilograms")),
+    ("weight", "t", 1_000_000.0, "톤", ("ton", "tonne", "tonnes")),
+    ("weight", "oz", 28.349523125, "온스", ("ounce", "ounces")),
+    ("weight", "lb", 453.59237, "파운드", ("lbs", "pound", "pounds")),
+    ("temperature", "C", 1.0, "섭씨", ("°c", "celsius", "도")),
+    ("temperature", "F", 1.0, "화씨", ("°f", "fahrenheit")),
+    ("temperature", "K", 1.0, "켈빈", ("kelvin",)),
+    ("data", "B", 1.0, "바이트", ("byte", "bytes")),
+    ("data", "KB", 1e3, "킬로바이트", ("kilobyte",)),
+    ("data", "MB", 1e6, "메가바이트", ("megabyte", "메가")),
+    ("data", "GB", 1e9, "기가바이트", ("gigabyte", "기가")),
+    ("data", "TB", 1e12, "테라바이트", ("terabyte", "테라")),
+    ("data", "PB", 1e15, "페타바이트", ("petabyte",)),
+    ("data", "KiB", 1024.0, "키비바이트", ()),
+    ("data", "MiB", 1024.0**2, "메비바이트", ()),
+    ("data", "GiB", 1024.0**3, "기비바이트", ()),
+    ("data", "TiB", 1024.0**4, "테비바이트", ()),
+)
+for _kind, _sym, _factor, _name, _more in _UNIT_TABLE:
+    _UNITS[_sym] = (_kind, _factor, _name)
+    for _alias in (_sym, _name, *_more):
+        _ALIASES.setdefault(_alias.lower(), _sym)  # 't'(톤) · 'T'(없음) 처럼 대소문자가 겹치면 먼저 쓴 것
+KIND_LABELS = {"length": "길이", "weight": "무게", "temperature": "온도", "data": "데이터 크기"}
+MAX_UNIT_VALUE = 1e18
+
+
+def _symbol(raw: str) -> str | None:
+    text = raw.strip().replace(" ", "")
+    if text in _UNITS:  # 대소문자 그대로 먼저 (KB · Kib 구분)
+        return text
+    return _ALIASES.get(text.lower())
+
+
+def _to_kelvin(v: float, unit: str) -> float:
+    return v + 273.15 if unit == "C" else (v - 32) * 5 / 9 + 273.15 if unit == "F" else v
+
+
+def _from_kelvin(k: float, unit: str) -> float:
+    return k - 273.15 if unit == "C" else (k - 273.15) * 9 / 5 + 32 if unit == "F" else k
+
+
+def _num(value: float) -> str:
+    if value == 0:
+        return "0"
+    text = f"{value:.10g}"
+    if "e" in text:
+        return text
+    return text.rstrip("0").rstrip(".") if "." in text else text
+
+
+def unit_convert(value: float, from_unit: str, to_unit: str) -> dict[str, Any]:
+    """길이·무게·온도·데이터 크기 단위를 바꾼다. 단위 환산은 직접 하지 말고 이 도구를 쓴다.
+
+    Args:
+        value: 바꿀 값 (예: 5).
+        from_unit: 원래 단위 (예: km, mi, kg, lb, C, F, K, GB, GiB · 한국어 이름도 된다: 킬로미터, 파운드, 섭씨).
+        to_unit: 바꿀 단위.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        return {"error": "bad_value", "message": "숫자 값을 주세요."}
+    if abs(value) > MAX_UNIT_VALUE:
+        return {"error": "out_of_range", "message": "값이 너무 커요."}
+    src, dst = _symbol(from_unit or ""), _symbol(to_unit or "")
+    if src is None or dst is None:
+        bad = str(from_unit if src is None else to_unit)[:32]
+        return {"error": "unknown_unit", "message": f"'{bad}' 단위를 모르겠어요. 예: km, mi, kg, lb, C, F, GB, GiB"}
+    kind_src, kind_dst = _UNITS[src][0], _UNITS[dst][0]
+    if kind_src != kind_dst:
+        return {
+            "error": "incompatible_units",
+            "message": f"{KIND_LABELS[kind_src]}({src})와 {KIND_LABELS[kind_dst]}({dst})는 서로 바꿀 수 없어요.",
+        }
+    if kind_src == "temperature":
+        kelvin = _to_kelvin(float(value), src)
+        if kelvin < 0:
+            return {"error": "below_absolute_zero", "message": "절대 영도(-273.15°C)보다 낮은 온도는 없어요."}
+        result = _from_kelvin(kelvin, dst)
+    else:
+        if value < 0:
+            return {"error": "negative", "message": f"{KIND_LABELS[kind_src]}는 음수일 수 없어요."}
+        result = float(value) * _UNITS[src][1] / _UNITS[dst][1]
+    result = round(result, 10) if abs(result) < 1e6 else result
+    show = (lambda u: f"°{u}" if u in ("C", "F") else u) if kind_src == "temperature" else (lambda u: u)
+    return {
+        "kind": KIND_LABELS[kind_src],
+        "value": _num(float(value)),
+        "from_unit": src,
+        "to_unit": dst,
+        "result": _num(result),
+        "text": f"{_num(float(value))} {show(src)} = {_num(result)} {show(dst)}",
+    }
+
+
+# ── date_calc ─────────────────────────────────────────────────────────────────────
+
+MAX_DAYS = 100_000
+_WEEKDAYS = "월화수목금토일"
+_DATE_RE = re.compile(r"^\s*(\d{4})\s*[-./년]\s*(\d{1,2})\s*[-./월]\s*(\d{1,2})\s*일?\s*$")
+
+
+def _today(timezone: str = DEFAULT_TIMEZONE) -> date:
+    tz = _zone(timezone) or UTC
+    return _now().astimezone(tz).date()
+
+
+def _parse_date(raw: str | None, timezone: str) -> date | None:
+    text = (raw or "").strip()
+    if text in ("", "today", "오늘", "now"):
+        return _today(timezone)
+    if text in ("내일", "tomorrow"):
+        return _today(timezone) + timedelta(days=1)
+    if text in ("어제", "yesterday"):
+        return _today(timezone) - timedelta(days=1)
+    m = _DATE_RE.match(text)
+    if not m:
+        return None
+    try:
+        return date(int(m[1]), int(m[2]), int(m[3]))
+    except ValueError:
+        return None
+
+
+def _day(d: date) -> dict[str, str]:
+    return {"date": d.isoformat(), "weekday": _WEEKDAYS[d.weekday()] + "요일"}
+
+
+def date_calc(
+    operation: Literal["diff", "add_days", "weekday"],
+    date: str = "today",
+    other_date: str | None = None,
+    days: int | None = None,
+    timezone: str = DEFAULT_TIMEZONE,
+) -> dict[str, Any]:
+    """날짜 계산: 두 날짜 사이 일수(diff) · 며칠 뒤/앞(add_days) · 요일(weekday). 'D-몇', '100일 뒤' 같은 질문에 쓴다.
+
+    Args:
+        operation: diff = date 부터 other_date 까지 일수 · add_days = date 에 days 를 더한 날 · weekday = date 의 요일.
+        date: 기준 날짜 YYYY-MM-DD (또는 today/오늘 · 내일 · 어제). 기본은 오늘 (한국 시간).
+        other_date: diff 의 끝 날짜 YYYY-MM-DD.
+        days: add_days 에 더할 일수 (음수 = 며칠 전).
+        timezone: '오늘' 을 정할 시간대. 기본 Asia/Seoul.
+    """
+    tz = (timezone or DEFAULT_TIMEZONE).strip()
+    if len(tz) > 64 or _zone(tz) is None:
+        return {"error": "unknown_timezone", "message": f"'{tz[:64]}' 시간대를 찾지 못했어요. 예: Asia/Seoul"}
+    start = _parse_date(date, tz)
+    if start is None:
+        return {"error": "bad_date", "message": f"'{str(date)[:40]}' 날짜를 읽지 못했어요. 예: 2026-12-25"}
+    if operation == "weekday":
+        return {"operation": "weekday", **_day(start)}
+    if operation == "add_days":
+        if days is None or isinstance(days, bool) or not isinstance(days, int):
+            return {"error": "missing_days", "message": "더할 일수(days)를 정수로 주세요."}
+        if abs(days) > MAX_DAYS:
+            return {"error": "out_of_range", "message": f"일수는 ±{MAX_DAYS}일까지예요."}
+        try:
+            end = start + timedelta(days=days)
+        except OverflowError:
+            return {"error": "out_of_range", "message": "날짜 범위(1~9999년)를 벗어나요."}
+        return {"operation": "add_days", "from": _day(start), "days": days, **_day(end)}
+    if operation == "diff":
+        end = _parse_date(other_date, tz) if other_date is not None else None
+        if end is None:
+            return {"error": "bad_date", "message": f"끝 날짜(other_date) '{str(other_date)[:40]}' 를 읽지 못했어요. 예: 2026-12-25"}
+        n = (end - start).days
+        weeks, rest = divmod(abs(n), 7)
+        return {
+            "operation": "diff", "from": _day(start), "to": _day(end), "days": n,
+            "weeks": weeks, "remaining_days": rest,
+            "text": f"{abs(n)}일 {'뒤' if n > 0 else '전' if n < 0 else '(같은 날)'}" if n else "같은 날",
+        }
+    return {"error": "bad_operation", "message": "operation 은 diff · add_days · weekday 중 하나예요."}
+
+
+# ── text_stats ────────────────────────────────────────────────────────────────────
+
+MAX_TEXT = 100_000
+_HANGUL = re.compile(r"[가-힣]")
+_SENTENCE = re.compile(r"[^.!?。！？\n]+(?:[.!?。！？]+|$)", re.M)
+
+
+def text_stats(text: str) -> dict[str, Any]:
+    """글 길이 세기: 글자 수(공백 포함·제외) · 단어 수 · 줄 수 · 한글 음절 수 · 문장 수 · UTF-8 바이트. '몇 자야?' 같은 질문에 쓴다.
+
+    Args:
+        text: 셀 글 (10만 자까지).
+    """
+    if not isinstance(text, str):
+        return {"error": "bad_text", "message": "글을 주세요."}
+    if len(text) > MAX_TEXT:
+        return {"error": "too_long", "message": f"{MAX_TEXT:,}자까지 셀 수 있어요."}
+    norm = unicodedata.normalize("NFC", text)  # 자모로 나뉜 한글(맥에서 붙여 넣은 글)도 음절 하나 = 한 글자
+    chars = [c for c in norm if unicodedata.category(c) not in ("Cc", "Cf") or c in "\n\t"]
+    lines = norm.splitlines() if norm else []
+    return {
+        "characters": sum(1 for c in chars if c not in "\n\r"),
+        "characters_no_spaces": sum(1 for c in chars if not c.isspace()),
+        "words": len(norm.split()),
+        "lines": len(lines),
+        "non_empty_lines": sum(1 for ln in lines if ln.strip()),
+        "hangul_syllables": len(_HANGUL.findall(norm)),
+        "sentences": sum(1 for s in _SENTENCE.findall(norm) if s.strip()),
+        "bytes_utf8": len(norm.encode("utf-8")),
+    }
+
+
 # ── 목록 ──────────────────────────────────────────────────────────────────────────
 
 BUILTIN_TOOLS: tuple[ToolSpec, ...] = (
@@ -200,16 +427,40 @@ BUILTIN_TOOLS: tuple[ToolSpec, ...] = (
         description="수식을 정확히 계산한다. 숫자 계산은 암산하지 말고 이 도구를 쓴다.",
         function=calculator,
     ),
+    ToolSpec(
+        name="unit_convert",
+        label="단위 변환",
+        description="길이(km·mi·ft…) · 무게(kg·lb…) · 온도(C·F·K) · 데이터 크기(GB·GiB…) 단위를 바꾼다. 환산은 이 도구로.",
+        function=unit_convert,
+    ),
+    ToolSpec(
+        name="date_calc",
+        label="날짜 계산",
+        description="두 날짜 사이 일수 · 며칠 뒤/앞 날짜 · 요일을 계산한다 (오늘 = 한국 시간). 'D-몇', '100일 뒤' 같은 질문에.",
+        function=date_calc,
+    ),
+    ToolSpec(
+        name="text_stats",
+        label="글자 수 세기",
+        description="글의 글자 수(공백 포함·제외) · 단어 · 줄 · 한글 음절 · 문장 수를 센다. 글 길이는 이 도구로 센다.",
+        function=text_stats,
+    ),
 )
 
+USE_SKILL = "use_skill"  # skills.py 가 만드는 툴 이름 (활동 단계는 tool:use_skill 대신 skill:<스킬 이름>)
+EXTRA_LABELS = {USE_SKILL: "스킬 사용"}
 STEP_LABELS = {"thinking": "생각", "writing": "답 쓰기"}  # 활동 단계 이름 → 화면 이름 (tool:<name> 은 툴 label)
 
 
 def tool_label(name: str) -> str:
-    return next((t.label for t in BUILTIN_TOOLS if t.name == name), name)
+    return next((t.label for t in BUILTIN_TOOLS if t.name == name), EXTRA_LABELS.get(name, name))
 
 
-def step_label(step: str) -> str:
+def step_label(step: str, skill_labels: dict[str, str] | None = None) -> str:
+    """thinking · writing · tool:<툴> · skill:<스킬> → 화면 이름. skill_labels = 스킬 이름 → 한국어 이름."""
     if step.startswith("tool:"):
         return tool_label(step.removeprefix("tool:"))
+    if step.startswith("skill:"):
+        name = step.removeprefix("skill:")
+        return f"스킬 · {(skill_labels or {}).get(name, name)}"
     return STEP_LABELS.get(step, step)

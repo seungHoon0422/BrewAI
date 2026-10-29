@@ -65,6 +65,31 @@ test('모델 화면에 가격·컨텍스트·provider 입력칸이 없다', asyn
   await expect(page.getByRole('button', { name: REGISTER }).or(page.getByRole('link', { name: REGISTER }))).toHaveCount(0);
 });
 
+test('카탈로그 › Skill: runtime/skills 스타터 5개 (읽기 전용 · 버전 = sha256 앞 12자) · MCP 는 비어 있다', async ({ page }) => {
+  await page.goto('/#/catalog');
+  const tabs = page.getByRole('tablist', { name: '카탈로그 종류' });
+  await expect(page.getByRole('table', { name: 'MCP 서버 목록' })).toContainText('등록된 MCP 서버 없음');
+  await tabs.getByRole('tab', { name: 'Skill', exact: true }).click();
+  const table = page.getByRole('table', { name: 'Skill 목록' });
+  await expect(table.getByRole('columnheader')).toHaveText(['이름', '설명', '쓰는 도구', '출처', '버전 (sha256)', '사용']);
+  const rows = table.locator('tbody tr');
+  // 기대값 = 레포의 runtime/skills 폴더 (하드코딩 아님)
+  const dirs = fs.readdirSync(path.join(ROOT, 'runtime', 'skills'), { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort();
+  expect(dirs).toHaveLength(5);
+  await expect(rows).toHaveCount(dirs.length);
+  expect(await rows.evaluateAll((trs) => trs.map((tr) => tr.getAttribute('data-skill')))).toEqual(dirs);
+  const creator = table.locator('tr[data-skill="skill-creator"]');
+  await expect(creator.locator('.skn b')).toHaveText('스킬 만들기');
+  await expect(creator.locator('.skn .chip')).toHaveText('내장');
+  await expect(creator).toContainText('runtime/skills');
+  await expect(creator.locator('.ver')).toHaveText(/^[0-9a-f]{12}$/);
+  await expect(page.getByRole('tabpanel')).toContainText('새 스킬 저장·등록(격리 → 테스트 → 승인)은 P5');
+  // 읽기 전용: 바꾸는 입력칸 · 버튼 없음
+  await expect(page.getByRole('tabpanel').getByRole('textbox')).toHaveCount(0);
+  await expect(page.getByRole('tabpanel').getByRole('button')).toHaveCount(0);
+  await page.screenshot({ path: shot('admin-catalog-skills'), fullPage: true });
+});
+
 test.describe('폰 폭 390px', () => {
   test.use({ viewport: { width: 390, height: 844 } });
 

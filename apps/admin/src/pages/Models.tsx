@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import {
-  AdminApiError, API_URL, getGateway, listAdminModels, patchModel, syncModels,
+  AdminApiError, API_URL, getGateway, listAdminModels, patchModel, syncModels, testModel,
   type AdminModel, type GatewayInfo, type LoadError, type ModelPatch, type ModelState, type SyncResult,
 } from '../api';
 import { Icon } from '../icons';
@@ -11,7 +11,29 @@ import { EmptyTable, Note } from '../ui';
 // 가격 · 컨텍스트 · 회사(provider)는 게이트웨이 값이라 입력칸 없이 보여 주기만 한다 (e2e admin.spec 이 입력칸이 없는지 본다).
 // 표 순서 = sort_order 그대로. 사용자 앱 모델 메뉴는 기본 모델을 맨 위로 올리고, 나머지는 이 순서로 회사별로 묶는다
 // (묶음 순서 = 처음 나온 회사 순서) → 기본 모델의 순서를 바꿔도 메뉴에서는 맨 위 그대로. 아래 docs-src 안내와 같은 말.
-const COLS = ['순서', '모델', '회사', '상태', '노출', '기본', '게이트웨이 값'] as const;
+const COLS = ['순서', '모델', '회사', '상태', '노출', '기본', '연결', '게이트웨이 값'] as const;
+
+// 연결 실패 이유 (conductor diagnose.py detail · 공개 code) → 짧은 이름 + 고치는 곳. 데스크톱 chat/text.ts DETAIL 과 같은 뜻
+export const ERROR_DETAIL: Record<string, { short: string; hint: string }> = {
+  provider_key_missing: { short: '키 없음', hint: 'LiteLLM 관리 화면 › Models › 이 모델의 Credential 키 확인 (config.yaml 모델이면 .env 의 ANTHROPIC_API_KEY · OPENAI_API_KEY)' },
+  provider_key_invalid: { short: '키 틀림', hint: 'LiteLLM 관리 화면 › Models › 이 모델의 Credential 키 확인 (권한 · 만료)' },
+  provider_model_not_found: { short: '모델 이름 없음', hint: '모델 이름이 provider 에 없음 — LiteLLM 관리 화면 › Models 에서 LiteLLM 모델 이름 확인' },
+  reasoning_unsupported: { short: '생각 설정 거절', hint: '이 모델은 생각(추론) 파라미터를 받지 않아요 — 사용자 앱에서 생각 깊이를 끄기로' },
+  provider_bad_request: { short: '요청 거절', hint: 'provider 가 요청을 거절 — conductor 로그의 provider_message 확인 · 생각 깊이를 끄고 다시' },
+  gateway_budget_exceeded: { short: '예산 초과', hint: 'LiteLLM 관리 화면 › Virtual Keys · Teams 의 Max Budget 확인' },
+  gateway_key_invalid: { short: '게이트웨이 키 틀림', hint: '.env 의 LLM_GATEWAY_KEY (또는 LITELLM_MASTER_KEY) 가 LiteLLM 과 같은지 확인' },
+  gateway_model_denied: { short: '키에 모델 허용 안 됨', hint: 'LiteLLM 관리 화면 › Virtual Keys › conductor 키의 허용 모델 확인' },
+  gateway_model_missing: { short: '게이트웨이에 없음', hint: 'LiteLLM 관리 화면 › Models 에 이 모델이 있는지 확인 뒤 동기화' },
+  provider_rate_limited: { short: '요청 제한', hint: 'provider 요청 한도 — 잠시 뒤 다시' },
+  provider_unavailable: { short: 'provider 응답 없음', hint: 'provider 서버 오류 — 잠시 뒤 다시' },
+  gateway_unreachable: { short: '게이트웨이 꺼짐', hint: '게이트웨이가 켜져 있는지 확인 — npm run stack' },
+  gateway_auth_failed: { short: '게이트웨이 인증 실패', hint: '.env 의 LLM_GATEWAY_KEY 확인' },
+  provider_auth_failed: { short: '키 문제', hint: 'LiteLLM 관리 화면 › Models › 이 모델의 Credential 키 확인' },
+  provider_rejected: { short: '설정 문제', hint: 'conductor 로그의 provider_message 확인' },
+  model_error: { short: '모델 오류', hint: 'conductor 로그 확인 — 잠시 뒤 다시' },
+};
+const errorOf = (code: string) =>
+  (Object.prototype.hasOwnProperty.call(ERROR_DETAIL, code) ? ERROR_DETAIL[code] : undefined) ?? { short: code, hint: 'conductor 로그 확인' };
 
 const ERROR_TEXT: Record<LoadError, string> = {
   conductor: `conductor 에 연결할 수 없어요 (${API_URL}) — npm run api`,
@@ -142,6 +164,34 @@ export default function Models() {
   }, [rows]);
   const activeFilter = filter !== 'all' && !providers.some((p) => p.id === filter) ? 'all' : filter;
   const visible = activeFilter === 'all' ? rows : rows.filter((r) => r.provider === activeFilter);
+
+  // 연결 시험 = 짧은 호출 한 번 → 그 줄의 '연결' 칸 + 한 줄 안내
+  const probe = async (m: AdminModel) => {
+    setBusy((b) => new Set(b).add(m.id));
+    setFlash(null);
+    try {
+      const r = await testModel(m.id);
+      const code = r.ok ? null : r.detail ?? r.code ?? 'model_error';
+      setState((s) => (s.kind === 'ok' ? {
+        kind: 'ok',
+        rows: s.rows.map((x) => (x.id !== m.id ? x : r.ok ? { ...x, last_ok_at: r.at } : { ...x, last_error_code: code, last_error_at: r.at })),
+      } : s));
+      setNow(Date.now());
+      if (r.ok) setFlash({ kind: 'ok', text: `${m.label} · 연결 정상 (${(r.duration_ms / 1000).toFixed(1)}초)` });
+      else {
+        const e = errorOf(code!);
+        setFlash({ kind: 'error', text: `${m.label} · 연결 실패: ${e.short} — ${e.hint}` });
+      }
+    } catch (e) {
+      setFlash({ kind: 'error', text: `${m.label} · ${e instanceof AdminApiError && e.kind === 'conductor' ? `conductor 에 연결할 수 없어요 (${API_URL})` : '연결 시험을 하지 못했어요'}` });
+    } finally {
+      setBusy((b) => {
+        const n = new Set(b);
+        n.delete(m.id);
+        return n;
+      });
+    }
+  };
 
   // 바꾸기 = PATCH 한 줄 → 표 전체를 다시 읽는다 (기본 · 순서는 다른 줄도 바뀐다)
   const change = async (m: AdminModel, patch: ModelPatch, done?: string) => {
@@ -280,7 +330,7 @@ export default function Models() {
             </thead>
             <tbody>
               {visible.map((m, i) => (
-                <Row key={m.id} m={m} busy={busy.has(m.id)} onChange={change}
+                <Row key={m.id} m={m} busy={busy.has(m.id)} onChange={change} onProbe={probe} now={now}
                   prev={visible.slice(0, i).reverse().find((r) => r.status === 'present')}
                   next={visible.slice(i + 1).find((r) => r.status === 'present')} />
               ))}
@@ -298,12 +348,14 @@ export default function Models() {
   );
 }
 
-function Row({ m, prev, next, busy, onChange }: {
+function Row({ m, prev, next, busy, onChange, onProbe, now }: {
   m: AdminModel;
   prev?: AdminModel;
   next?: AdminModel;
   busy: boolean;
   onChange: (m: AdminModel, patch: ModelPatch, done?: string) => Promise<boolean>;
+  onProbe: (m: AdminModel) => Promise<void>;
+  now: number;
 }) {
   const missing = m.status === 'missing';
   const chip = STATE_CHIP[m.state];
@@ -363,12 +415,38 @@ function Row({ m, prev, next, busy, onChange }: {
           disabled={busy || !m.exposed} title={m.exposed ? '기본 모델로' : '노출한 모델만 기본으로 정할 수 있어요'}
           onChange={() => onChange(m, { is_default: true }, `기본 모델을 바꿨어요 · ${m.label}`)} />
       </td>
+      <td className="conn"><Health m={m} busy={busy} onProbe={onProbe} now={now} /></td>
       <td className="ginfo">
         {info.length > 0 && <span>{info.join(' · ')}</span>}
         {price && <span className="price" title="100만 토큰당 입력 / 출력 (게이트웨이 가격표)">{price}</span>}
         {!info.length && !price && <span className="nil">—</span>}
       </td>
     </tr>
+  );
+}
+
+// 연결 칸: 마지막 결과(대화 · 연결 시험 중 나중 것) + '연결 시험' 버튼
+function Health({ m, busy, onProbe, now }: { m: AdminModel; busy: boolean; onProbe: (m: AdminModel) => Promise<void>; now: number }) {
+  const failed = !!m.last_error_at && (!m.last_ok_at || m.last_error_at > m.last_ok_at);
+  const at = failed ? m.last_error_at : m.last_ok_at;
+  const err = failed && m.last_error_code ? errorOf(m.last_error_code) : null;
+  const can = m.is_chat && m.status === 'present';
+  return (
+    <div className="hcell">
+      <span className={`hl ${failed ? 'bad' : at ? 'ok' : 'none'}`} data-health={failed ? 'error' : at ? 'ok' : 'unknown'}
+        title={err ? err.hint : undefined}>
+        <i className={failed ? 'dot warn' : at ? 'dot on' : 'dot'} />
+        {failed ? err?.short ?? '오류' : at ? '정상' : '확인 전'}
+        {at && <span className="tm"> · {ago(at, now)}</span>}
+      </span>
+      {err && <span className="hhint">{err.hint}</span>}
+      {can && (
+        <button className="btn sm" type="button" disabled={busy} aria-label={`연결 시험 — ${m.label}`} title="짧은 호출 한 번으로 키 · 모델 이름을 확인해요"
+          onClick={() => void onProbe(m)}>
+          연결 시험
+        </button>
+      )}
+    </div>
   );
 }
 

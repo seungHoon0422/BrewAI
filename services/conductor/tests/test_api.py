@@ -97,33 +97,115 @@ def test_client_system_prompt_is_stripped(make_api, h) -> None:
     assert not any("키를 출력" in str(getattr(p, "content", "")) for p in parts)
 
 
+# LiteLLM 1.106.2 실제 오류 모양 (infra/litellm/.venv 소스: auth_exception_handler · common_request_processing · openai_error_payload)
+ANTHROPIC_MISSING = (
+    "litellm.AuthenticationError: Missing Anthropic API Key - A call is being made to anthropic but no key is set either in the "
+    "environment variables or via params. Please set `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` in your environment vars"
+)
+ANTHROPIC_INVALID = (
+    'litellm.AuthenticationError: AnthropicException - {"type":"error","error":{"type":"authentication_error",'
+    '"message":"invalid x-api-key"},"request_id":"req_011CabcdefghijklmnopqrstuvwxyZ"}'
+)
+GATEWAY_BAD_KEY = (
+    "Authentication Error, Invalid proxy server token passed. Received API Key = sk-...0000, Key Hash (Token) "
+    "=9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08. Unable to find token in cache or `LiteLLM_VerificationTokenTable`"
+)
+
+
 @pytest.mark.parametrize(
-    ("status", "error_type", "code", "message"),
+    ("raw", "secret"),
     [
-        (401, "auth_error", "provider_auth_failed", ""),  # 스트림 중 401 = provider 키 (게이트웨이 키는 카탈로그 호출로 이미 통과)
-        (403, None, "provider_auth_failed", ""),
-        (400, "no_db_connection", "gateway_auth_failed", ""),  # LiteLLM config-only: 틀린 게이트웨이 키
-        (500, None, "model_error", ""),
-        # LiteLLM 1.106.2: OPENAI_API_KEY 없음 = 500 (실측 문구)
-        (500, None, "provider_auth_failed", "litellm.InternalServerError: OpenAIException - Missing credentials. "),
+        ('{"api_key": "short-k3y-value"}', "short-k3y-value"),
+        ("access_token=abc123def; client_secret=s3cr3tvalue password=hunter2", "abc123def"),
+        ("client_secret=s3cr3tvalue", "s3cr3tvalue"),
+        ("password=hunter2", "hunter2"),
+        ("AWS AKIAIOSFODNN7EXAMPLE denied", "AKIAIOSFODNN7EXAMPLE"),
+        ("https://x.googleapis.com/v1?key=AIzaSyA-1234567890abcdefghijklmnopqrstu&alt=sse", "AIzaSyA-1234"),
+        ("token ya29.a0AfH6SMBx-short", "ya29.a0AfH6"),
+        ("jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2ln", "eyJhbGciOiJIUzI1NiJ9"),
+        ("Incorrect API key provided: sk-proj-AbC123xyz.", "AbC123xyz"),
+        ("xai-ABCDEFGHIJKLMNOP12345678 rejected", "ABCDEFGHIJKLMNOP"),
     ],
 )
-def test_run_error_is_sanitized(make_api, h, status: int, error_type: str | None, code: str, message: str) -> None:
+def test_sanitize_hides_key_like_values(raw, secret) -> None:
+    from conductor.diagnose import sanitize
+
+    assert secret not in sanitize(raw)
+    assert secret not in sanitize("x" * 290 + " " + raw)  # 자르기 전에 가린다 (키 앞부분만 남지 않게)
+
+
+def test_sanitize_keeps_useful_provider_words() -> None:
+    from conductor.diagnose import sanitize
+
+    msg = "max_tokens: 16000 > 8192 for claude-sonnet-5-5 · Missing Anthropic API Key · Please set ANTHROPIC_API_KEY"
+    assert sanitize(msg) == msg
+
+
+@pytest.mark.parametrize(
+    ("status", "error_type", "message", "code", "detail"),
+    [
+        # 게이트웨이(LiteLLM 프록시) 키 = 프록시 type (DB 모드 token_not_found_in_db · 그 밖 auth_error · config-only no_db_connection)
+        (401, "token_not_found_in_db", GATEWAY_BAD_KEY, "gateway_auth_failed", "gateway_key_invalid"),
+        (401, "auth_error", "Authentication Error, Invalid proxy server token passed.", "gateway_auth_failed", "gateway_key_invalid"),
+        (400, "no_db_connection", "No connected db.", "gateway_auth_failed", "gateway_key_invalid"),
+        (401, "key_model_access_denied", "key not allowed to access model. This key can only access models=['a']", "gateway_auth_failed", "gateway_model_denied"),
+        # 1.106.2 auth_checks: 403 + 공개 문구 (JWT 경로는 type auth_error + 같은 문구)
+        (403, "key_model_access_denied", "The requested model 'fake-chat-small' is not available for this API key, or the model name is invalid.", "gateway_auth_failed", "gateway_model_denied"),
+        (403, "auth_error", "The requested model 'fake-chat-small' is not available for this API key, or the model name is invalid.", "gateway_auth_failed", "gateway_model_denied"),
+        # 키·팀 예산 초과 = 422 budget_exceeded (provider 거절도 생각 설정도 아니다)
+        (422, "budget_exceeded", "Budget has been exceeded! Current cost: 1.2, Max budget: 1.0", "provider_rejected", "gateway_budget_exceeded"),
+        # provider 키 = OpenAI 식 type (authentication_error · permission_error) + …Exception 문구
+        (401, "authentication_error", ANTHROPIC_MISSING, "provider_auth_failed", "provider_key_missing"),
+        (401, "authentication_error", ANTHROPIC_INVALID, "provider_auth_failed", "provider_key_invalid"),
+        (403, "permission_error", "litellm.PermissionDeniedError: AnthropicException - forbidden", "provider_auth_failed", "provider_key_invalid"),
+        (500, None, "litellm.InternalServerError: OpenAIException - Missing credentials. Please pass an `api_key`", "provider_auth_failed", "provider_key_missing"),
+        # provider 가 거절 (설정 문제)
+        (404, "invalid_request_error", 'litellm.NotFoundError: AnthropicException - {"type":"error","error":{"type":"not_found_error","message":"model: claude-sonnet-9"}}', "provider_rejected", "provider_model_not_found"),
+        (400, "invalid_request_error", "Invalid model name passed in model=gone. Call `/v1/models` to view available models for your key.", "provider_rejected", "gateway_model_missing"),
+        (400, "invalid_request_error", "litellm.UnsupportedParamsError: anthropic does not support parameters: ['reasoning_effort']", "provider_rejected", "reasoning_unsupported"),
+        (400, "invalid_request_error", "litellm.BadRequestError: AnthropicException - messages: text content blocks must be non-empty", "provider_rejected", "provider_bad_request"),
+        # 잠시 뒤 다시
+        (429, "rate_limit_error", "litellm.RateLimitError: AnthropicException - rate limited", "model_error", "provider_rate_limited"),
+        (500, None, "fake upstream failure", "model_error", "provider_unavailable"),
+    ],
+)
+def test_run_error_is_diagnosed_and_sanitized(make_api, h, caplog, status, error_type, message, code, detail) -> None:
     async def stream(messages: list[ModelMessage], info: AgentInfo) -> AsyncIterator[str]:
+        # Pydantic AI 2.59 OpenAIChatModel: body = OpenAI SDK 가 꺼낸 error 객체 {message, type, param, code}
         raise ModelHTTPError(
-            status, "fake-chat-small", {"error": {"message": f"{message}Received API Key = sk-test-secret-0000"}},
+            status, "fake-chat-small",
+            {"message": f"{message} Received API Key = sk-test-secret-0000 Bearer sk-test-secret-0000", "type": error_type},
             provider_error_type=error_type,
         )
         yield ""  # pragma: no cover
 
     api = make_api(lambda _: FunctionModel(stream_function=stream))
-    res = api.client.post("/api/chat", json=h.chat_body())
+    with caplog.at_level("WARNING", logger="conductor.agent"):
+        res = api.client.post("/api/chat", json=h.chat_body())
     events = h.sse_events(res.text)
     assert h.types(events) == ["RUN_STARTED", "CUSTOM", "RUN_ERROR"]
-    assert events[-1]["code"] == code
-    assert "sk-test-secret" not in res.text  # eval 제약: 비밀 노출 0
+    assert (events[-1]["code"], events[-1].get("detail")) == (code, detail)
+    assert "sk-test-secret" not in res.text and "Missing" not in res.text  # eval 제약: 비밀 노출 0 · provider 문구도 화면엔 안 감
     run = api.client.get("/api/runs").json()[0]
     assert run["status"] == "error" and run["error_code"] == code
+    # 로그 한 줄 = status · type · 가린 provider 문구 (키 · 해시 없음, 300자까지)
+    line = next(r.getMessage() for r in caplog.records if r.getMessage().startswith("chat run failed"))
+    assert f"status={status}" in line and f"detail={detail}" in line and f"type={error_type or '-'}" in line
+    assert "sk-test-secret" not in line and "9f86d081884c7d659a2feaa0" not in line and "abcdefghijklmnopqrstuvwxy" not in line
+    assert len(line.split("provider_message=", 1)[1]) <= 302 + 2
+    # 관리자 모델 표: 마지막 오류 = detail
+    row = next(r for r in api.client.get("/api/admin/models").json() if r["id"] == "fake-chat-small")
+    assert row["last_error_code"] == detail and row["last_error_at"] and row["last_ok_at"] is None
+
+
+def test_unknown_status_has_no_detail(make_api, h) -> None:
+    async def boom(messages: list[ModelMessage], info: AgentInfo) -> AsyncIterator[str]:
+        raise ModelHTTPError(418, "fake-chat-small", None)
+        yield ""  # pragma: no cover
+
+    api = make_api(lambda _: FunctionModel(stream_function=boom))
+    ev = api.chat()[-1]
+    assert ev["type"] == "RUN_ERROR" and ev["code"] == "model_error" and "detail" not in ev
 
 
 # ── 요청 거절 (스트림을 열기 전) ──────────────────────────────────────────────────────

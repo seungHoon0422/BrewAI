@@ -6,7 +6,7 @@ import { shot } from './helpers';
 // 모델 등록은 LiteLLM 에서만. 여기서 바꾸는 것 = 노출 · 표시 이름 · 순서 · 기본 모델. 회사(provider)별로 묶어 보인다.
 // 처음 상태(E2E conductor = 메모리 DB): fake-chat-small(OpenAI) · fake-chat-large(Anthropic) 노출, fake-embed(OpenAI, 임베딩) 숨김.
 // 바꾼 값은 테스트마다 되돌린다 (desktop 스펙도 같은 conductor 를 쓴다). 새 모델(P2-2) 테스트는 '사라짐' 줄을 남겨서 맨 끝에 둔다.
-const COLS = ['순서', '모델', '회사', '상태', '노출', '기본', '게이트웨이 값'];
+const COLS = ['순서', '모델', '회사', '상태', '노출', '기본', '연결', '게이트웨이 값'];
 const table = (page: Page) => page.getByRole('table', { name: '모델 목록' });
 const row = (page: Page, id: string) => table(page).locator(`tbody tr[data-model="${id}"]`);
 const exposeSwitch = (page: Page, label: string) => page.getByRole('switch', { name: `노출 — ${label}` });
@@ -249,6 +249,45 @@ test('개요: conductor · 게이트웨이가 꺼지면 카드가 그렇게 말�
   await expect(gatewayCard(page).locator('.v')).toHaveText('꺼짐');
   await expect(gatewayCard(page).locator('.sub')).toContainText('npm run gateway');
   await expect(exposedCard(page).locator('.v')).toHaveText('—');
+});
+
+test('연결 시험: 정상 · 키 없음(마지막 오류 + 고치는 곳) · 대화 실패도 그 줄에 남는다', async ({ page }) => {
+  await page.goto('/#/models');
+  const small = row(page, 'fake-chat-small');
+  const large = row(page, 'fake-chat-large');
+  await expect(small.locator('.conn')).toBeVisible();
+  try {
+    await page.getByRole('button', { name: '연결 시험 — fake-chat-small' }).click();
+    await expect(page.getByRole('status')).toContainText(/fake-chat-small · 연결 정상 \(\d+\.\d초\)/);
+    await expect(small.locator('.hl')).toHaveAttribute('data-health', 'ok');
+    await expect(small.locator('.hl')).toContainText('정상 · 방금');
+
+    // LiteLLM 에서 이 모델의 Credential 이 빠진 것 (mock: 이 모델의 모든 호출 = 401 Missing Anthropic API Key)
+    await fakeCatalog({ broken: { 'fake-chat-large': '401' } });
+    await page.getByRole('button', { name: '연결 시험 — fake-chat-large' }).click();
+    const alert = page.getByRole('alert');
+    await expect(alert).toContainText('fake-chat-large · 연결 실패: 키 없음 — LiteLLM 관리 화면 › Models › 이 모델의 Credential 키 확인');
+    await expect(large.locator('.hl')).toHaveAttribute('data-health', 'error');
+    await expect(large.locator('.hl')).toContainText('키 없음 · 방금');
+    await expect(large.locator('.hhint')).toContainText('Credential 키 확인');
+    await expect(alert).not.toContainText('Missing'); // provider 문구는 conductor 로그에만
+    await page.screenshot({ path: shot('admin-models-health'), fullPage: true });
+
+    // 다시 읽어도 남는다 (SQLite model_health) — 다른 모델은 그대로 정상
+    await page.reload();
+    await expect(row(page, 'fake-chat-large').locator('.hl')).toHaveAttribute('data-health', 'error');
+    await expect(row(page, 'fake-chat-small').locator('.hl')).toHaveAttribute('data-health', 'ok');
+    // 임베딩 모델 = 대화 모델이 아니라 시험 버튼 없음
+    await expect(page.getByRole('button', { name: '연결 시험 — fake-embed' })).toHaveCount(0);
+
+    // 고치면 (Credential 다시 넣음) 다시 시험 → 정상
+    await fakeCatalog({ broken: {} });
+    await page.getByRole('button', { name: '연결 시험 — fake-chat-large' }).click();
+    await expect(page.getByRole('status')).toContainText('fake-chat-large · 연결 정상');
+    await expect(row(page, 'fake-chat-large').locator('.hl')).toHaveAttribute('data-health', 'ok');
+  } finally {
+    await fakeCatalog({ broken: {} });
+  }
 });
 
 // ↓ 맨 끝: 게이트웨이 카탈로그를 바꾼다 (끝나면 fake-chat-late 가 '사라짐' 줄로 남는다)

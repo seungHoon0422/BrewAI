@@ -181,6 +181,13 @@ textarea::placeholder{color:var(--muted2)}
 .msg.agent .txt+.txt,.msg.agent .tcard+.txt,.msg.agent .think+.txt{margin-top:8px}
 .msg.fail{display:flex;align-items:center;gap:12px;color:var(--fg2)}
 .msg.fail::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--red);flex:none}
+.msg.fail[data-detail]{align-items:flex-start}
+.msg.fail[data-detail]::before{margin-top:7px}
+.msg.fail .fmain{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1}
+.msg.fail .ftxt{color:var(--fg)}
+.msg.fail .fhint{font-size:12.5px;color:var(--muted);overflow-wrap:anywhere}
+.msg.fail .fmodel{font-size:11.5px;color:var(--muted2);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;overflow-wrap:anywhere}
+.msg.fail .facts{display:flex;gap:8px;flex:none;flex-wrap:wrap}
 .msg.note{display:flex;align-items:center;gap:8px;margin:-8px 0 16px;color:var(--muted);font-size:12.5px}
 
 /* 생각 블록 — 흐르는 동안 펼침, 끝나면 접힘 */
@@ -278,6 +285,15 @@ textarea::placeholder{color:var(--muted2)}
 .row-main b{font-weight:500}
 .row-sub{color:var(--muted);font-size:12px}
 .state{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);white-space:nowrap}
+.row.skill{align-items:flex-start}
+.row.skill .tile{margin-top:2px}
+.row.skill .row-main{gap:3px}
+.sk-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.sk-head .badge{font-size:11px;padding:1px 7px}
+.sk-name{font-size:11.5px;color:var(--muted2);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.sk-tools{display:flex;gap:6px;flex-wrap:wrap;margin-top:3px}
+.sk-tools .chip{font-size:11px;padding:1px 8px}
+.row.skill .used{margin-top:2px}
 .state::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--line2)}
 .val{color:var(--fg2);font-size:12.5px;white-space:nowrap;font-variant-numeric:tabular-nums}
 .select{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line2);background:var(--bg);border-radius:8px;padding:5px 8px 5px 10px;font-size:12.5px;color:var(--fg2);cursor:pointer}

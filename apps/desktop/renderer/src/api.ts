@@ -20,9 +20,11 @@ export type Model = {
 };
 
 export type ToolInfo = { name: string; label: string; description: string };
+// 제품 스킬 (conductor runtime/skills). builtin = 레포에 든 스타터 · used = 쓴 실행 수
+export type SkillInfo = { name: string; label: string; description: string; tools: string[]; builtin: boolean; used: number };
 
 export type StepStatus = 'running' | 'done' | 'error' | 'cancelled';
-// name = thinking | tool:<이름> | writing · started_ms = 실행 시작부터
+// name = thinking | tool:<이름> | skill:<스킬> | writing · started_ms = 실행 시작부터
 export type Step = { name: string; label: string; status: StepStatus; started_ms: number; duration_ms: number | null };
 export type Usage = { input_tokens: number | null; output_tokens: number | null; requests: number; tool_calls: number } | null;
 
@@ -82,13 +84,14 @@ export type RunRow = {
 // 화면이 보여 줄 실패 종류. 서버 글을 그대로 띄우지 않고 code → 문구로 바꾼다 (chat/text.ts)
 export type Failure =
   | 'offline' | 'gateway' | 'config' | 'no_models' | 'model_gone' | 'busy' | 'too_long' | 'run_limit' | 'not_found' | 'cut' | 'server';
+// detail = 왜 안 됐는지 (RUN_ERROR.detail · conductor diagnose.py DETAILS) → 화면 문구 + 고치는 곳 (chat/text.ts DETAIL)
 export class ApiError extends Error {
-  constructor(readonly kind: Failure, readonly code?: string) {
+  constructor(readonly kind: Failure, readonly code?: string, readonly detail?: string) {
     super(code ?? kind);
   }
 }
 
-// *_auth_failed = 키 설정 문제 (다시 해도 안 됨) · 나머지 gateway_* = 게이트웨이 문제 (잠시 뒤 다시)
+// *_auth_failed · provider_rejected = 설정 문제 (다시 해도 안 됨) · 나머지 gateway_* = 게이트웨이 문제 (잠시 뒤 다시)
 export const kindOf = (code?: string): Failure =>
   code === 'no_models' ? 'no_models'
   : code === 'unknown_model' ? 'model_gone' // 숨김 · 사라짐 · 없는 모델 (서버가 일부러 구분하지 않는다)
@@ -96,7 +99,7 @@ export const kindOf = (code?: string): Failure =>
   : code === 'message_too_long' ? 'too_long'
   : code === 'run_limit' ? 'run_limit'
   : code === 'thread_not_found' ? 'not_found'
-  : code && /^(gateway|provider)_auth_failed$/.test(code) ? 'config'
+  : code && /^(gateway|provider)_auth_failed$|^provider_rejected$/.test(code) ? 'config'
   : code?.startsWith('gateway_') ? 'gateway'
   : 'server';
 
@@ -180,6 +183,17 @@ export async function listTools(signal?: AbortSignal): Promise<ToolInfo[]> {
   const data = await json('/api/tools', signal);
   return Array.isArray(data)
     ? data.filter(isObj).map((t) => ({ name: str(t.name), label: str(t.label, str(t.name)), description: str(t.description) })).filter((t) => t.name)
+    : [];
+}
+
+export async function listSkills(signal?: AbortSignal): Promise<SkillInfo[]> {
+  const data = await json('/api/skills', signal);
+  return Array.isArray(data)
+    ? data.filter(isObj).map((x) => ({
+        name: str(x.name), label: str(x.label, str(x.name)), description: str(x.description),
+        tools: Array.isArray(x.tools) ? x.tools.filter((t): t is string => typeof t === 'string') : [],
+        builtin: x.builtin === true, used: num(x.used) ?? 0,
+      })).filter((x) => x.name)
     : [];
 }
 
@@ -310,7 +324,10 @@ export async function runChat(opts: {
           continue; // 깨진 조각 하나로 대화 전체를 버리지 않는다
         }
         if (!isObj(ev) || typeof ev.type !== 'string') continue;
-        if (ev.type === 'RUN_ERROR') throw new ApiError(kindOf(str(ev.code) || undefined), str(ev.code) || undefined); // message 는 안 쓴다
+        if (ev.type === 'RUN_ERROR') {
+          const code = str(ev.code) || undefined;
+          throw new ApiError(kindOf(code), code, str(ev.detail) || undefined); // message 는 안 쓴다 (code · detail → 화면 문구)
+        }
         opts.onEvent(ev);
         if (ev.type === 'RUN_FINISHED') return;
       }
