@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BrewAI — 데스크톱 앱 받기</title>
+<meta name="description" content="채팅 중에 에이전트가 필요한 Skill·MCP를 스스로 찾고 설치하고 만들어 쓰고, 사람은 인증·승인만 하는 에이전트 플랫폼.">
+<!-- npm 판 그대로(package-lock 의 pretendard 1.3.9 와 같은 바이트) + 해시 고정 -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pretendard@1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css" integrity="sha384-uR1wgObmx89ZQ4VVXHdzjbDJZ1PvBK01K+E3GebmaBKdZ87qRJvBWPoPbzWeEd5T" crossorigin="anonymous">
+<style>
+/* 웹 = 랜딩 + 다운로드만 (데스크톱 먼저). 색은 design/prototype.html 토큰과 같다. */
+:root{
+  color-scheme:light dark;
+  --bg:#ffffff; --side:#f7f7f8; --fg:#1d1d1f; --fg2:#3a3a3c; --muted:#6e6e73;
+  --line:#e7e7e9; --hair:#efeff1; --chip:#f4f4f5; --black:#111113; --on-black:#ffffff; --blue:#2f6fed;
+  --shadow:0 1px 2px rgba(0,0,0,.06),0 18px 48px rgba(0,0,0,.10);
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#1e1e21; --side:#161618; --fg:#ececee; --fg2:#d0d0d4; --muted:#9a9aa0;
+    --line:#34343a; --hair:#2a2a2e; --chip:#2a2a2e; --black:#f2f2f4; --on-black:#111113; --blue:#5b8cff;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 18px 48px rgba(0,0,0,.5);
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--side);color:var(--fg);
+  font:16px/1.6 "Pretendard Variable",Pretendard,-apple-system,BlinkMacSystemFont,"Segoe UI","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  word-break:keep-all;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1000px;margin:0 auto;padding:0 20px}
+header{display:flex;align-items:center;gap:10px;height:64px;font-weight:700;font-size:17px}
+header svg{width:26px;height:26px}
+.hero{padding:56px 0 28px;text-align:center}
+.hero h1{font-size:clamp(30px,5vw,46px);line-height:1.2;letter-spacing:-.02em;margin:0 0 14px;text-wrap:balance}
+.hero p{margin:0 auto;max-width:600px;color:var(--muted);font-size:17px}
+.dl{display:flex;justify-content:center;gap:10px;flex-wrap:wrap;margin:30px 0 8px}
+.dl button{display:flex;align-items:center;gap:10px;min-width:230px;padding:12px 18px;border-radius:12px;
+  border:1px solid var(--line);background:var(--bg);color:var(--fg);font:inherit;font-size:15px;text-align:left;cursor:pointer}
+.dl button[data-primary]{background:var(--black);color:var(--on-black);border-color:var(--black)}
+.dl button:disabled{cursor:not-allowed}
+.dl button svg{width:20px;height:20px;flex:none}
+.dl b{display:block;font-weight:650}
+.dl small{display:block;font-size:12.5px;opacity:.7}
+.note{text-align:center;font-size:13.5px;color:var(--muted);margin:0}
+
+/* 앱 미리보기: 실제 화면을 단순화한 그림 (프로토타입과 같은 3-pane) */
+.preview{margin:40px auto 0;max-width:880px;border-radius:14px;background:var(--side);border:1px solid var(--line);
+  box-shadow:var(--shadow);overflow:hidden}
+.pv-bar{height:34px;display:flex;align-items:center;gap:7px;padding:0 14px}
+.pv-bar i{width:11px;height:11px;border-radius:50%;background:var(--line)}
+.pv-body{display:grid;grid-template-columns:44px 200px 1fr;height:340px}
+.pv-rail{display:flex;flex-direction:column;align-items:center;gap:12px;padding-top:8px}
+.pv-rail i{width:20px;height:20px;border-radius:6px;background:var(--chip)}
+.pv-side{background:var(--bg);border-top-left-radius:6px;border-right:1px solid var(--hair);padding:14px 12px;display:grid;align-content:start;gap:9px}
+.pv-side i{height:9px;border-radius:5px;background:var(--chip)}
+.pv-side i:nth-child(3n){width:70%}
+.pv-main{background:var(--bg);display:grid;place-items:center;align-content:center;gap:16px;padding:20px}
+.pv-main strong{font-size:22px;letter-spacing:-.01em}
+.pv-input{width:min(460px,90%);height:58px;border:1px solid var(--line);border-radius:14px;position:relative}
+.pv-input::after{content:"";position:absolute;right:10px;bottom:9px;width:26px;height:26px;border-radius:50%;background:var(--black)}
+
+.points{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:44px 0 0}
+.points div{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+.points b{display:block;margin-bottom:4px}
+.points span{color:var(--muted);font-size:14.5px}
+footer{padding:40px 0 48px;text-align:center;color:var(--muted);font-size:13px}
+
+@media (max-width:640px){
+  .hero{padding-top:32px}
+  .dl button{width:100%}
+  .pv-body{grid-template-columns:1fr;height:260px}
+  .pv-rail,.pv-side{display:none}
+  .points{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="mark" viewBox="0 0 48 48"><path fill="currentColor" fill-rule="evenodd" d="M17 4h14a13 13 0 0 1 13 13v14a13 13 0 0 1-13 13H17A13 13 0 0 1 4 31V17A13 13 0 0 1 17 4zM13 26a7 7 0 1 0 14 0a7 7 0 1 0-14 0zM29 15.5a3.5 3.5 0 1 0 7 0a3.5 3.5 0 1 0-7 0z"/></symbol>
+  <symbol id="i-dl" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M12 4v11m0 0 4.5-4.5M12 15l-4.5-4.5M5 19h14"/></symbol>
+</svg>
+
+<div class="wrap">
+  <header><svg aria-hidden="true"><use href="#mark"/></svg>BrewAI</header>
+
+  <main>
+    <section class="hero">
+      <h1>필요한 능력은<br>에이전트가 찾아서 씁니다</h1>
+      <p>채팅하다 Skill·MCP가 필요하면 에이전트가 찾고, 설치하고, 없으면 만들어 씁니다. 사람은 인증과 승인만 합니다.</p>
+      <div class="dl" aria-label="데스크톱 앱 받기">
+        <button type="button" data-os="mac" disabled>
+          <svg aria-hidden="true"><use href="#i-dl"/></svg>
+          <span><b>macOS 용 받기</b><small>Apple Silicon · 준비 중</small></span>
+        </button>
+        <button type="button" data-os="win" disabled>
+          <svg aria-hidden="true"><use href="#i-dl"/></svg>
+          <span><b>Windows 용 받기</b><small>x64 · 준비 중</small></span>
+        </button>
+      </div>
+      <p class="note" id="note">설치본은 준비 중입니다. 지금은 개발 빌드만 있습니다.</p>
+    </section>
+
+    <div class="preview" role="img" aria-label="BrewAI 데스크톱 앱 화면 미리보기">
+      <div class="pv-bar"><i></i><i></i><i></i></div>
+      <div class="pv-body">
+        <div class="pv-rail"><i></i><i></i><i></i><i></i></div>
+        <div class="pv-side"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        <div class="pv-main"><strong>무엇을 맡길까요?</strong><div class="pv-input"></div></div>
+      </div>
+    </div>
+
+    <section class="points" aria-label="특징">
+      <div><b>찾기·설치</b><span>없는 능력은 카탈로그에서 찾아 연결합니다.</span></div>
+      <div><b>승인만</b><span>실행 전에 승인 카드로 한 번 묻습니다.</span></div>
+      <div><b>팀 편성</b><span>복잡한 일은 서브에이전트를 스스로 꾸립니다.</span></div>
+    </section>
+  </main>
+
+  <footer>BrewAI · 개발 중</footer>
+</div>
+
+<script>
+// 이 PC 의 OS 버튼을 앞에 둔다 (설치본이 생기면 disabled 를 풀고 링크로 바꾼다)
+const p = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '';
+const os = /mac/i.test(p) ? 'mac' : /win/i.test(p) ? 'win' : '';
+const mine = document.querySelector(`.dl [data-os="${os}"]`);
+if (mine) { mine.dataset.primary = ''; mine.parentElement.prepend(mine); }
+</script>
+</body>
+</html>

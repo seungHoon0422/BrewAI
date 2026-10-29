@@ -1,0 +1,12 @@
+{
+  // 스펙 타입 검사: npx tsc -p e2e (Playwright 는 돌릴 때 타입을 보지 않는다)
+  "compilerOptions": {
+    "target": "es2023",
+    "module": "nodenext",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["*.ts"]
+}

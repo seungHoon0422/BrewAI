@@ -1,0 +1,32 @@
+# 데스크톱·관리자 앱이 package-lock.json 그대로 설치되고 타입 검사·빌드가 되는지 본다.
+# E2E(Playwright desktop 스펙)는 slice 03 에서 CI 로 옮긴다 (P1-4). 지금은 두 PC에서 npm run e2e.
+# 액션은 전체 커밋 SHA 로 고정. 올릴 때는 게시 7일 지난 릴리스만 (4주 cool-down).
+name: app
+
+on: [push, pull_request, workflow_dispatch]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (2026-07-20)
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0 (2026-10-08)
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false # 캐시 오염 위험 > 이득 (eval.yml 과 같은 판단)
+
+      - name: install (package-lock.json 그대로)
+        run: npm ci # Electron 실행 파일은 안 받는다 (44 는 처음 실행할 때 받음) — 타입 검사·빌드엔 필요 없다
+
+      - name: typecheck
+        run: npm run typecheck
+
+      - name: build
+        run: npm run build

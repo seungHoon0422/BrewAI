@@ -1,0 +1,13 @@
+{
+  "name": "brewai",
+  "private": true,
+  "workspaces": ["apps/desktop", "apps/admin", "e2e"],
+  "engines": { "node": "24.22.x" },
+  "scripts": {
+    "desktop": "npm run dev -w apps/desktop",
+    "admin": "npm run dev -w apps/admin",
+    "build": "npm run build -w apps/desktop && npm run build -w apps/admin",
+    "typecheck": "npm run typecheck -w apps/desktop && npm run typecheck -w apps/admin",
+    "e2e": "npm run build && npm test -w e2e"
+  }
+}
