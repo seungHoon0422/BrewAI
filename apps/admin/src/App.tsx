@@ -1,8 +1,10 @@
-import { useEffect, useRef, useSyncExternalStore, type ComponentType } from 'react';
+import { useEffect, useRef, type ComponentType } from 'react';
+import { useHash } from './hash';
 import { Icon, Mark } from './icons';
 import { MENU, hrefOf, routeFromHash, type RouteId } from './menu';
 import Approvals from './pages/Approvals';
 import Catalog from './pages/Catalog';
+import Docs from './pages/Docs';
 import Models from './pages/Models';
 import Overview from './pages/Overview';
 import Settings from './pages/Settings';
@@ -16,18 +18,12 @@ const PAGES: Record<RouteId, ComponentType> = {
   approvals: Approvals,
   traces: Traces,
   users: Users,
+  docs: Docs,
   settings: Settings,
 };
 
-// 라우터 라이브러리 없이 hashchange 만 구독한다
-function subscribe(onChange: () => void) {
-  window.addEventListener('hashchange', onChange);
-  return () => window.removeEventListener('hashchange', onChange);
-}
-const readHash = () => window.location.hash;
-
 export default function App() {
-  const route = routeFromHash(useSyncExternalStore(subscribe, readHash));
+  const route = routeFromHash(useHash());
   const Page = PAGES[route.id];
   const listRef = useRef<HTMLUListElement>(null);
   const h1Ref = useRef<HTMLHeadingElement>(null);
@@ -61,7 +57,7 @@ export default function App() {
         <nav className="nav" aria-label="관리 메뉴">
           <ul ref={listRef}>
             {MENU.map((m) => (
-              <li key={m.id}>
+              <li key={m.id} className={m.sep ? 'sep' : undefined}>
                 <a href={hrefOf(m.id)} aria-current={m.id === route.id ? 'page' : undefined}>
                   <Icon name={m.icon} />
                   {m.label}

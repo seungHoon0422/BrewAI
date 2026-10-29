@@ -7,19 +7,19 @@
 ## 데모 스크립트 (금요일 그대로)
 1. `npm ci` → `npm run e2e` → desktop · admin · web 전부 green
 2. `npm run desktop` → 레일 6개 메뉴를 차례로 눌러 화면 확인 (맥 신호등·윈도우 창 버튼과 안 겹침)
-3. `npm run admin` → 7개 메뉴 확인 · 랜딩 `apps/web/index.html` 에서 이 PC 버튼이 앞
+3. `npm run admin` → 8개 메뉴 확인 (문서에서 진행 현황 · 아키텍처) · 랜딩 `apps/web/index.html` 에서 이 PC 버튼이 앞
 
 ## 메뉴
 | 앱 | 메뉴 (주소) |
 |---|---|
 | 데스크톱 | 대화 `#/chat` · 진행 상황 `#/activity` · 예약 작업 `#/scheduled` · 스킬 `#/skills` · 연결된 앱 `#/connections` · 설정 `#/settings` |
-| 관리자 | 개요 · 모델 · 카탈로그 · 승인 기록 · 트레이스 · 사용자·예산 · 설정 |
+| 관리자 | 개요 · 모델 · 카탈로그 · 승인 기록 · 트레이스 · 사용자·예산 · 문서 `#/docs` · 설정 (ADR-0008) |
 
 프로토타입 레일 맨 아래 '더 보기' 자리는 '설정'으로 바꿨다.
 
 ## done
 - [x] 데스크톱: 6개 메뉴 화면 + 보안 기본값(app:// · CSP · sandbox · 원격 차단)을 E2E 로 확인
-- [x] 관리자: 7개 메뉴 화면 · 폰 폭에서 가로 스크롤 없음
+- [x] 관리자: 8개 메뉴 화면(문서 = 진행 현황 · 아키텍처 · 구성 · 결정 기록 · 보고서) · 폰 폭에서 가로 스크롤 없음
 - [x] 랜딩: OS별 다운로드 버튼 (설치본 전엔 비활성)
 - [ ] 집 윈도우에서 `npm ci` · `npm run e2e` green
 - [ ] 버전 고정 · `package-lock.json` · 7일 규칙 · CI(app) green

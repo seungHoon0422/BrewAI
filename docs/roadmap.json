@@ -1,6 +1,6 @@
 {
   "updated": "2026-10-29",
-  "rule": "passes 는 기능 개발이 끝난 시점의 Playwright E2E(= 금요일 데모 스펙)가 exit_criteria 를 모두 통과했을 때만 true 로 바꾼다. 기능이 없는 P0 은 증거 링크(CI run · 두 PC /start 3줄)로 판정한다. 항목을 지우거나 고쳐 쓰지 않는다 — 사용자가 방향을 바꿀 때만 ADR 을 먼저 남기고 고친다(ADR-0007).",
+  "rule": "passes 는 기능 개발이 끝난 시점의 Playwright E2E(= 금요일 데모 스펙)가 exit_criteria 를 모두 통과했을 때만 true 로 바꾼다. 기능이 없는 P0 은 증거 링크(CI run · 두 PC /start 3줄)로 판정한다. 항목을 지우거나 고쳐 쓰지 않는다 — 사용자가 방향을 바꿀 때만 ADR 을 먼저 남기고 고친다(ADR-0007 · ADR-0008).",
   "phases": [
     {
       "id": "P0",
@@ -24,12 +24,13 @@
         "P1-2 승인 필요 툴은 승인 카드에서 OK 해야만 실행된다",
         "P1-3 Langfuse 에 agent·LLM·tool span 이 user·session 과 함께 한 trace tree 로, 토큰 비용과 함께 보인다",
         "P1-4 위 데모가 Playwright desktop 스펙(게이트웨이 mock)으로 CI green + eval 3건(골든 1 · 제약 2)",
-        "P1-5 데스크톱 앱 6개 메뉴와 관리자 콘솔 7개 메뉴가 각자 화면을 열고, 랜딩에 OS별 다운로드 버튼이 있다 (Playwright desktop · admin · web)"
+        "P1-5 데스크톱 앱 6개 메뉴와 관리자 콘솔 8개 메뉴(문서 = 레포 파일에서 진행 현황 · 아키텍처 · 구성)가 각자 화면을 열고, 랜딩에 OS별 다운로드 버튼이 있다 (Playwright desktop · admin · web)"
       ],
       "slice_hint": [
-        "01 메뉴 골격: Electron 창에 prototype 프레임 + 메뉴별 빈 화면 · 관리자 콘솔 메뉴별 빈 화면 · 랜딩 · Playwright desktop·admin·web (P1-5)",
-        "02 대화 관통: 대화 화면 → conductor(Pydantic AI) → LiteLLM → MCP 툴 1개 → Langfuse — 키 전엔 TestModel (P1-1, P1-3)",
-        "03 승인 필요 툴(deferred tool) + 승인 카드 + Playwright desktop 스펙 CI + eval 3건 — CI는 키 없이 TestModel·mock (P1-2, P1-4)"
+        "01 메뉴 골격: Electron 창에 prototype 프레임 + 메뉴별 빈 화면 · 관리자 콘솔 메뉴별 빈 화면 + 문서 메뉴 · 랜딩 · Playwright desktop·admin·web (P1-5)",
+        "02 모델 연동: LiteLLM 게이트웨이(config.yaml 에만 모델 등록, 키 없는 mock) → conductor(Pydantic AI) → 관리자 '모델' 목록 · 데스크톱 대화 답 — E2E 는 게이트웨이 mock (P1-1 앞부분)",
+        "03 툴 · trace: MCP 툴 1개 → 결과 카드 + Langfuse trace (P1-1, P1-3)",
+        "04 승인 필요 툴(deferred tool) + 승인 카드 + Playwright desktop 스펙 CI + eval 3건 — CI는 키 없이 TestModel·mock (P1-2, P1-4)"
       ],
       "passes": false
     },
