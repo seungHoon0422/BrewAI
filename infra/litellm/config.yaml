@@ -1,0 +1,44 @@
+# BrewAI LiteLLM proxy 1.106.2 - config-only (no database). ASCII only (Windows cp949).
+# Models are registered ONLY here (ADR-0006). BrewAI decides exposure, label and order, never price or context.
+# Secrets come from the environment via os.environ/... ; never write a key in this file.
+model_list:
+  # Keyless mock: answers without any provider key (dev, Friday demo without keys).
+  - model_name: brewai-mock
+    litellm_params:
+      model: openai/brewai-mock
+      mock_response: "Hello from the BrewAI mock model."
+    model_info:
+      mode: chat
+      max_input_tokens: 128000
+      max_output_tokens: 8192
+      input_cost_per_token: 0
+      output_cost_per_token: 0
+  # Anthropic (needs ANTHROPIC_API_KEY). Price and context come from the bundled cost map.
+  - model_name: claude-sonnet-5-5
+    litellm_params:
+      model: anthropic/claude-sonnet-5-5
+      api_key: os.environ/ANTHROPIC_API_KEY
+  - model_name: claude-haiku-5-5
+    litellm_params:
+      model: anthropic/claude-haiku-5-5
+      api_key: os.environ/ANTHROPIC_API_KEY
+  # OpenAI (needs OPENAI_API_KEY).
+  - model_name: gpt-6.1-sol
+    litellm_params:
+      model: openai/gpt-6.1-sol
+      api_key: os.environ/OPENAI_API_KEY
+
+litellm_settings:
+  # ADR-0003: the conductor owns the trace; no gateway logging callbacks.
+  callbacks: []
+  success_callback: []
+  failure_callback: []
+
+router_settings:
+  # Show the real upstream error instead of 429 all_deployments_in_cooldown.
+  disable_cooldowns: true
+  # Fail fast on a missing or bad provider key (default retries take about 4s).
+  num_retries: 0
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY

@@ -7,3 +7,5 @@
 - Codex 병행 시 `.agents/skills` 미러 자동 생성
 - P4 sandbox 후보: 제한 venv 로컬 프로세스 vs 호스티드(E2B 등) vs 회사 PC Docker — P3 끝날 때 ADR
 - gh CLI 설치(`winget install GitHub.cli` → `gh auth login`)하면 PR·CI 확인을 Claude가 대신
+- P2 배포 결정 때 k3d/쿠버네티스 검토 (지금은 Compose: 기본 LiteLLM 만, trace 때 Langfuse 묶음)
+- conductor CORS 기본값의 Vite 개발 출처(localhost:5173 · 5174)는 개발 전용 → P2 배포 때 기본값에서 빼고 dev-all·E2E 가 넘기게

@@ -5,18 +5,22 @@ const { app, BrowserWindow, nativeTheme, net, protocol, session, shell } = requi
 const fs = require('node:fs');
 const path = require('node:path');
 const { fileURLToPath, pathToFileURL } = require('node:url');
+const { apiOrigin } = require('./api-url.cjs');
 
 const isMac = process.platform === 'darwin';
 const DIST = path.join(__dirname, 'dist');
 const HOST = 'brewai';
 const START_URL = `app://${HOST}/index.html`;
+// 렌더러가 부를 수 있는 유일한 서버 (conductor). CSP connect-src · onBeforeRequest · config.json 이 이 값 하나를 쓴다.
+const API = apiOrigin(process.env.BREWAI_API_URL, { packaged: app.isPackaged });
+const CONFIG_JSON = JSON.stringify({ apiUrl: API });
 const CSP = [
   "default-src 'self'",
   "script-src 'self'",
   "style-src 'self'",
   "img-src 'self' data:",
   "font-src 'self' data:",
-  "connect-src 'self'",
+  API ? `connect-src 'self' ${API}` : "connect-src 'self'",
   "object-src 'none'",
   "base-uri 'none'",
   "form-action 'none'",
@@ -45,6 +49,8 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true } },
 ]);
 app.setName('BrewAI'); // 사용자 데이터 폴더 이름 (@brewai/desktop 대신)
+// E2E·개발: 사용자 데이터 폴더를 따로 (진짜 BrewAI 폴더를 안 건드린다). 배포본은 무시
+if (process.env.BREWAI_USER_DATA && !app.isPackaged) app.setPath('userData', process.env.BREWAI_USER_DATA);
 
 // dist/ 안쪽 파일인가. 경로로 비교한다 (윈도우 드라이브 글자 대소문자는 path.relative 가 맞춰 준다).
 function inDist(file) {
@@ -55,6 +61,12 @@ function inDist(file) {
 // app://brewai/<경로> → dist/<경로>. MIME 은 net.fetch(file:) 가 정한다. dist 밖을 가리키면 거절.
 async function serve(request) {
   const url = new URL(request.url);
+  // 렌더러 설정 (preload 없이 main → 렌더러). 파일이 아니라 여기서 만든다. 같은 출처라 CSP 'self' 로 읽힌다
+  if (url.host === HOST && url.pathname === '/config.json') {
+    return new Response(CONFIG_JSON, {
+      headers: { 'content-type': 'application/json', 'cache-control': 'no-store', 'Content-Security-Policy': CSP },
+    });
+  }
   let file = '';
   try {
     const rel = decodeURIComponent(url.pathname);
@@ -85,6 +97,7 @@ function allowed(raw) {
     const url = new URL(raw);
     if (url.protocol === 'app:' || url.protocol === 'data:' || url.protocol === 'devtools:') return true;
     if (url.protocol === 'file:') return inDist(fileURLToPath(url));
+    if (API && (url.protocol === 'http:' || url.protocol === 'https:') && url.origin === API) return true; // ws: 는 안 연다
     return DEV !== null && (url.origin === DEV.origin || (url.protocol === 'ws:' && url.host === DEV.host));
   } catch {
     return false;

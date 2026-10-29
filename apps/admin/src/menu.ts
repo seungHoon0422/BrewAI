@@ -13,7 +13,7 @@ export type MenuItem = {
 };
 
 export const MENU: readonly MenuItem[] = [
-  { id: 'overview', label: '개요', desc: '지금은 연결된 서비스가 없습니다.', icon: 'grid' },
+  { id: 'overview', label: '개요', desc: '게이트웨이 · 모델 · 승인 · 비용 상태를 한눈에 봅니다.', icon: 'grid' },
   { id: 'models', label: '모델', desc: '사용자 앱 모델 목록에 무엇을 보일지 정합니다.', icon: 'cube' },
   { id: 'catalog', label: '카탈로그', desc: '에이전트가 찾아 설치할 수 있는 MCP 서버와 Skill입니다.', icon: 'box' },
   { id: 'approvals', label: '승인 기록', desc: '승인 카드에서 내린 허용 · 거절 기록입니다.', icon: 'shield' },

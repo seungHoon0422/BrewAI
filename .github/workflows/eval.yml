@@ -28,3 +28,6 @@ jobs:
 
       - name: eval
         run: uv run --locked pytest evals
+
+      - name: conductor 단위 테스트 (네트워크·키 없음 · FunctionModel/TestModel · LiteLLM 계약 fixture)
+        run: uv run --locked pytest services/conductor/tests

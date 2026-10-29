@@ -1,0 +1,2 @@
+# Banned releases (AGENTS.md supply chain): malicious uploads 2026-03 (1.82.7, 1.82.8) and 2026-10-21 (1.107.0).
+litellm!=1.82.7,!=1.82.8,!=1.107.0

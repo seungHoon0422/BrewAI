@@ -7,6 +7,8 @@
     "dev": "node scripts/dev-all.mjs",
     "desktop": "npm run dev -w apps/desktop",
     "admin": "npm run dev -w apps/admin",
+    "gateway": "node scripts/gateway.mjs",
+    "api": "node scripts/api.mjs",
     "build": "npm run build -w apps/desktop && npm run build -w apps/admin",
     "typecheck": "npm run typecheck -w apps/desktop && npm run typecheck -w apps/admin",
     "e2e": "npm run build && npm test -w e2e"

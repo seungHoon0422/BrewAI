@@ -1,32 +1,110 @@
-import type { ReactNode } from 'react';
-import { Icon } from '../icons';
+import type { CSSProperties, ReactNode } from 'react';
+import { ArchIcon, type ArchIconName } from './arch-icons';
+import './architecture.css';
 import { Sources, St } from './parts';
 import type { ArchPath, DocsData } from './types';
 
-// 목표 아키텍처 = AGENTS.md · ADR-0001~0007 · REPORT §03. 칸마다 상태는 빌드할 때 레포에서 계산:
-// path 가 있으면 '있음', 없으면 '예정 · <완료 기준>'. path 가 없는 칸은 그 기준의 phase 가 passes 면 '있음'
-type Kind = 'build' | 'borrow' | 'ext';
-type BoxDef = { title: string; sub: string; kind: Kind; path?: ArchPath; plan?: string };
+// 전체 시스템 아키텍처 = AGENTS.md · ADR-0001~0008 · slice 02(conductor + LiteLLM)
+// 로컬 스택 = ADR-0003 (Docker 없이 · LiteLLM 은 infra/litellm venv). Langfuse self-host 묶음은 아직 아이디어(docs/ideas.md) → 예정 점만
+// 회사 게이트웨이 = LiteLLM 뒤가 아니라 그 자리 대신 (ADR-0008: LLM_GATEWAY_URL · 키만 바꾼다)
+// 그림 = 고정 논리 캔버스(W×H) 위의 영역(제목만) · 노드(아이콘 + 이름) · 선(짧은 라벨). 폭에 맞춰 줄고, 좁으면 상자 안에서 가로 스크롤
+// 노드 상태(점)는 빌드할 때 레포에서 계산: path 가 있으면 '있음', 없으면 '예정 · <완료 기준>'.
+// path 가 없는 노드는 그 기준의 phase 가 passes 면 '있음'. 상태가 없으면 외부 서비스 (점 없음)
+const W = 1040;
+const H = 620;
+const TOP = 24; // 위쪽 빈 줄은 잘라서 그린다 (보이는 캔버스 = y 24~620)
+type Rect = [x: number, y: number, w: number, h: number];
+type Pt = [x: number, y: number];
 
-const SURFACES: BoxDef[] = [
-  { title: '데스크톱 앱', sub: 'Electron · 사용자 앱 · 먼저 (ADR-0007)', kind: 'build', path: 'apps/desktop/package.json', plan: 'P1-5' },
-  { title: '관리자 콘솔', sub: '별도 SPA · 이 화면', kind: 'build', path: 'apps/admin/package.json', plan: 'P1-5' },
-  { title: '웹 랜딩', sub: '당분간 다운로드만', kind: 'build', path: 'apps/web/index.html', plan: 'P1-5' },
+type Status = { path?: ArchPath; via?: ArchPath; plan?: string }; // path = data-path 로도 노출 · via = 상태만 빌림
+type NodeDef = { kind: 'node'; name: string; icon: ArchIconName; badge?: ArchIconName; at: Pt; size?: 'lg' | 'sm' | 'row'; st?: Status };
+type ChipDef = { kind: 'chip'; name: string; icon: ArchIconName; rect: Rect; row?: boolean; st?: Status };
+type ZoneDef = { kind: 'zone'; id: string; title?: string; icon?: ArchIconName; tone: string; rect: Rect; items: Item[] };
+type Item = NodeDef | ChipDef | ZoneDef;
+
+const node = (name: string, icon: ArchIconName, at: Pt, more: Partial<NodeDef> = {}): NodeDef => ({ kind: 'node', name, icon, at, ...more });
+const chip = (name: string, icon: ArchIconName, rect: Rect, more: Partial<ChipDef> = {}): ChipDef => ({ kind: 'chip', name, icon, rect, ...more });
+
+const MAP: Item[] = [
+  node('사용자', { line: 'person' }, [40, 110]),
+  node('관리자', { line: 'person' }, [40, 385]),
+  {
+    kind: 'zone', id: 'app', title: '사용자 앱', tone: 'app', rect: [90, 40, 180, 260],
+    items: [
+      node('데스크톱', { brand: 'electron' }, [180, 110], { st: { path: 'apps/desktop/package.json', plan: 'P1-5' } }),
+      node('웹 랜딩', { line: 'landing' }, [180, 230], { st: { path: 'apps/web/index.html', plan: 'P1-5' } }),
+    ],
+  },
+  {
+    kind: 'zone', id: 'admin', title: '관리자 콘솔', tone: 'admin', rect: [90, 330, 180, 110],
+    items: [node('React SPA', { line: 'console' }, [180, 385], { badge: { brand: 'react' }, st: { path: 'apps/admin/package.json', plan: 'P1-5' } })],
+  },
+  {
+    kind: 'zone', id: 'core', title: '코어 · conductor', tone: 'core', rect: [350, 40, 210, 400],
+    items: [
+      node('conductor', { brand: 'fastapi' }, [455, 110], { badge: { brand: 'python' }, st: { path: 'services/conductor', plan: 'P1-1' } }),
+      chip('① 능력 찾기', { line: 'search' }, [363, 176, 90, 52], { st: { plan: 'P3-1' } }),
+      chip('② 승인', { line: 'shield' }, [457, 176, 90, 52], { st: { plan: 'P1-2' } }),
+      chip('③ Skill', { line: 'skill' }, [363, 234, 90, 52], { st: { path: 'runtime/skills', plan: 'P5-1' } }),
+      chip('④ 팀', { line: 'team' }, [457, 234, 90, 52], { st: { plan: 'P4-1' } }),
+      chip('Pydantic AI', { brand: 'pydantic' }, [363, 300, 184, 36], { row: true, st: { via: 'services/conductor', plan: 'P1-1' } }),
+    ],
+  },
+  {
+    kind: 'zone', id: 'local', title: '로컬 스택', tone: 'local', rect: [640, 40, 200, 400],
+    items: [
+      node('LiteLLM', { line: 'router' }, [740, 98], { st: { path: 'infra/litellm', plan: 'P1-1' } }),
+      node('또는 회사 게이트웨이', { line: 'building' }, [666, 158], { size: 'row' }),
+      {
+        kind: 'zone', id: 'langfuse', tone: 'sub', rect: [655, 182, 170, 243],
+        items: [
+          node('Langfuse', { line: 'trace' }, [740, 228], { st: { plan: 'P1-3' } }),
+          node('Postgres', { brand: 'postgresql' }, [697, 310], { size: 'sm', st: { plan: 'P1-3' } }),
+          node('ClickHouse', { brand: 'clickhouse' }, [783, 310], { size: 'sm', st: { plan: 'P1-3' } }),
+          node('Redis', { brand: 'redis' }, [697, 375], { size: 'sm', st: { plan: 'P1-3' } }),
+          node('MinIO', { brand: 'minio' }, [783, 375], { size: 'sm', st: { plan: 'P1-3' } }),
+        ],
+      },
+    ],
+  },
+  {
+    kind: 'zone', id: 'models', title: '모델 제공자', tone: 'models', rect: [890, 40, 150, 160],
+    items: [
+      node('Anthropic', { brand: 'anthropic' }, [912, 100], { size: 'row' }),
+      node('OpenAI', { line: 'model' }, [912, 150], { size: 'row' }),
+          ],
+  },
+  {
+    kind: 'zone', id: 'tools', title: '도구', tone: 'tools', rect: [350, 480, 210, 120],
+    items: [node('MCP 서버', { brand: 'modelcontextprotocol' }, [455, 540], { st: { plan: 'P1-1' } })],
+  },
+  node('개발자', { line: 'person' }, [600, 540]),
+  {
+    kind: 'zone', id: 'dev', title: '개발', tone: 'dev', rect: [640, 480, 400, 120],
+    items: [
+      node('GitHub', { brand: 'github' }, [730, 540]),
+      node('GitHub Actions', { brand: 'githubactions' }, [860, 540]),
+      node('evals · E2E', { line: 'checks' }, [985, 540], { st: { path: 'evals/cases', plan: 'P0-2' } }),
+    ],
+  },
 ];
-const CONDUCTOR: BoxDef = { title: 'conductor API', sub: 'Python · FastAPI · 유일한 자체 코어', kind: 'build', path: 'services/conductor', plan: 'P1-1' };
-const CORE: BoxDef[] = [
-  { title: '① 능력 찾기 · 설치', sub: 'tool search · 카탈로그 · 연결', kind: 'build', plan: 'P3-1' },
-  { title: '② 승인 · 정책', sub: '위험 등급 · 서버 재검증 · 예산', kind: 'build', plan: 'P1-2' },
-  { title: '③ Skill 작성 · 저장소', sub: '격리 → 테스트 → 승인', kind: 'build', path: 'runtime/skills', plan: 'P5-1' },
-  { title: '④ 팀 구성', sub: '서브에이전트 자동 편성 · 활동 이벤트', kind: 'build', plan: 'P4-1' },
+
+// 선: from → to (both = 양방향). label 은 lp(가운데 기준) 에 · sr = 화면 낭독기용 문장
+type Wire = { from: Pt; to: Pt; label?: string; lp?: Pt; start?: boolean; both?: boolean; sr: string };
+const WIRES: Wire[] = [
+  { from: [62, 110], to: [157, 110], sr: '사용자 → 데스크톱 앱' },
+  { from: [202, 110], to: [349, 110], both: true, label: 'AG-UI · SSE', lp: [310, 102], sr: '데스크톱 앱 ⇄ conductor : AG-UI · SSE' },
+  { from: [180, 208], to: [180, 158], label: '다운로드', lp: [188, 187], start: true, sr: '웹 랜딩 → 데스크톱 앱 : 설치본 다운로드' },
+  { from: [62, 385], to: [157, 385], sr: '관리자 → 관리자 콘솔' },
+  { from: [202, 385], to: [349, 385], label: '관리 API', lp: [310, 377], sr: '관리자 콘솔 → conductor : 관리 API' },
+  { from: [560, 98], to: [717, 98], label: 'OpenAI 호환', lp: [600, 90], sr: 'conductor → (LLM_GATEWAY_URL) LiteLLM 또는 회사 게이트웨이 : OpenAI 호환 API' },
+  { from: [560, 228], to: [717, 228], label: 'OTLP trace', lp: [600, 220], sr: 'conductor → Langfuse : OTLP trace (user.id · session.id)' },
+  { from: [762, 98], to: [889, 98], label: 'API 키', lp: [865, 90], sr: 'LiteLLM → 모델 제공자 (Anthropic · OpenAI) : API 키' },
+  { from: [455, 440], to: [455, 518], label: 'MCP · 승인 후', lp: [463, 466], start: true, sr: 'conductor → MCP 서버 : MCP · 사람 승인 후' },
+  { from: [622, 540], to: [708, 540], label: 'git push', lp: [672, 532], sr: '개발자 → GitHub : git push' },
+  { from: [752, 540], to: [837, 540], label: 'CI', lp: [795, 532], sr: 'GitHub → GitHub Actions : CI' },
+  { from: [882, 540], to: [962, 540], label: '실행', lp: [922, 532], sr: 'GitHub Actions → evals · Playwright E2E : 실행' },
 ];
-const LOOP: BoxDef = { title: '실행 루프', sub: 'Pydantic AI · adapter 1파일에 격리', kind: 'borrow', plan: 'P1-1' };
-const GATEWAY: BoxDef = { title: 'LLM 게이트웨이', sub: 'LiteLLM · 모델은 여기서만 등록', kind: 'borrow', path: 'infra/litellm', plan: 'P1-1' };
-const MODELS: BoxDef = { title: '모델 제공사', sub: 'Claude · GPT · Gemini', kind: 'ext' };
-const MCP_GW: BoxDef = { title: 'MCP 게이트웨이', sub: '승인 후 프록시 · P3 도입', kind: 'borrow', plan: 'P3-1' };
-const MCP: BoxDef = { title: 'MCP 서버', sub: 'FastMCP 툴 1개 → P3 카탈로그 · 허용 목록 · 버전/해시 고정', kind: 'ext', plan: 'P1-1' };
-const LANGFUSE: BoxDef = { title: 'Langfuse', sub: 'OTLP trace · user.id · session.id', kind: 'borrow', plan: 'P1-3' };
-const EVALS: BoxDef = { title: 'evals · CI', sub: 'pytest · GitHub Actions · 깨지면 merge 안 함', kind: 'build', path: 'evals/cases', plan: 'P0-2' };
 
 const RULES: { title: string; body: ReactNode; src: { label: string; href?: string }[] }[] = [
   {
@@ -64,104 +142,140 @@ const RULES: { title: string; body: ReactNode; src: { label: string; href?: stri
   },
 ];
 
+const ROOT: Rect = [0, TOP, W, H - TOP];
+const pct = (v: number, of: number) => `${(v / of) * 100}%`;
+const place = (r: Rect, p: Rect): CSSProperties => ({
+  left: pct(r[0] - p[0], p[2]),
+  top: pct(r[1] - p[1], p[3]),
+  width: pct(r[2], p[2]),
+  height: pct(r[3], p[3]),
+});
+
 export default function Architecture({ data }: { data: DocsData }) {
-  // 완료 기준 id → 그 phase 가 passes 인가 · 기준 문장 (칸 위에 올리면 보인다)
+  // 완료 기준 id → 그 phase 가 passes 인가 · 기준 문장 (점 위에 올리면 보인다)
   const crit = new Map<string, { passes: boolean; text: string }>();
   for (const p of data.roadmap?.phases ?? []) {
     crit.set(p.id, { passes: p.passes, text: `${p.id} ${p.name} — ${p.goal}` });
     for (const c of p.criteria) if (c.id) crit.set(c.id, { passes: p.passes, text: `${c.id} ${c.text}` });
   }
 
-  function status(b: BoxDef) {
-    if (b.path) {
-      return data.exists[b.path] ? <St tone="on">있음</St> : <St tone="off" title={b.plan && crit.get(b.plan)?.text}>예정 · {b.plan}</St>;
+  function status(s?: Status) {
+    if (!s) return null; // 외부 서비스 = 점 없음
+    const c = s.plan ? crit.get(s.plan) : undefined;
+    const p = s.path ?? s.via;
+    const on = p ? data.exists[p] : !!c?.passes;
+    const text = on ? '있음' : `예정 · ${s.plan}`;
+    return (
+      <St tone={on ? 'on' : 'off'} title={on ? (p ? `${p} 있음` : c?.text) : c?.text}>
+        <span className="sr">{text}</span>
+      </St>
+    );
+  }
+
+  function render(it: Item, parent: Rect, key: string): ReactNode {
+    if (it.kind === 'zone') {
+      const tid = `ax-z-${it.id}`;
+      return (
+        <div
+          key={key}
+          className={`ax-zone z-${it.tone}`}
+          style={place(it.rect, parent)}
+          role={it.title ? 'group' : undefined}
+          aria-labelledby={it.title ? tid : undefined}
+        >
+          {it.title && (
+            <p className="ax-zt" id={tid}>
+              {it.icon && <ArchIcon icon={it.icon} />}
+              {it.title}
+            </p>
+          )}
+          {it.items.map((c, i) => render(c, it.rect, `${key}.${i}`))}
+        </div>
+      );
     }
-    if (!b.plan) return <St tone="ext">외부</St>;
-    const c = crit.get(b.plan);
-    return c?.passes ? <St tone="on">있음</St> : <St tone="off" title={c?.text}>예정 · {b.plan}</St>;
+    if (it.kind === 'chip') {
+      return (
+        <div key={key} className={it.row ? 'ax-chip row' : 'ax-chip'} style={place(it.rect, parent)} data-path={it.st?.path}>
+          <ArchIcon icon={it.icon} />
+          <h3>
+            {it.name}
+            {status(it.st)}
+          </h3>
+        </div>
+      );
+    }
+    return (
+      <div
+        key={key}
+        className={`ax-node ${it.size ?? 'lg'}`}
+        style={{ left: pct(it.at[0] - parent[0], parent[2]), top: pct(it.at[1] - parent[1], parent[3]) }}
+        data-path={it.st?.path}
+      >
+        <span className="ax-ic">
+          <ArchIcon icon={it.icon} />
+          {it.badge && <ArchIcon icon={it.badge} className="ax-badge" />}
+        </span>
+        <h3>
+          {it.name}
+          {status(it.st)}
+        </h3>
+      </div>
+    );
   }
 
   return (
     <>
-      <h2 id="arch-title" className="sr">
-        목표 아키텍처
-      </h2>
-      <figure className="arch" aria-labelledby="arch-title" aria-describedby="arch-cap">
-        <div className="layer">
-          <p className="layer-lbl">
-            표면 <span>사람이 보는 곳</span>
-          </p>
-          <div className="lrow n3">
-            {SURFACES.map((b) => (
-              <Box key={b.title} b={b} st={status(b)} />
-            ))}
+      <section className="dsec">
+        <h2 id="arch-title">전체 시스템 아키텍처</h2>
+        <figure className="amap" aria-labelledby="arch-title" aria-describedby="arch-links arch-legend">
+          <div className="ax-scroll" tabIndex={0} role="region" aria-label="아키텍처 그림 (가로로 스크롤)">
+            <div className="ax-canvas">
+              {MAP.map((it, i) => render(it, ROOT, String(i)))}
+              <svg className="ax-wires" viewBox={`0 ${TOP} ${W} ${H - TOP}`} aria-hidden="true">
+                <defs>
+                  <marker id="ax-head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse">
+                    <path d="M0 1 9 5 0 9z" />
+                  </marker>
+                </defs>
+                {WIRES.map((w) => (
+                  <g key={w.sr}>
+                    <line x1={w.from[0]} y1={w.from[1]} x2={w.to[0]} y2={w.to[1]} markerEnd="url(#ax-head)" markerStart={w.both ? 'url(#ax-head)' : undefined} />
+                    {w.label && w.lp && (
+                      <text x={w.lp[0]} y={w.lp[1]} textAnchor={w.start ? 'start' : 'middle'} dominantBaseline={w.start ? 'middle' : 'auto'}>
+                        {w.label}
+                      </text>
+                    )}
+                  </g>
+                ))}
+              </svg>
+              <p className="ax-legend" id="arch-legend">
+                <span>
+                  <i className="d on" />
+                  있음 = 레포에 있음
+                </span>
+                <span>
+                  <i className="d off" />
+                  예정 = roadmap 완료 기준
+                </span>
+                <span>점 없음 = 외부</span>
+              </p>
+            </div>
           </div>
-        </div>
-        <Flow items={['데스크톱 ↔ AG-UI · SSE', '관리자 콘솔 ↔ 관리자 API', '키 없음 · 우리 API만']} />
-        <div className="layer">
-          <p className="layer-lbl">
-            코어 <span>직접 만듦</span>
+          <p className="ax-hint" aria-hidden="true">
+            옆으로 밀면 전체가 보입니다
           </p>
-          <Box b={CONDUCTOR} st={status(CONDUCTOR)} className="core">
-            <div className="core-grid">
-              {CORE.map((b) => (
-                <Box key={b.title} b={b} st={status(b)} className="mini" />
+          <figcaption className="sr">
+            <ul id="arch-links">
+              {WIRES.map((w) => (
+                <li key={w.sr}>{w.sr}</li>
               ))}
-            </div>
-            <Box b={LOOP} st={status(LOOP)} className="mini loop" />
-          </Box>
-        </div>
-        <Flow items={['OpenAI 호환 API', 'MCP · 승인 후']} />
-        <div className="layer">
-          <p className="layer-lbl">
-            연결 <span>빌려 씀</span>
-          </p>
-          <div className="lrow n2">
-            <div className="chain">
-              <Box b={GATEWAY} st={status(GATEWAY)} />
-              <span className="to" aria-label="라우팅">
-                <Icon name="right" />
-              </span>
-              <Box b={MODELS} st={status(MODELS)} />
-            </div>
-            <div className="chain">
-              <Box b={MCP_GW} st={status(MCP_GW)} />
-              <span className="to" aria-label="프록시">
-                <Icon name="right" />
-              </span>
-              <Box b={MCP} st={status(MCP)} />
-            </div>
-          </div>
-        </div>
-        <Flow dashed items={['모든 칸 → span (OTLP)']} />
-        <div className="layer">
-          <p className="layer-lbl">
-            관측 · 검증 <span>trace · eval</span>
-          </p>
-          <div className="lrow n2">
-            <Box b={LANGFUSE} st={status(LANGFUSE)} />
-            <Box b={EVALS} st={status(EVALS)} />
-          </div>
-        </div>
-        <figcaption id="arch-cap" className="arch-legend">
-          <span>
-            <i className="sw build" />
-            직접 만듦
-          </span>
-          <span>
-            <i className="sw borrow" />
-            빌려 씀 (점선)
-          </span>
-          <span>
-            <i className="sw ext" />
-            외부
-          </span>
-          <span>있음 = 레포에 경로가 있음 · 예정 = roadmap 완료 기준</span>
-        </figcaption>
-      </figure>
+            </ul>
+          </figcaption>
+        </figure>
+      </section>
 
-      <section className="dsec" aria-labelledby="rules-title">
-        <h2 id="rules-title">이 구조를 정한 규칙</h2>
+      <details className="ax-rules">
+        <summary>규칙</summary>
         <div className="rules">
           {RULES.map((r) => (
             <div className="rule" key={r.title}>
@@ -178,39 +292,9 @@ export default function Architecture({ data }: { data: DocsData }) {
             </div>
           ))}
         </div>
-      </section>
+      </details>
 
-      <Sources files={['AGENTS.md', 'docs/adr/', 'REPORT.html §03', 'docs/roadmap.json']} />
+      <Sources files={['AGENTS.md', 'docs/adr/', 'docs/slices/02-model-gateway.md', 'docs/roadmap.json']} />
     </>
-  );
-}
-
-function Box({ b, st, className = '', children }: { b: BoxDef; st: ReactNode; className?: string; children?: ReactNode }) {
-  return (
-    <div className={`abox ${b.kind} ${className}`} data-path={b.path}>
-      <h3>
-        {b.title} {st}
-      </h3>
-      <p>{b.sub}</p>
-      {b.path && (
-        <p className="path">
-          <code>{b.path.replace(/\/(package\.json|index\.html)$/, '')}</code>
-        </p>
-      )}
-      {children}
-    </div>
-  );
-}
-
-function Flow({ items, dashed = false }: { items: string[]; dashed?: boolean }) {
-  return (
-    <div className={dashed ? 'flow dash' : 'flow'}>
-      {items.map((t) => (
-        <span key={t}>
-          <Icon name="down" />
-          {t}
-        </span>
-      ))}
-    </div>
   );
 }

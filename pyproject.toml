@@ -1,13 +1,19 @@
 # BrewAI 파이썬 워크스페이스 루트 (설치되는 패키지 아님). uv.lock 은 여기 하나만.
-# P1: [tool.uv.workspace] members = ["services/conductor"] 를 더하고 evals 가 conductor 를 import 한다.
+# P1: services/conductor 를 워크스페이스 멤버로 둔다. 루트가 conductor 에 의존 → uv sync 한 번에 설치 · evals 가 import.
 [project]
 name = "brewai"
 version = "0.0.0"
 requires-python = "==3.13.*"
-dependencies = []
+dependencies = ["conductor"]
 
 [dependency-groups]
 dev = ["pytest==9.1.1"]
+
+[tool.uv.workspace]
+members = ["services/conductor"]
+
+[tool.uv.sources]
+conductor = { workspace = true }
 
 [tool.uv]
 package = false
@@ -17,6 +23,6 @@ required-version = ">=0.13.5"
 exclude-newer = "2026-10-22T00:00:00Z"
 
 [tool.pytest.ini_options]
-testpaths = ["evals"]
+testpaths = ["evals", "services/conductor/tests"]  # 인자 없는 pytest = eval + conductor 단위 테스트
 addopts = ["-ra", "--strict-markers", "--strict-config", "--import-mode=importlib"]
 empty_parameter_set_mark = "fail_at_collect"  # 케이스 0건 = 빨강 (빈 green 금지)

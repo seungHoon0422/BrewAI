@@ -1,10 +1,42 @@
+import { useEffect, useState } from 'react';
 import data from 'virtual:brewai-docs';
+import { AdminApiError, listAdminModels, type AdminModel, type LoadError } from '../api';
 import { Icon, type IconName } from '../icons';
 
-// 값은 전부 지금의 실제 상태다 (연결 전이라 미연결 · 0 · —)
-const STATS: { label: string; value: string; sub: string; icon: IconName }[] = [
-  { label: '게이트웨이', value: '미연결', sub: 'LiteLLM · P2에서 동기화', icon: 'plug' },
-  { label: '노출 모델', value: '0', sub: '후보 0 · 숨김 0', icon: 'cube' },
+type Stat = { label: string; value: string; sub: string; icon: IconName };
+// 게이트웨이 카드 = conductor GET /api/admin/models 의 실제 결과 (Models.tsx 와 같은 호출 · 읽기 전용)
+type Gateway = { kind: 'loading' } | { kind: 'ok'; rows: AdminModel[] } | { kind: 'error'; error: LoadError };
+
+const GATEWAY_DOWN: Record<LoadError, { value: string; sub: string }> = {
+  conductor: { value: 'conductor 꺼짐', sub: 'npm run api 로 켜기' },
+  gateway: { value: '꺼짐', sub: 'LiteLLM · npm run gateway 로 켜기' },
+  gateway_error: { value: '오류', sub: 'LiteLLM 이 오류를 냈어요 · 게이트웨이 로그 확인' },
+  gateway_auth: { value: '인증 실패', sub: '.env 의 LITELLM_MASTER_KEY 확인' },
+  server: { value: '확인 실패', sub: '모델 목록을 읽지 못했어요' },
+};
+
+function gatewayStats(g: Gateway): Stat[] {
+  if (g.kind === 'loading') {
+    return [
+      { label: '게이트웨이', value: '확인 중…', sub: 'LiteLLM', icon: 'plug' },
+      { label: '노출 모델', value: '—', sub: '후보 0 · 숨김 —', icon: 'cube' },
+    ];
+  }
+  if (g.kind === 'error') {
+    return [
+      { label: '게이트웨이', ...GATEWAY_DOWN[g.error], icon: 'plug' },
+      { label: '노출 모델', value: '—', sub: '게이트웨이 연결 후', icon: 'cube' },
+    ];
+  }
+  const shown = g.rows.filter((r) => r.exposed).length;
+  return [
+    { label: '게이트웨이', value: '연결됨', sub: `LiteLLM · 모델 ${g.rows.length}개`, icon: 'plug' },
+    { label: '노출 모델', value: String(shown), sub: `후보 0 · 숨김 ${g.rows.length - shown}`, icon: 'cube' },
+  ];
+}
+
+// 나머지는 아직 연결 전이라 0 · —
+const LATER: Stat[] = [
   { label: '승인 대기', value: '0', sub: 'P1-2 승인 카드부터', icon: 'shield' },
   { label: '오늘 비용', value: '—', sub: 'Langfuse 연결 후 · P1-3', icon: 'receipt' },
 ];
@@ -13,18 +45,31 @@ const STATS: { label: string; value: string; sub: string; icon: IconName }[] = [
 const NEXT = [
   { id: 'P1-2', what: '승인 기록', how: '승인 카드의 허용 · 거절을 감사 기록으로' },
   { id: 'P1-3', what: '트레이스', how: 'user.id · session.id 로 Langfuse trace 열기' },
-  { id: 'P2-1·2', what: '모델', how: '게이트웨이 동기화 · 새 모델은 후보로 숨김' },
+  { id: 'P2-1·2', what: '모델', how: '노출 · 표시 이름 · 순서 편집 · 새 모델은 후보로 숨김' },
   { id: 'P2-3', what: '관리자 로그인', how: '사용자 앱과 따로 배포 · 인증' },
   { id: 'P3', what: '카탈로그', how: 'MCP · Skill 허용 목록 · 버전/해시 고정' },
   { id: 'P6', what: '사용자·예산', how: '월 예산 · 사용량 · 정책' },
 ];
 
 export default function Overview() {
+  const [gateway, setGateway] = useState<Gateway>({ kind: 'loading' });
+  useEffect(() => {
+    const ctrl = new AbortController();
+    listAdminModels(ctrl.signal).then(
+      (rows) => setGateway({ kind: 'ok', rows }),
+      (e) => {
+        if ((e as Error).name !== 'AbortError') setGateway({ kind: 'error', error: e instanceof AdminApiError ? e.kind : 'server' });
+      },
+    );
+    return () => ctrl.abort();
+  }, []);
+  const stats = [...gatewayStats(gateway), ...LATER];
+
   return (
     <>
       <dl className="stats">
-        {STATS.map((s) => (
-          <div className="stat" key={s.label}>
+        {stats.map((s) => (
+          <div className="stat" key={s.label} data-state={s.label === '게이트웨이' ? gateway.kind : undefined}>
             <dt>
               <Icon name={s.icon} />
               {s.label}

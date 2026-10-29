@@ -121,6 +121,25 @@ textarea::placeholder{color:var(--muted2)}
 .send:disabled{opacity:.85;cursor:default}
 .send .i{stroke-width:2.1}
 
+/* thread — prototype .thread/.conv/.msgs/.msg. 진행 상황 패널(320px)은 툴이 생기는 slice 03 에서 둘째 칸으로 */
+.thread{display:grid;grid-template-columns:minmax(0,1fr);min-height:0}
+.conv{display:grid;grid-template-rows:auto 1fr auto;min-height:0;min-width:0}
+.conv-head{display:flex;align-items:center;gap:8px;padding:8px 12px 8px 24px;min-height:45px}
+.conv-head .t{font-size:inherit;font-weight:500;line-height:inherit;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.msgs{overflow:auto;padding:14px 0 8px;scrollbar-width:thin;scrollbar-color:transparent transparent}
+.msgs:hover{scrollbar-color:var(--line2) transparent}
+.col{width:min(720px,calc(100% - 64px));margin:0 auto}
+.msg{margin:0 0 16px}
+.msg.user{display:flex;justify-content:flex-end}
+.msg.user .bubble{background:var(--chip);padding:8px 13px;border-radius:14px;max-width:75%;white-space:pre-wrap;overflow-wrap:anywhere}
+.msg.agent{font-size:13.5px;line-height:1.65;white-space:pre-wrap;overflow-wrap:anywhere}
+.msg.fail{display:flex;align-items:center;gap:12px;color:var(--fg2)}
+.msg.fail::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--red);flex:none}
+.waittext{display:inline-flex;align-items:center;gap:8px;color:var(--muted);font-size:12.5px}
+.spin12{width:12px;height:12px;border:1.5px solid var(--line2);border-top-color:var(--blue);border-radius:50%;animation:spin .8s linear infinite;flex:none}
+.enter{animation:fade .28s ease-out}
+.dock2{padding:8px 0 16px}
+
 /* shared bits (prototype card · button · chip) */
 .btn{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:6px 15px;font-size:12.5px;cursor:pointer;border:1px solid var(--line2);background:var(--bg);color:var(--fg);white-space:nowrap}
 .btn:hover{background:var(--hover)}
@@ -186,6 +205,7 @@ textarea::placeholder{color:var(--muted2)}
 
 @keyframes fade{from{opacity:0;transform:translateY(4px)}}
 @keyframes pulse{50%{opacity:.35}}
+@keyframes spin{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion: reduce){
   *,*::before,*::after{animation:none!important;transition:none!important}
 }

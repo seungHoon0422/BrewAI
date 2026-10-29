@@ -1,0 +1,3 @@
+# LiteLLM proxy (ADR-0003). Exact pin; recompile with the command in README.
+# 1.106.2 = vendor-recommended pin after the 2026-10-21 incident (uploaded 2026-10-21T10:44Z).
+litellm[proxy]==1.106.2

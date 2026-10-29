@@ -1,7 +1,10 @@
 import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { API } from './env';
 import { expectMenu, expectScreen, goHash, openMenu, shot, type MenuItem } from './helpers';
 
 // 사용자 데스크톱 앱 (Electron) 빌드본. npm run e2e 가 먼저 빌드한다
@@ -35,7 +38,10 @@ test.beforeAll(async () => {
   });
   await new Promise<void>((resolve) => outside.listen(0, '127.0.0.1', resolve));
   OUTSIDE = `http://127.0.0.1:${(outside.address() as AddressInfo).port}/`;
-  app = await electron.launch({ args: [APP] });
+  // API 출처와 '바깥' 서버는 반드시 달라야 한다 (같으면 아래 차단 테스트가 의미 없다). 포트 0 = 임시 포트 ≠ 8787
+  expect(new URL(OUTSIDE).origin).not.toBe(API);
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'brewai-e2e-'));
+  app = await electron.launch({ args: [APP], env: { ...process.env, BREWAI_API_URL: API, BREWAI_USER_DATA: userData } });
   win = await app.firstWindow();
 });
 
@@ -86,12 +92,38 @@ test('app:// 로 뜨고 CSP 가 붙는다 (인라인 스크립트·스타일 금
   expect(r.inline).toBe(false);
 });
 
+test('열린 곳은 API 출처 하나뿐 (CSP · config.json · main 요청 차단 세 겹)', async () => {
+  const r = await win.evaluate(async (api) => {
+    const csp = (await fetch(location.href)).headers.get('content-security-policy') ?? '';
+    const config = await (await fetch('./config.json')).json();
+    const reach = (u: string) => fetch(u, { mode: 'no-cors' }).then(() => 'reached', () => 'blocked');
+    return {
+      connect: csp.split('; ').find((d) => d.startsWith('connect-src')),
+      config,
+      health: await fetch(`${api}/healthz`).then((x) => x.status, () => 0), // CORS 까지 통과
+      alias: await reach(api.replace('127.0.0.1', 'localhost') + '/healthz'), // 같은 PC 라도 다른 출처
+    };
+  }, API);
+  expect(r.connect).toBe(`connect-src 'self' ${API}`);
+  expect(r.config).toEqual({ apiUrl: API });
+  expect(r.health).toBe(200);
+  expect(r.alias).toBe('blocked');
+  // CSP 를 빼고 onBeforeRequest 만 본다: main 의 net.fetch 도 이 세션의 webRequest 를 거친다
+  const viaMain = (url: string) =>
+    app.evaluate(({ net }, u) => net.fetch(u).then((x) => `reached ${x.status}`, (e: Error) => `blocked ${e.message}`), url);
+  expect(await viaMain(`${API}/healthz`)).toBe('reached 200');
+  expect(await viaMain(OUTSIDE)).toMatch(/^blocked .*ERR_BLOCKED_BY_CLIENT/);
+  expect(hits).toBe(0);
+});
+
 test('바깥으로 이동·새 창은 막힌다', async () => {
-  await win.evaluate((url) => {
-    location.href = url;
-  }, OUTSIDE);
-  await win.waitForTimeout(500);
-  expect(win.url()).toMatch(/^app:\/\/brewai\//);
+  for (const url of [OUTSIDE, `${API}/healthz`]) {
+    await win.evaluate((u) => {
+      location.href = u;
+    }, url);
+    await win.waitForTimeout(500);
+    expect(win.url()).toMatch(/^app:\/\/brewai\//);
+  }
   expect(await win.evaluate(() => window.open(location.href) === null)).toBe(true);
   expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1);
   expect(hits).toBe(0);
