@@ -96,10 +96,50 @@ export type Stack = {
   banned: string[]; // 금지 LiteLLM 버전 (AGENTS.md)
 };
 
+/** 보드 카드의 열: 예정 · 진행 중 · 완료 */
+export type CardState = 'todo' | 'doing' | 'done';
+
+/** 보드 카드 하나 = roadmap 의 slice_hint 하나(+ docs/slices/NN-*.md) 또는 slice_hint 가 없는 phase 하나 */
+export type Card = {
+  key: string; // 주소 칸 → #/docs/board/<key> (slice-02 · P2)
+  label: string; // slice 02 · P2
+  kind: 'slice' | 'phase';
+  title: string;
+  phase: string; // 속한 phase id (P1)
+  weeks: number | null; // phase 카드만
+  state: CardState;
+  why: string; // 그 열에 있는 이유 (한 줄)
+  goal: Html | null;
+  hint: Html | null; // slice_hint 원문 (slice 카드)
+  checklist: { done: boolean | null; id: string | null; html: Html }[]; // done = null → 모름
+  progress: { done: number; total: number } | null; // 모르면 null
+  branch: string | null;
+  ids: string[]; // 관련 roadmap 완료 기준 id (P1-5 …)
+  adrs: string[]; // 관련 ADR key (0007 …)
+  files: string[]; // 출처 파일
+};
+
+/** 👤 내가 할 일 · ❓ 컨펌 필요 한 칸 */
+export type Ask = {
+  html: Html; // 전체 (👤) · 결정 내용 (❓)
+  title: string | null; // ❓ ':' 앞
+  options: Html[]; // ❓ 'A / B'
+  due: Html | null; // ❓ ' — ' 뒤
+  card: string | null; // 이 칸이 속한 보드 카드 key
+  from: string[]; // 출처 파일
+  pc: Pc | null; // 어느 PC 에서 할 일 (글에 집·윈도우 / 회사·맥)
+};
+
+/** AGENTS.md PC 이름표: 윈도우 = 집 · 맥 = 회사 */
+export type Pc = '집' | '회사';
+
+export type Board = { cards: Card[]; mine: Ask[]; confirm: Ask[]; here: Pc | null }; // here = 문서 서버가 도는 PC
+
 export type DocsData = {
   errors: string[]; // 없거나 해석하지 못한 파일
   handoff: Handoff | null;
   roadmap: Roadmap | null;
+  board: Board;
   slice: Slice | null;
   adrs: Adr[];
   exists: Record<ArchPath, boolean>;

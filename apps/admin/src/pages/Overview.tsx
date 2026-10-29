@@ -1,3 +1,4 @@
+import data from 'virtual:brewai-docs';
 import { Icon, type IconName } from '../icons';
 
 // 값은 전부 지금의 실제 상태다 (연결 전이라 미연결 · 0 · —)
@@ -33,6 +34,19 @@ export default function Overview() {
           </div>
         ))}
       </dl>
+
+      <a className="tome" href="#/docs/board">
+        <span>
+          <span aria-hidden="true">👤</span> 내가 할 일 <b>{data.board.mine.length}</b>
+        </span>
+        <span>
+          <span aria-hidden="true">❓</span> 컨펌 필요 <b>{data.board.confirm.length}</b>
+        </span>
+        <span className="go">
+          문서 › 보드
+          <Icon name="right" />
+        </span>
+      </a>
 
       <section className="sec" aria-labelledby="next-title">
         <h2 id="next-title">다음에 채울 것</h2>

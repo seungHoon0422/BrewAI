@@ -2,6 +2,7 @@ import { useRef, type KeyboardEvent } from 'react';
 import data from 'virtual:brewai-docs';
 import Adrs from '../docs/Adrs';
 import Architecture from '../docs/Architecture';
+import Board from '../docs/Board';
 import Progress from '../docs/Progress';
 import Report from '../docs/Report';
 import Stack from '../docs/Stack';
@@ -9,8 +10,9 @@ import { useHash } from '../hash';
 import { Note } from '../ui';
 
 // 문서 = 레포 파일(HANDOFF · roadmap · slices · ADR · REPORT …)을 빌드할 때 읽은 것 (docs-plugin.ts)
-// 주소: #/docs → 진행 현황 · #/docs/<탭> · #/docs/adr/<번호>
+// 주소: #/docs → 보드 · #/docs/<탭> · #/docs/board/<카드> · #/docs/adr/<번호>
 const TABS = [
+  { id: 'board', label: '보드' },
   { id: 'progress', label: '진행 현황' },
   { id: 'architecture', label: '아키텍처' },
   { id: 'stack', label: '구성' },
@@ -72,6 +74,7 @@ export default function Docs() {
         ))}
       </div>
       <div role="tabpanel" id="docs-panel" aria-labelledby={`docs-tab-${tab.id}`} tabIndex={0}>
+        {tab.id === 'board' && <Board data={data} sel={rest[0] ?? null} />}
         {tab.id === 'progress' && <Progress data={data} />}
         {tab.id === 'architecture' && <Architecture data={data} />}
         {tab.id === 'stack' && <Stack data={data} />}

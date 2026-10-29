@@ -7,7 +7,7 @@ disable-model-invocation: true
 0. worktree(`.git` 이 파일)이거나 브랜치가 main·`slice/*` 가 아니면 HANDOFF·REPORT 는 고치지 않는다 → 이 브랜치에 `git add -A` → `git commit` 까지만(push 금지) → "main 체크아웃(`git worktree list` 첫 줄)에서 `git merge --squash <이 브랜치>`(코드면 slice 브랜치로) → /wrap" 이라고 알리고 멈춘다.
 1. 이번 세션에서 한 일과 남은 일을 정리한다.
 2. `HANDOFF.md` 갱신
-   - 상단 표: 마지막 갱신(날짜 · `hostname` · AGENTS.md "PC 이름표"의 집/회사), 활성 브랜치, Phase, 다음 할 일(최대 3개, 1번 = 다음 PC에서 할 첫 작업), 막힘, 결정 대기.
+   - 상단 표: 마지막 갱신(날짜 · `hostname` · AGENTS.md "PC 이름표"의 집/회사), 활성 브랜치, Phase, 다음 할 일(최대 3개, 1번 = 다음 PC에서 할 첫 작업), 👤 내가 할 일(사람만 할 수 있는 확인·실행, 끝난 건 지운다), 막힘, 결정 대기(= Claude 가 컨펌받을 것).
    - "🕘 최근 기록" 맨 위에 한 줄 추가. 5줄이 넘으면 가장 오래된 줄을 지운다.
    - 처리한 "📥 사용자 메모" 항목은 지운다.
 3. Phase가 바뀌었거나 사용자 결정이 새로 생겼으면 `/report` 스킬도 실행한다.

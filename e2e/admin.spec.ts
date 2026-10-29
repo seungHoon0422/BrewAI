@@ -85,6 +85,7 @@ const ROOT = path.resolve(__dirname, '..');
 const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), 'utf8').replace(/^﻿/, '').replace(/\r\n?/g, '\n');
 const plain = (md: string) => md.replace(/[`*]/g, '').replace(/\s+/g, ' ').trim();
 const DOC_TABS = [
+  { id: 'board', label: '보드' },
   { id: 'progress', label: '진행 현황' },
   { id: 'architecture', label: '아키텍처' },
   { id: 'stack', label: '구성' },
@@ -110,7 +111,7 @@ async function openDocs(page: Page, hash: string, label: string) {
 
 test.describe('문서', () => {
   test('진행 현황: roadmap 의 모든 phase 와 HANDOFF 활성 브랜치', async ({ page }) => {
-    await openDocs(page, '#/docs', '진행 현황');
+    await openDocs(page, '#/docs/progress', '진행 현황');
     const roadmap = JSON.parse(read('docs/roadmap.json')) as { phases: { id: string; name: string }[] };
     const phases = panel(page).locator('.timeline > li');
     await expect(phases).toHaveCount(roadmap.phases.length);
@@ -178,7 +179,8 @@ test.describe('문서', () => {
   });
 
   test('탭: → 키 · 주소로 바로 열기 · 뒤로 가기', async ({ page }) => {
-    await openDocs(page, '#/docs', '진행 현황');
+    await openDocs(page, '#/docs', '보드'); // #/docs = 보드
+    await openDocs(page, '#/docs/progress', '진행 현황');
     await tab(page, '진행 현황').focus();
     await page.keyboard.press('ArrowRight');
     await expect(tab(page, '아키텍처')).toHaveAttribute('aria-selected', 'true');
@@ -197,7 +199,7 @@ test.describe('문서', () => {
 
     // 어느 문서 주소로 열어도 메뉴는 문서, h1 은 하나
     for (const t of DOC_TABS) await openDocs(page, `#/docs/${t.id}`, t.label);
-    await openDocs(page, '#/docs/nope', '진행 현황');
+    await openDocs(page, '#/docs/nope', '보드');
   });
 
   test.describe('폰 폭 390px', () => {
@@ -210,6 +212,118 @@ test.describe('문서', () => {
         await expect.poll(() => overflowX(page), { message: t.label }).toBeLessThanOrEqual(0);
         await page.screenshot({ path: shot(`admin-docs-${t.id}-phone`), fullPage: true });
       }
+    });
+  });
+});
+
+// ---------- 보드: 카드 = roadmap slice_hint(+ docs/slices) · slice_hint 없는 phase / 👤 · ❓ = HANDOFF 칸 ----------
+type RoadmapFile = { phases: { id: string; name: string; exit_criteria?: string[]; slice_hint?: string[] }[] };
+const roadmapFile = () => JSON.parse(read('docs/roadmap.json')) as RoadmapFile;
+// HANDOFF 칸 → 항목: ①②③ 이 있으면 그걸로, 없으면 ' · '. '없음' = []
+const items = (cell: string) =>
+  /^(없음|-|—)?$/.test(cell) ? [] : /[①-⑳]/.test(cell) ? cell.split(/(?=[①-⑳])/).map((x) => x.replace(/^[①-⑳]\s*/, '').trim()).filter(Boolean) : cell.split(' · ');
+// 화면은 '이름: 내용' · 'A / B' · ' — 기한' 을 따로 그린다 → 조각마다 들어 있는지 본다
+const pieces = (item: string) => item.split(/\s*(?:[:：]|\s\/\s|\s—\s)\s*/).map((x) => x.trim()).filter(Boolean);
+const boardRegion = (page: Page) => page.getByRole('region', { name: /^작업 보드/ });
+const cardBtn = (page: Page, label: string) => boardRegion(page).getByRole('button', { name: new RegExp(`^${label} `) });
+const detail = (page: Page) => page.getByRole('dialog');
+// 열 순서 = DOM 순서 (Tab · 스크린 리더가 읽는 순서)
+const colOrder = (page: Page) => boardRegion(page).locator('.kcol > h3').evaluateAll((hs) => hs.map((h) => h.id));
+
+test.describe('문서 · 보드', () => {
+  test('카드 = P1 slice_hint 마다 하나 + slice_hint 없는 phase(P0 · P2~P6) 하나씩', async ({ page }) => {
+    await openDocs(page, '#/docs/board', '보드');
+    const phases = roadmapFile().phases;
+    const expected = phases.flatMap((p) =>
+      p.slice_hint?.length ? p.slice_hint.map((h) => `slice ${/^(\d+)/.exec(h)![1].padStart(2, '0')}`) : [p.id],
+    );
+    expect(expected).toEqual(expect.arrayContaining(['P0', 'P2', 'P3', 'P4', 'P5', 'P6']));
+    await expect(boardRegion(page).getByRole('button')).toHaveCount(expected.length);
+    for (const label of expected) await expect(cardBtn(page, label), label).toHaveCount(1);
+    for (const p of phases.filter((x) => !x.slice_hint?.length)) await expect(cardBtn(page, p.id)).toContainText(p.name);
+    // 열 3개
+    for (const col of ['예정', '진행 중', '완료']) await expect(boardRegion(page).getByRole('region', { name: new RegExp(`^${col}`) })).toBeVisible();
+    expect(await colOrder(page)).toEqual(['col-todo', 'col-doing', 'col-done']);
+    await page.screenshot({ path: shot('admin-docs-board'), fullPage: true });
+  });
+
+  test('👤 내가 할 일 = HANDOFF 👤 칸 · ❓ 컨펌 필요 = 결정 대기 칸', async ({ page }) => {
+    await openDocs(page, '#/docs/board', '보드');
+    const mine = page.getByRole('region', { name: /내가 할 일/ });
+    const confirm = page.getByRole('region', { name: /컨펌 필요/ });
+
+    const todo = items(handoffCell('👤 내가 할 일'));
+    if (todo.length === 0) await expect(mine).toContainText('없음');
+    const mineLis = mine.locator(':scope > ol > li');
+    expect(await mineLis.count()).toBeGreaterThanOrEqual(todo.length); // + slice done 의 남은 사람 확인
+    for (const [i, t] of todo.entries()) for (const piece of pieces(t)) await expect(mineLis.nth(i), t).toContainText(piece);
+
+    const asks = items(handoffCell('결정 대기'));
+    const askLis = confirm.locator(':scope > ol > li');
+    if (asks.length === 0) await expect(confirm).toContainText('없음');
+    await expect(askLis).toHaveCount(asks.length);
+    for (const [i, t] of asks.entries()) for (const piece of pieces(t)) await expect(askLis.nth(i), t).toContainText(piece);
+  });
+
+  test('slice 카드를 누르면 상세(done 항목) · Esc 로 닫고 카드로 포커스', async ({ page }) => {
+    const file = fs.readdirSync(path.join(ROOT, 'docs/slices')).filter((f) => /^\d+.*\.md$/.test(f)).sort()[0];
+    const num = /^(\d+)/.exec(file)![1].padStart(2, '0');
+    const src = read(`docs/slices/${file}`);
+    const done = src.split(/^## done\s*$/m)[1].split(/^## /m)[0].split('\n').map((l) => /^- \[[ xX]\]\s+(.*)$/.exec(l)?.[1]).filter((x): x is string => !!x);
+    const title = src.split('\n')[0].replace(/^#\s+slice\s+\d+\s*·\s*/, '').trim();
+
+    await openDocs(page, '#/docs/board', '보드');
+    await cardBtn(page, `slice ${num}`).click();
+    await expect(page).toHaveURL(new RegExp(`#/docs/board/slice-${num}$`));
+    await expect(detail(page)).toBeVisible();
+    await expect(detail(page)).toHaveAccessibleName(title);
+    await expect(detail(page).getByRole('button', { name: '닫기' })).toBeFocused();
+    const list = detail(page).getByRole('list', { name: '완료 기준' }).getByRole('listitem');
+    await expect(list).toHaveCount(done.length);
+    for (const [i, d] of done.entries()) await expect(list.nth(i)).toContainText(plain(d));
+    await expect(detail(page)).toContainText(`slice/${file.replace(/\.md$/, '')}`);
+    await expectScreen(page, NAV, DOCS); // h1 하나
+    await page.screenshot({ path: shot('admin-docs-board-detail') });
+
+    await page.keyboard.press('Escape');
+    await expect(detail(page)).toBeHidden();
+    await expect(page).toHaveURL(/#\/docs\/board$/);
+    await expect(cardBtn(page, `slice ${num}`)).toBeFocused();
+    // Enter 로도 열린다
+    await page.keyboard.press('Enter');
+    await expect(detail(page)).toBeVisible();
+    await detail(page).getByRole('button', { name: '닫기' }).click();
+    await expect(detail(page)).toBeHidden();
+  });
+
+  test('주소로 바로 열기: #/docs/board/P0 = P0 완료 기준', async ({ page }) => {
+    const p0 = roadmapFile().phases.find((p) => p.id === 'P0')!;
+    await openDocs(page, '#/docs/board/P0', '보드');
+    await expect(detail(page)).toBeVisible();
+    await expect(detail(page)).toHaveAccessibleName(p0.name);
+    await expect(detail(page).getByRole('list', { name: '완료 기준' }).getByRole('listitem')).toHaveCount(p0.exit_criteria!.length);
+    // 관련 ADR 링크는 콘솔 안 결정 기록으로
+    const adr = detail(page).getByRole('link', { name: /^ADR-\d{4}/ });
+    for (const href of await adr.evaluateAll((els) => els.map((e) => e.getAttribute('href')))) expect(href).toMatch(/^#\/docs\/adr\/\d{4}$/);
+    await page.goto('/#/docs/board/nope'); // 없는 카드 = 보드만
+    await expect(detail(page)).toBeHidden();
+  });
+
+  test.describe('폰 폭 390px', () => {
+    test.use({ viewport: { width: 390, height: 844 } });
+
+    test('보드 · 상세 시트가 가로로 넘치지 않는다', async ({ page }) => {
+      await openDocs(page, '#/docs/board', '보드');
+      await expect.poll(() => overflowX(page)).toBeLessThanOrEqual(0);
+      expect(await colOrder(page)).toEqual(['col-doing', 'col-todo', 'col-done']); // 폰 = 진행 중부터 (DOM 순서째)
+      await page.screenshot({ path: shot('admin-docs-board-phone'), fullPage: true });
+      await cardBtn(page, 'P0').click();
+      await expect(detail(page)).toBeVisible();
+      const box = (await detail(page).boundingBox())!;
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width).toBeLessThanOrEqual(390);
+      await expect.poll(() => overflowX(page)).toBeLessThanOrEqual(0);
+      await page.screenshot({ path: shot('admin-docs-board-detail-phone') });
     });
   });
 });

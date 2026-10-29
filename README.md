@@ -15,6 +15,7 @@
 
 1. 설치 — 두 PC 같은 버전: uv **0.13.5** · Node **24.22.1** · Python 3.13
    - Windows: Git for Windows (hook이 bash 사용) · `winget install -e --id astral-sh.uv --version 0.13.5` · `winget install -e --id OpenJS.NodeJS.LTS --version 24.22.1` · Claude Code
+     - PowerShell 이 `npm.ps1` 을 막으면 `npm.cmd` · `npx.cmd` 를 쓰거나 `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` 한 번
    - macOS: `curl -LsSf https://astral.sh/uv/0.13.5/install.sh | sh` (brew·pip 로 깐 uv 는 버전 고정·`uv self update` 불가) · `nvm install 24.22.1 && nvm alias default 24.22.1` · Claude Code (hook은 기본 `/bin/bash`)
    - 공통: `uv python install 3.13` (이미 있으면 `uv python upgrade 3.13`)
 2. `git clone <repo-url>` (GitHub 로그인은 브라우저에서 직접)
@@ -28,6 +29,7 @@
 
 | 명령 | 무엇 |
 |---|---|
+| `npm run dev` · 더블클릭 `start.cmd`(윈도우) · `start.command`(맥) | **데스크톱 + 관리자 한 번에** (관리자는 브라우저로 열림 · 끄기 = Ctrl+C 또는 데스크톱 앱 종료) |
 | `npm run desktop` | 데스크톱 앱 (Electron, 고치면 바로 반영) |
 | `npm run admin` | 관리자 콘솔 → http://localhost:5174 |
 | `npm run e2e` | 빌드 + Playwright desktop · admin · web |

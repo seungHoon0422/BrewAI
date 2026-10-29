@@ -10,6 +10,10 @@ import {
   ARCH_PATHS,
   type Adr,
   type ArchPath,
+  type Ask,
+  type Pc,
+  type Board,
+  type Card,
   type DocsData,
   type Handoff,
   type KeyValue,
@@ -130,6 +134,8 @@ function inApp(href: string, file: string): string | null {
   if (p.startsWith('../') || p.startsWith('/')) return null;
   const adr = /^docs\/adr\/(\d{4})[^/]*\.md$/.exec(p);
   if (adr) return `#/docs/adr/${adr[1]}`;
+  const slice = /^docs\/slices\/(\d+)[^/]*\.md$/.exec(p);
+  if (slice) return `#/docs/board/${sliceKey(slice[1])}`;
   if (p === 'HANDOFF.md' || p === 'docs/roadmap.json' || /^docs\/slices\/[^/]+\.md$/.test(p)) return '#/docs/progress';
   if (p === 'REPORT.html') return '#/docs/report';
   if (p === 'AGENTS.md') return '#/docs/architecture';
@@ -701,6 +707,243 @@ function reportHtml(src: string): string {
   return /<head[^>]*>/i.test(out) ? out.replace(/<head[^>]*>/i, (m) => `${m}\n${base}`) : base + out;
 }
 
+// ---------- 보드 (HANDOFF · roadmap · slices · ADR 를 카드로) ----------
+
+const sliceKey = (num: string) => `slice-${String(Number(num)).padStart(2, '0')}`;
+const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const uniq = <T,>(xs: T[]) => [...new Set(xs)];
+const critIds = (s: string): string[] => s.match(/P\d+-\d+/g) ?? [];
+const adrIds = (s: string) => [...s.matchAll(/ADR-?(\d{4})/g)].map((m) => m[1]);
+
+// 한 칸을 항목으로: ①②③ 이 있으면 그걸로, 없으면 ' · ' (괄호 · 백틱 안은 그대로). '없음' = []
+function splitItems(v: string | null): string[] {
+  if (v === null || NONE.test(v.trim())) return [];
+  if (/[①-⑳]/.test(v)) return v.split(/(?=[①-⑳])/).map((x) => x.replace(/^[①-⑳]\s*/, '').trim()).filter(Boolean);
+  return splitTop(v);
+}
+
+// 괄호 · 백틱 밖에서 처음 나오는 sep 의 위치 (없으면 -1)
+function topIndex(s: string, sep: string): number {
+  let depth = 0;
+  let tick = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === '`') tick = !tick;
+    else if (!tick && (c === '(' || c === '（')) depth++;
+    else if (!tick && (c === ')' || c === '）')) depth = Math.max(0, depth - 1);
+    if (!tick && depth === 0 && s.startsWith(sep, i)) return i;
+  }
+  return -1;
+}
+
+// '이름: 나머지' → [이름, 나머지]. 이름이 길면 (문장 속 ':' ) 나누지 않는다
+function headOf(s: string, max = 24): [string | null, string] {
+  const i = Math.min(...[':', '：'].map((c) => topIndex(s, c)).filter((x) => x >= 0), Infinity);
+  if (!Number.isFinite(i)) return [null, s];
+  const head = s.slice(0, i).trim();
+  if (!head || head.length > max || head.includes('`')) return [null, s];
+  return [head, s.slice(i + 1).trim()];
+}
+
+// 제목이 길면 ' + ' · ' · ' 마디에서 자른다 (괄호 설명은 뗀다)
+function shortTitle(s: string, max = 20): string {
+  const t = s.replace(/\s*[(（][^)）]*[)）]/g, '').replace(/\s+/g, ' ').trim();
+  if (t.length <= max) return t;
+  const parts = t.split(/(\s\+\s|\s·\s)/);
+  let out = parts[0];
+  for (let i = 1; i + 1 < parts.length; i += 2) {
+    if ((out + parts[i] + parts[i + 1]).length > max) break;
+    out += parts[i] + parts[i + 1];
+  }
+  return out;
+}
+
+// 느슨한 중복 판정: 낱말이 짧은 쪽의 절반 이상 겹치면 같은 일
+function words(s: string) {
+  return new Set(plain(s).toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean));
+}
+function sameTask(a: string, b: string) {
+  const A = words(a);
+  const B = words(b);
+  const n = [...A].filter((w) => B.has(w)).length;
+  return n / Math.max(1, Math.min(A.size, B.size)) >= 0.5;
+}
+
+// 사람만 할 수 있는 확인 (slice done 의 남은 항목 중)
+const HUMAN = /집|회사|윈도우|맥(?!락)|눈\s*(?:으로\s*)?확인/;
+
+// 어느 PC 에서 할 일인지 (AGENTS.md: 윈도우 = 집 · 맥 = 회사). 둘 다 나오거나 없으면 null
+function pcOf(t: string): Pc | null {
+  const home = /집|윈도우|windows/i.test(t);
+  const office = /회사|맥(?!락)|macos/i.test(t);
+  return home === office ? null : home ? '집' : '회사';
+}
+const HERE: Pc | null = process.platform === 'win32' ? '집' : process.platform === 'darwin' ? '회사' : null;
+
+type SliceFile = { slice: Slice; src: string };
+
+function buildBoard(
+  md: Md,
+  handoffSrc: string | null,
+  roadmap: Roadmap | null,
+  slices: Map<string, SliceFile>, // key = slice-01
+  adrSrc: Map<string, string>, // key = 0007
+): Board {
+  const rows = handoffSrc === null ? new Map<string, string>() : tableRows(handoffSrc);
+  const phaseLine = rows.get('Phase') ?? '';
+  const branchLine = plain(rows.get('활성 브랜치') ?? '');
+  const H = FILES.handoff;
+  const R = FILES.roadmap;
+  const cards: Card[] = [];
+
+  const relatedAdrs = (text: string, ids: string[]) => {
+    const out = adrIds(text);
+    for (const [key, src] of adrSrc) if (ids.some((id) => new RegExp(`(^|[^A-Za-z0-9])${esc(id)}(?![0-9])`).test(src))) out.push(key);
+    return uniq(out).filter((k) => adrSrc.has(k)).sort();
+  };
+
+  for (const p of roadmap?.phases ?? []) {
+    const critText = new Map(p.criteria.map((c) => [c.id, c.text]));
+    if (p.hints.length > 0) {
+      // slice 카드: 'NN 이름: 설명 (P1-5)'
+      for (const hint of p.hints) {
+        const m = /^\s*(\d+)\s+(.*)$/.exec(hint);
+        if (!m) continue;
+        const key = sliceKey(m[1]);
+        const rest = m[2];
+        let [name, desc] = headOf(rest, 40);
+        if (name === null) {
+          const dash = topIndex(rest, ' — ');
+          [name, desc] = dash >= 0 ? [rest.slice(0, dash), rest] : [rest, '']; // 제목 = ' — ' 앞 · 목표 = 전체 (제목에서 잘린 범위도 보이게)
+        }
+        const f = slices.get(key);
+        const s = f?.slice;
+        const ids = uniq([...(s?.criteria ?? []), ...critIds(hint)]);
+        const checklist: Card['checklist'] = s
+          ? s.done.map((d) => ({ done: d.done, id: null, html: d.html }))
+          : ids.map((id) => ({ done: p.passes ? true : null, id, html: md.inline(critText.get(id) ?? '', R) }));
+        const total = s?.done.length ?? 0;
+        const doneN = s?.done.filter((d) => d.done).length ?? 0;
+        const onBranch = new RegExp(`slice/0*${Number(m[1])}(?![0-9])`).test(branchLine);
+        const state: Card['state'] = p.passes || (total > 0 && doneN === total) ? 'done' : s || onBranch ? 'doing' : 'todo';
+        cards.push({
+          key,
+          label: `slice ${key.slice(6)}`,
+          kind: 'slice',
+          title: s?.title || shortTitle(name),
+          phase: p.id,
+          weeks: null,
+          state,
+          why:
+            state === 'done' ? (p.passes ? `${p.id} passes` : 'done 모두 체크')
+            : onBranch ? 'HANDOFF 활성 브랜치'
+            : s ? `${s.file} 있음`
+            : 'slice 문서 아직 없음',
+          goal: s?.goal ?? (desc ? md.inline(desc, R) : null),
+          hint: md.inline(hint, R),
+          checklist,
+          progress: s && total > 0 ? { done: doneN, total } : null,
+          branch: s?.branch ?? null,
+          ids,
+          adrs: relatedAdrs(`${hint}\n${f?.src ?? ''}`, ids),
+          files: s ? [R, s.file] : [R],
+        });
+      }
+      continue;
+    }
+    // phase 카드: 완료 기준별 상태는 passes 또는 HANDOFF Phase 의 '남은 것: P0-1'
+    const seg = splitTop(phaseLine).find((x) => mentions(x, p.id)) ?? '';
+    const left = /남은\s*것\s*[:：]\s*([^)）]*)/.exec(seg);
+    const leftIds = left ? critIds(left[1]) : null;
+    const checklist = p.criteria.map((c) => ({
+      done: p.passes ? true : leftIds && c.id ? !leftIds.includes(c.id) : null,
+      id: c.id || null,
+      html: md.inline(c.text, R),
+    }));
+    const known = checklist.length > 0 && checklist.every((c) => c.done !== null);
+    const state: Card['state'] = p.passes ? 'done' : seg ? 'doing' : 'todo';
+    const ids = p.criteria.map((c) => c.id).filter(Boolean);
+    cards.push({
+      key: p.id,
+      label: p.id,
+      kind: 'phase',
+      title: p.name,
+      phase: p.id,
+      weeks: p.weeks,
+      state,
+      why: state === 'done' ? 'passes true' : state === 'doing' ? 'HANDOFF Phase 에 있음' : '아직 시작 전',
+      goal: p.goal ? md.inline(p.goal, R) : null,
+      hint: null,
+      checklist,
+      progress: known ? { done: checklist.filter((c) => c.done).length, total: checklist.length } : null,
+      branch: null,
+      ids,
+      adrs: relatedAdrs(`${p.goal}\n${p.criteria.map((c) => c.text).join('\n')}`, ids),
+      files: seg ? [R, H] : [R],
+    });
+  }
+
+  // 글에 나온 slice 번호 · 완료 기준 id · phase id → 카드
+  const cardFor = (text: string): string | null => {
+    const t = plain(text);
+    const sl = /slice\s*(\d{1,3})(?![0-9])/i.exec(t);
+    if (sl && cards.some((c) => c.key === sliceKey(sl[1]))) return sliceKey(sl[1]);
+    for (const id of critIds(t)) {
+      const hit = cards.filter((c) => c.ids.includes(id));
+      const pick = hit.find((c) => c.state !== 'done') ?? hit[0];
+      if (pick) return pick.key;
+    }
+    for (const m of t.matchAll(/(?:^|[^A-Za-z0-9])(P\d+)(?![0-9-])/g)) {
+      const pick = cards.find((c) => c.key === m[1]) ?? cards.find((c) => c.phase === m[1] && c.state !== 'done');
+      if (pick) return pick.key;
+    }
+    return null;
+  };
+
+  const ask = (raw: string, from: string[], card: string | null, split = false): Ask => {
+    const [title, body] = headOf(raw);
+    let options: string[] = [];
+    let due: string | null = null;
+    if (split) {
+      const dash = topIndex(body, ' — ');
+      const choice = dash >= 0 ? body.slice(0, dash) : body;
+      if (dash >= 0) due = body.slice(dash + 3).trim();
+      const opts = choice.split(/\s+\/\s+/).map((x) => x.trim()).filter(Boolean);
+      if (opts.length > 1) options = opts;
+    }
+    return {
+      html: md.inline(title !== null ? body : raw, from[0]),
+      title,
+      options: options.map((o) => md.inline(o, from[0])),
+      due: due ? md.inline(due, from[0]) : null,
+      card: card ?? cardFor(raw),
+      from,
+      pc: pcOf(raw),
+    };
+  };
+
+  const mineRaw = splitItems(rows.get('👤 내가 할 일') ?? null);
+  const mine = mineRaw.map((r) => ask(r, [H], null));
+  // slice done 의 남은 항목 중 사람이 해야 하는 것 (HANDOFF 칸과 겹치면 출처만 더한다)
+  for (const [key, { slice: s, src }] of slices) {
+    const card = cards.find((c) => c.key === key);
+    if (card?.state === 'done') continue;
+    const open = (sectionItems(src, /^##\s+done\b/i) ?? [])
+      .map((l) => /^\[ \]\s+(.*)$/.exec(l)?.[1])
+      .filter((x): x is string => !!x && HUMAN.test(x));
+    for (const item of open) {
+      const i = mineRaw.findIndex((r) => sameTask(r, item));
+      if (i >= 0) {
+        mine[i].from = uniq([...mine[i].from, s.file]);
+        mine[i].card ??= key;
+      } else mine.push(ask(item, [s.file], card ? key : null));
+    }
+  }
+
+  const confirm = splitItems(rows.get('결정 대기') ?? null).map((r) => ask(r, [H], null, true));
+  return { cards, mine, confirm, here: HERE };
+}
+
 // ---------- 모으기 ----------
 
 const EMPTY_STACK: Stack = { scripts: [], runtimes: [], npm: [], python: [], services: [], folders: [], ci: [], supply: [], banned: [] };
@@ -723,20 +966,35 @@ export function collectDocs(root: string): { data: DocsData; report: string | nu
   const rj = readJson<RoadmapJson>(ctx, FILES.roadmap);
   const roadmap = rj === null ? null : guard(FILES.roadmap, null, () => parseRoadmap(rj, ho?.phaseLine ?? ''));
 
-  const slices = listDir(ctx, 'docs/slices', '.md').sort((a, b) => {
+  const sliceList = listDir(ctx, 'docs/slices', '.md').sort((a, b) => {
     const n = (f: string) => Number(/^(\d+)/.exec(path.posix.basename(f))?.[1] ?? -1);
     return n(a) - n(b) || a.localeCompare(b);
   });
-  const last = slices.at(-1);
-  const sliceSrc = last ? readText(ctx, last) : null;
-  const slice = last && sliceSrc !== null ? guard(last, null, () => parseSlice(last, sliceSrc, md)) : null;
+  // 진행 현황 = 번호가 가장 큰 것 · 보드 = 번호가 있는 것 전부
+  const slices = new Map<string, SliceFile>();
+  let slice: Slice | null = null;
+  for (const f of sliceList) {
+    const src = readText(ctx, f);
+    const s = src === null ? null : guard(f, null, () => parseSlice(f, src, md));
+    if (src === null || s === null) continue;
+    slice = s;
+    const num = /^(\d+)/.exec(path.posix.basename(f))?.[1];
+    if (num && !slices.has(sliceKey(num))) slices.set(sliceKey(num), { slice: s, src });
+  }
 
+  const adrSrc = new Map<string, string>();
   const adrs = listDir(ctx, 'docs/adr', '.md')
     .map((f) => {
       const s = readText(ctx, f);
-      return s === null ? null : guard(f, null, () => parseAdr(f, s, md));
+      const a = s === null ? null : guard(f, null, () => parseAdr(f, s, md));
+      if (a && s !== null) adrSrc.set(a.key, s);
+      return a;
     })
     .filter((a): a is Adr => a !== null);
+
+  const board = guard('보드(HANDOFF · roadmap · slices)', { cards: [], mine: [], confirm: [], here: null } as Board, () =>
+    buildBoard(md, handoffSrc, roadmap, slices, adrSrc),
+  );
 
   const agents = readText(ctx, FILES.agents);
   const stack = guard('구성(package.json · AGENTS.md · pyproject.toml · CI)', EMPTY_STACK, () => buildStack(ctx, agents, roadmap));
@@ -747,7 +1005,7 @@ export function collectDocs(root: string): { data: DocsData; report: string | nu
   const report = reportSrc === null ? null : { title: /<title>([^<]*)<\/title>/i.exec(reportSrc)?.[1].trim() ?? null, bytes: Buffer.byteLength(reportSrc) };
 
   return {
-    data: { errors: ctx.errors, handoff: ho?.data ?? null, roadmap, slice, adrs, exists: exist, stack, report },
+    data: { errors: ctx.errors, handoff: ho?.data ?? null, roadmap, board, slice, adrs, exists: exist, stack, report },
     report: reportSrc === null ? null : reportHtml(reportSrc),
     files: ctx.read,
     probes: ctx.probes,
