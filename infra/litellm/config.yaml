@@ -1,6 +1,6 @@
 # BrewAI LiteLLM proxy 1.106.2. ASCII only (Windows cp949).
-# Docker stack = DB mode: these models + models added in the Admin UI (/ui), both in /model_group/info (ADR-0009).
-# venv gateway (npm run gateway) = config-only, these models only. BrewAI decides exposure, label and order, never price or context.
+# Docker stack = DB mode: the mock below + models added in the Admin UI (/ui), both in /model_group/info (ADR-0009).
+# venv gateway (npm run gateway) = config-only, the mock only. BrewAI decides exposure, label and order, never price or context.
 # Secrets come from the environment via os.environ/... ; never write a key in this file.
 model_list:
   # Keyless mock: answers without any provider key (dev, Friday demo without keys).
@@ -14,20 +14,7 @@ model_list:
       max_output_tokens: 8192
       input_cost_per_token: 0
       output_cost_per_token: 0
-  # Anthropic (needs ANTHROPIC_API_KEY). Price and context come from the bundled cost map.
-  - model_name: claude-sonnet-5-5
-    litellm_params:
-      model: anthropic/claude-sonnet-5-5
-      api_key: os.environ/ANTHROPIC_API_KEY
-  - model_name: claude-haiku-5-5
-    litellm_params:
-      model: anthropic/claude-haiku-5-5
-      api_key: os.environ/ANTHROPIC_API_KEY
-  # OpenAI (needs OPENAI_API_KEY).
-  - model_name: gpt-6.1-sol
-    litellm_params:
-      model: openai/gpt-6.1-sol
-      api_key: os.environ/OPENAI_API_KEY
+  # Real models (Anthropic, OpenAI, ...) are added in the LiteLLM Admin UI (/ui) with their credentials, not here.
 
 litellm_settings:
   # ADR-0003: the conductor owns the trace; no gateway logging callbacks.

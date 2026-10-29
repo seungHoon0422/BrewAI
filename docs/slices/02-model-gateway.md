@@ -7,7 +7,7 @@
 ## 연결 (127.0.0.1 만)
 | 누가 | 주소 | 무엇 |
 |---|---|---|
-| 게이트웨이 `npm run stack` (Docker · 대체 `npm run gateway` venv) | :4000 | LiteLLM 1.106.2 · Docker = DB 모드(`litellm-db` · 관리 화면 `/ui`) · venv = config-only · `brewai-mock`(키 없음) + claude-sonnet-5-5 · claude-haiku-5-5 · gpt-6.1-sol |
+| 게이트웨이 `npm run stack` (Docker · 대체 `npm run gateway` venv) | :4000 | LiteLLM 1.106.2 · Docker = DB 모드(`litellm-db` · 관리 화면 `/ui`) · venv = config-only · config 에는 `brewai-mock`(키 없음)만, 실제 모델은 관리 화면에서 추가 |
 | Langfuse `npm run stack:trace` (선택) | :3000 | 셀프호스트 4.67.0 · OTLP `/api/public/otel` · conductor 연결은 slice 03 (ADR-0009) |
 | conductor `npm run api` | :8787 | `GET /healthz` · `GET /api/models` · `GET /api/admin/models` · `POST /api/chat`(AG-UI SSE) |
 | 관리자 · 데스크톱 | 5174 · app:// | conductor 만 부른다 (키 없음) |
@@ -21,7 +21,7 @@
 3. 터미널 2 `npm run api` → `curl -s http://127.0.0.1:8787/api/models` → `brewai-mock` 이 첫 항목.
 4. 터미널 3 `npm run admin` → '모델': 4행 모두 노출 1~4, 입력칸 없음.
 5. 터미널 4 `npm run desktop` → 모델 버튼 `brewai-mock` → "안녕" → "Hello from the BrewAI mock model." (LiteLLM mock 은 조각을 몇 ms 안에 다 보내서 한 번에 뜬 것처럼 보임 · 조각 흐름은 E2E `chat.spec` 또는 키 있는 모델로) → 하나 더 물어 쌓임.
-6. 키가 있는 PC: `CONDUCTOR_DEFAULT_MODEL=claude-sonnet-5-5 npm run api` → 한국어 답. 키가 없으면 "이 모델을 지금 쓸 수 없어요. 관리자에게 알려 주세요" = 정상(`provider_auth_failed` · OpenAI 키 없음은 LiteLLM 이 500 "Missing credentials" 로 줘서 conductor 가 같은 코드로 바꾼다).
+6. 키가 있는 PC: LiteLLM 관리 화면에서 Claude 를 추가(Credential = Anthropic 키) → 관리자 › 모델에서 노출 → 데스크톱에서 골라 한국어 답. 키가 없으면 "이 모델을 지금 쓸 수 없어요. 관리자에게 알려 주세요" = 정상(`provider_auth_failed` · OpenAI 키 없음은 LiteLLM 이 500 "Missing credentials" 로 줘서 conductor 가 같은 코드로 바꾼다).
 7. 실패 보기: 터미널 2 Ctrl+C → 보내기 → "서버에 연결할 수 없어요" → `npm run api` → 다시 시도 → 답. 게이트웨이를 끄면(`npm run stack:down`) 관리자 '모델' 이 "게이트웨이에 연결할 수 없어요".
 8. 끝: `npm run stack:down` (데이터는 남음).
 
