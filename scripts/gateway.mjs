@@ -9,7 +9,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runUv } from './run-uv.mjs';
+import { runUv, uvPath } from './run-uv.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const DIR = path.join(ROOT, 'infra', 'litellm');
@@ -77,8 +77,8 @@ const free = !(await answers()) && (await bindable());
 if (!free) fail(`127.0.0.1:${PORT} 를 이미 누가 쓰고 있어요 → 그걸 먼저 끄세요`);
 
 runUv('gateway', [
-  'run', '--no-project', '--python', VENV,
-  ...(existsSync(envFile) ? ['--env-file', envFile] : ['--no-env-file']),
+  'run', '--no-project', '--python', uvPath(VENV, ROOT),
+  ...(existsSync(envFile) ? ['--env-file', uvPath(envFile, ROOT)] : ['--no-env-file']),
   '--', BIN, '--config', CONFIG, '--host', '127.0.0.1', '--port', String(PORT),
 ], {
   cwd: ROOT,

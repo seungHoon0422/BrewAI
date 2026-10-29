@@ -4,7 +4,7 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runUv } from './run-uv.mjs';
+import { runUv, uvPath } from './run-uv.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 // .env 대신 다른 파일: BREWAI_ENV_FILE=<경로> (시험용). 없으면 레포 .env
@@ -18,7 +18,7 @@ if (!e2e && process.env.BREWAI_ENV_FILE && !existsSync(envFile)) {
 
 runUv('api', [
   'run', '--locked',
-  ...(e2e || !existsSync(envFile) ? ['--no-env-file'] : ['--env-file', envFile]),
+  ...(e2e || !existsSync(envFile) ? ['--no-env-file'] : ['--env-file', uvPath(envFile, ROOT)]),
   '--', 'uvicorn', '--factory', 'conductor.app:create_app', '--host', '127.0.0.1', '--port', port,
 ], {
   cwd: ROOT,

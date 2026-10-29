@@ -7,6 +7,14 @@
 // - 10초 안에 안 꺼지면 강제 종료 (윈도우 taskkill /T /F · POSIX SIGKILL).
 import { spawn, spawnSync } from 'node:child_process';
 import os from 'node:os';
+import path from 'node:path';
+
+// uv 에 넘기는 파일 경로: 윈도우에서 uv 가 C:\Users\… 의 '\' 를 지워 버린다 (C:Users…) → cwd 기준 상대 경로 + '/' 로
+export function uvPath(file, cwd) {
+  const rel = path.relative(cwd, file);
+  const p = rel && !path.isAbsolute(rel) ? rel : file;
+  return p.split(path.sep).join('/');
+}
 
 export function runUv(name, args, { cwd, env = {}, drop = [] }) {
   // 기본값 < 셸 env < 이 스크립트가 강제하는 값. drop = 자식에게 절대 넘기지 않을 변수
