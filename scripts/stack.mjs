@@ -31,8 +31,19 @@ const fail = (...lines) => failWith(1, ...lines);
 const noDocker = (...lines) => failWith(3, ...lines);
 
 // ---------- 1. Docker 가 있고 켜져 있나 ----------
+// 윈도우: PATH 에 없으면(설치 직후 · 예전 창) Docker Desktop 기본 위치의 docker.exe 를 바로 쓴다
+const WIN_DOCKER = process.platform === 'win32'
+  ? [process.env.ProgramFiles, process.env.ProgramW6432, 'C:\\Program Files', process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Programs')]
+      .filter(Boolean).map((d) => path.join(d, 'Docker', 'Docker', 'resources', 'bin', 'docker.exe')).find((p) => fs.existsSync(p))
+  : undefined;
+let DOCKER = 'docker';
 function docker(args, opts = {}) {
-  return spawnSync('docker', args, { encoding: 'utf8', windowsHide: true, ...opts });
+  let r = spawnSync(DOCKER, args, { encoding: 'utf8', windowsHide: true, ...opts });
+  if (r.error?.code === 'ENOENT' && WIN_DOCKER && DOCKER !== WIN_DOCKER) {
+    DOCKER = WIN_DOCKER;
+    r = spawnSync(DOCKER, args, { encoding: 'utf8', windowsHide: true, ...opts });
+  }
+  return r;
 }
 function checkDocker(trace = false) {
   // timeout: Docker Desktop 이 켜지는 중이면 docker info 가 오래 멈춘다 → 20초 뒤 "꺼져 있어요(또는 켜지는 중)"
