@@ -1,14 +1,19 @@
-import { Button, Chip, Input, ProviderIcon, Segmented, StatusDot, Toolbar, ToolbarSpacer } from '@brewai/ui';
+import { Button, Input, Segmented, Select, Toolbar, ToolbarSpacer } from '@brewai/ui';
 import { COPY, STATE_FILTERS, type StateFilter } from '../copy';
-import type { ProviderSummary } from '../derive';
+import type { Counts, ProviderSummary } from '../derive';
 
-// 붙는 도구 줄: 검색 · 회사 칩 · 상태 (고르는 동안엔 회사 · 상태 자리에 일괄 버튼)
+// 상태별 개수 (분할 버튼 글 옆 숫자). 숨김 = 사라짐 포함 · 전체 = 모든 줄
+const countOf = (f: StateFilter, c: Counts, total: number) =>
+  f === 'all' ? total : f === 'hidden' ? c.hidden + c.missing : c[f];
+
+// 붙는 도구 줄: 검색 · 제공사(고르기 상자) · 상태 (고르는 동안엔 제공사 · 상태 자리에 일괄 버튼)
 export function ModelToolbar({
-  query, onQuery, total, providers, provider, onProvider, stateFilter, onStateFilter, picked, busy, onBulk, onProbePicked, onClearSel,
+  query, onQuery, total, counts, providers, provider, onProvider, stateFilter, onStateFilter, picked, busy, onBulk, onProbePicked, onClearSel,
 }: {
   query: string;
   onQuery: (q: string) => void;
   total: number;
+  counts: Counts;
   providers: ProviderSummary[];
   provider: string;
   onProvider: (id: string) => void;
@@ -20,6 +25,14 @@ export function ModelToolbar({
   onProbePicked: () => void;
   onClearSel: () => void;
 }) {
+  const providerOptions = [
+    { value: 'all', label: COPY.allProviders(total) },
+    ...providers.map((p) => ({ value: p.id, label: COPY.providerOption(p.label, p.total, p.exposed) })),
+  ];
+  const stateOptions = STATE_FILTERS.map((f) => ({
+    value: f.value,
+    label: <>{f.label}{' '}<span className={f.value === 'problem' && counts.problem > 0 ? 'mseg-n bad' : 'mseg-n'}>{countOf(f.value, counts, total)}</span></>,
+  }));
   return (
     <Toolbar sticky className="mbar">
       <Input type="search" icon="search" className="msearch" aria-label={COPY.search} placeholder={COPY.searchHint} value={query} spellCheck={false}
@@ -34,24 +47,12 @@ export function ModelToolbar({
           <Button size="sm" variant="ghost" disabled={busy} onClick={onClearSel}>{COPY.clearSel}</Button>
         </div>
       ) : (
-        <>
-          <div className="mchips" role="toolbar" aria-label={COPY.byProvider}>
-            {/* 글 = '전체 3' · 'OpenAI2노출 1' (E2E) — 이름 · 개수 사이 공백은 칩 간격이 그린다 */}
-            <Chip selected={provider === 'all'} count={total} aria-label={COPY.allChip(total)} onClick={() => onProvider('all')}>
-              {COPY.all}{' '}
-            </Chip>
-            {providers.map((p) => (
-              <Chip key={p.id} selected={provider === p.id} data-provider={p.id} icon={<ProviderIcon provider={p.id} size="sm" />}
-                count={<>{p.total}<span className="mchip-on"><StatusDot state="ok" size="sm" />{COPY.exposedCount(p.exposed)}</span></>}
-                aria-label={COPY.providerChip(p.label, p.total, p.exposed)} title={COPY.providerTitle(p.label, p.total, p.exposed)}
-                onClick={() => onProvider(p.id)}>
-                {p.label}
-              </Chip>
-            ))}
-          </div>
+        <div className="mfilters" role="group" aria-label={COPY.filters}>
+          <Select className="mprov-pick" aria-label={COPY.providerFilter} options={providerOptions} value={provider}
+            onChange={(e) => onProvider(e.target.value)} />
           <ToolbarSpacer />
-          <Segmented size="sm" label={COPY.stateGroup} options={STATE_FILTERS} value={stateFilter} onChange={onStateFilter} className="mseg" />
-        </>
+          <Segmented size="sm" label={COPY.stateGroup} options={stateOptions} value={stateFilter} onChange={onStateFilter} className="mseg" />
+        </div>
       )}
     </Toolbar>
   );

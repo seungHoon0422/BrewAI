@@ -7,6 +7,7 @@
 // - 셸을 거치지 않는다 (shell:false). npm 은 node + npm-cli.js 로 부른다
 //   → 윈도우에서 npm.cmd 를 shell 없이 부르면 EINVAL(CVE-2024-27980 이후)이고, PowerShell 의 npm.ps1 실행 정책과도 무관하다
 // - 의존성 없음 (Node 기본 모듈만). 옵션: --no-open 또는 BREWAI_NO_OPEN=1 → 브라우저를 열지 않는다
+// - 테스트 관리자 admin / admin 을 켠다 (BREWAI_TEST_ADMIN=1 · conductor 가 이 PC 주소일 때만 · 끄기 = .env 에 BREWAI_TEST_ADMIN=0)
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
@@ -22,7 +23,7 @@ const PORTS = [
   { port: 5174, what: '관리자 콘솔' },
 ];
 const ENV_FILE = process.env.BREWAI_ENV_FILE ? path.resolve(process.env.BREWAI_ENV_FILE) : path.join(root, '.env');
-// .env 의 값 (stack.mjs readEnv 와 같은 규칙). 쓰는 건 BREWAI_STACK · LITELLM_PORT · LLM_GATEWAY_URL 뿐 · 셸 값이 이긴다
+// .env 의 값 (stack.mjs readEnv 와 같은 규칙). 쓰는 건 BREWAI_STACK · LITELLM_PORT · LLM_GATEWAY_URL · BREWAI_TEST_ADMIN 뿐 · 셸 값이 이긴다
 const DOTENV = (() => {
   const values = {};
   let text = '';
@@ -42,6 +43,8 @@ const GATEWAY = { port: Number(setting('LITELLM_PORT') || 4000), what: '게이�
 const API = { port: Number(process.env.CONDUCTOR_PORT ?? 8787), what: 'conductor', health: '/healthz' };
 const NO_STACK = setting('BREWAI_STACK') === '0';
 const NO_OPEN = process.argv.includes('--no-open') || process.env.BREWAI_NO_OPEN === '1';
+// 지금은 테스트 단계 → 셸 · .env 어디에도 없으면 켠다 (.env 의 0 · 1 은 uv 가 그대로 넘긴다)
+const TEST_ADMIN = ['', '1'].includes(setting('BREWAI_TEST_ADMIN'));
 const TTY = process.stdout.isTTY;
 const color = (code, s) => (TTY ? `\x1b[${code}m${s}\x1b[0m` : s);
 const say = (msg) => console.log(`${color('1', '[brewai]')} ${msg}`);
@@ -134,6 +137,7 @@ if (TTY && !env.NO_COLOR) env.FORCE_COLOR ??= '1'; // 파이프로 받아도 색
 // LITELLM_PORT 는 .env 에만 있어도 gateway.mjs 가 같은 포트로 뜨게 넘긴다
 env.LITELLM_PORT = String(GATEWAY.port);
 if (process.env.LITELLM_PORT || !setting('LLM_GATEWAY_URL')) env.LLM_GATEWAY_URL ??= `http://127.0.0.1:${GATEWAY.port}`;
+if (TEST_ADMIN && !setting('BREWAI_TEST_ADMIN')) env.BREWAI_TEST_ADMIN = '1';
 if (process.env.CONDUCTOR_PORT) {
   env.BREWAI_API_URL ??= `http://127.0.0.1:${API.port}`; // 데스크톱
   env.VITE_BREWAI_API_URL ??= `http://127.0.0.1:${API.port}`; // 관리자 콘솔
@@ -395,6 +399,7 @@ if (await waitAdmin()) {
   say(`관리자 콘솔: ${color('4', ADMIN_URL)} · 데스크톱 앱은 별도 창으로 떠요`);
   if (!NO_OPEN) openBrowser(ADMIN_URL);
 }
+if (TEST_ADMIN && apiUp && !stopping) say(`관리자 로그인: ${color('1', 'admin / admin')} (테스트 관리자 · 데스크톱도 같은 계정 · 끄기 = .env 에 BREWAI_TEST_ADMIN=0)`);
 
 function openBrowser(url) {
   try {

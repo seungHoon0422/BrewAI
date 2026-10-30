@@ -13,11 +13,12 @@ export type TabsProps<T extends string> = {
   onChange: (id: T) => void;
   label: string;
   children?: ReactNode; // 지금 탭의 내용 (없으면 탭 줄만 = 거르개)
+  actions?: ReactNode; // 탭 줄 오른쪽 (그 탭의 버튼 · 시각). 좁으면 아래 줄로
   variant?: 'line' | 'pill';
   className?: string;
 };
 
-export function Tabs<T extends string>({ items, value, onChange, label, children, variant = 'line', className }: TabsProps<T>) {
+export function Tabs<T extends string>({ items, value, onChange, label, children, actions, variant = 'line', className }: TabsProps<T>) {
   const base = useId();
   const tabId = (id: string) => `${base}-tab-${id}`;
   const panelId = `${base}-panel`;
@@ -33,25 +34,28 @@ export function Tabs<T extends string>({ items, value, onChange, label, children
   };
   return (
     <div className={cx('ui-tabs', className)} data-variant={variant}>
-      <div role="tablist" aria-label={label} className="ui-tablist ui-scroll" onKeyDown={onKey}>
-        {items.map((t) => (
-          <button
-            key={t.id}
-            id={tabId(t.id)}
-            type="button"
-            role="tab"
-            aria-selected={t.id === value}
-            aria-controls={children !== undefined ? panelId : undefined}
-            tabIndex={t.id === value ? 0 : -1}
-            disabled={t.disabled}
-            className="ui-tab"
-            onClick={() => onChange(t.id)}
-          >
-            {renderIcon(t.icon, 'sm')}
-            {t.label}
-            {t.count !== undefined && <span className="ui-tab-count ui-num">{t.count}</span>}
-          </button>
-        ))}
+      <div className="ui-tabs-bar">
+        <div role="tablist" aria-label={label} className="ui-tablist ui-scroll" onKeyDown={onKey}>
+          {items.map((t) => (
+            <button
+              key={t.id}
+              id={tabId(t.id)}
+              type="button"
+              role="tab"
+              aria-selected={t.id === value}
+              aria-controls={children !== undefined ? panelId : undefined}
+              tabIndex={t.id === value ? 0 : -1}
+              disabled={t.disabled}
+              className="ui-tab"
+              onClick={() => onChange(t.id)}
+            >
+              {renderIcon(t.icon, 'sm')}
+              {t.label}
+              {t.count !== undefined && <span className="ui-tab-count ui-num">{t.count}</span>}
+            </button>
+          ))}
+        </div>
+        {actions && <div className="ui-tabs-actions">{actions}</div>}
       </div>
       {children !== undefined && (
         <div role="tabpanel" id={panelId} aria-labelledby={tabId(value)} tabIndex={0} className="ui-tabpanel">

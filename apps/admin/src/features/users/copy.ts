@@ -20,7 +20,6 @@ export const USERS_COPY = {
   // 표
   table: '사용자 목록',
   colUser: '사용자',
-  colLogin: '로그인 방법',
   colLastSeen: '마지막 접속',
   colStatus: '상태',
   search: '닉네임 · 이메일 검색',

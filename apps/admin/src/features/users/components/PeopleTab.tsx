@@ -8,10 +8,10 @@ import { roleLabel } from '../../scope/model';
 import type { AdminUserRow } from '../api';
 import { ROLE_TEXT, USERS_COPY as C } from '../copy';
 import { useUsers, useUserView } from '../hooks';
-import { LoginBadges, StatusBadge } from './UserBadges';
+import { StatusBadge } from './UserBadges';
 import { UserSheet } from './UserSheet';
 
-// 사용자 탭 = 닉네임 · 이메일 · 로그인 방법 · 조직 · 마지막 접속 · 상태. 줄을 누르면 서랍 (비활성화 · 권한 · 세션 · 재설정 코드)
+// 사용자 탭 = 닉네임 · 이메일 · 조직 · 마지막 접속 · 상태. 줄을 누르면 서랍 (로그인 방법 · 비활성화 · 권한 · 세션 · 재설정 코드)
 export default function PeopleTab() {
   const api = useUsers();
   const rows = api.data ?? [];
@@ -30,7 +30,6 @@ export default function PeopleTab() {
           </>} />
       ),
     },
-    { key: 'login', header: C.colLogin, hideBelow: 'md', cell: (u) => <LoginBadges providers={u.providers} /> },
     {
       key: 'orgs', header: roleLabel('tenant'), hideBelow: 'lg',
       cell: (u) => (u.orgs.length ? u.orgs.map((o) => orgMembershipText(o.name, toOrgRole(o.role))).join(', ') : <Muted>{C.noOrg}</Muted>),

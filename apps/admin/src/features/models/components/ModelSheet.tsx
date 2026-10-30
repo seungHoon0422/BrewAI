@@ -2,13 +2,15 @@ import { useEffect, useRef, useState } from 'react';
 import { Button, Callout, IconButton, KeyValue, ProviderIcon, Sheet, Switch, providerLabel } from '@brewai/ui';
 import type { AdminModel, GatewayInfo } from '../api';
 import { COPY, SOURCE } from '../copy';
-import { ago, canExpose, info, neighbors, priceOf, providerName, tokens, type Dup } from '../derive';
+import { ago, canExpose, neighbors, perM, providerName, tokens, type Dup } from '../derive';
 import type { Change, Probe } from '../hooks';
+import { Caps } from './Caps';
 import { Health } from './Health';
 import { DefaultBadge, DupBadge, NameEditor, SourceBadge } from './NameCell';
 import { StateBadge } from './ModelRow';
 
-// 오른쪽 서랍 (폰 = 아래 시트): 이름 · 노출 · 기본 · 순서 · 연결 · 게이트웨이 값(읽기 전용). E2E: dialog.mdrawer
+// 오른쪽 서랍 (폰 = 아래 시트). 머리 = 제공사 아이콘 + 보이는 이름 / 실제 모델 이름 (표의 모델 칸과 같은 두 줄).
+// 몸 = 사용자 앱(여기서 정하는 것: 이름 · 노출 · 기본 · 순서) → 연결 → 게이트웨이 값(읽기 전용). E2E: dialog.mdrawer
 export function ModelSheet({ m, rows, dup, busy, gateway, now, onChange, onProbe, onClose }: {
   m: AdminModel | null; rows: AdminModel[]; dup: Dup; busy: boolean; gateway: GatewayInfo | null; now: number;
   onChange: Change; onProbe: Probe; onClose: () => void;
@@ -21,7 +23,7 @@ export function ModelSheet({ m, rows, dup, busy, gateway, now, onChange, onProbe
   useEffect(() => {
     if (open) last.current = m.id;
     else if (last.current) {
-      document.querySelector<HTMLButtonElement>(`tr[data-model="${CSS.escape(last.current)}"] .nbtn`)?.focus();
+      document.querySelector<HTMLButtonElement>(`[data-model="${CSS.escape(last.current)}"] .nbtn`)?.focus();
       last.current = null;
       setEditing(false);
     }
@@ -30,7 +32,7 @@ export function ModelSheet({ m, rows, dup, busy, gateway, now, onChange, onProbe
   return (
     <Sheet open={open} onClose={onClose} className="mdrawer"
       title={m ? <><ProviderIcon provider={m.provider} size="lg" />{m.label}</> : COPY.sheetTitle}
-      description={m ? <><code>{m.id}</code> · {providerName(m)}{m.family ? COPY.familyOf(m.family) : ''}</> : undefined}>
+      description={m ? <code className="mid" title={COPY.gatewayId}>{m.id}</code> : undefined}>
       {m && <SheetBody m={m} rows={rows} dup={dup} busy={busy} gateway={gateway} now={now} onChange={onChange} onProbe={onProbe}
         editing={editing} setEditing={setEditing} />}
     </Sheet>
@@ -42,9 +44,9 @@ function SheetBody({ m, rows, dup, busy, gateway, now, onChange, onProbe, editin
   onChange: Change; onProbe: Probe; editing: boolean; setEditing: (v: boolean) => void;
 }) {
   const { at, total, prev, next } = neighbors(rows, m);
-  const ginfo = info(m);
-  const price = priceOf(m);
   const kv = COPY.kv;
+  const app = COPY.app;
+  const cost = (c: number | null) => (perM(c) ? kv.perM(perM(c)!) : '—');
   return (
     <>
       <div className="dtags">
@@ -55,44 +57,51 @@ function SheetBody({ m, rows, dup, busy, gateway, now, onChange, onProbe, editin
       </div>
 
       <section className="dpart">
-        <h3>{COPY.partName}</h3>
-        {editing ? (
-          <NameEditor m={m} busy={busy} onChange={onChange} label={COPY.nameFieldInSheet} onDone={() => setEditing(false)} />
-        ) : (
-          <div className="drow">
-            <b>{m.label}</b>
-            <Button size="sm" icon="pen" disabled={busy} onClick={() => setEditing(true)}>{COPY.renameBtn}</Button>
-            {m.display_name && (
-              <Button size="sm" variant="ghost" disabled={busy}
-                onClick={() => void onChange(m, { display_name: null }, COPY.done.nameReverted(m.default_label))}>
-                {COPY.backToDefault(m.default_label)}
-              </Button>
-            )}
-          </div>
-        )}
-        {dup === 'user' && <Callout tone="warn" className="dwarn">{COPY.dupUserLong}</Callout>}
-        {dup === 'hidden' && <Callout className="dwarn soft">{COPY.dupHiddenLong}</Callout>}
-      </section>
+        <h3>{COPY.partApp} <span className="dhint">{COPY.appHint}</span></h3>
+        <div className="dset">
+          <span className="dlab">{app.name}</span>
+          {editing ? (
+            <NameEditor m={m} busy={busy} onChange={onChange} label={COPY.nameFieldInSheet} onDone={() => setEditing(false)} />
+          ) : (
+            <div className="drow">
+              <b>{m.label}</b>
+              <Button size="sm" icon="pen" disabled={busy} onClick={() => setEditing(true)}>{COPY.renameBtn}</Button>
+              {m.display_name && (
+                <Button size="sm" variant="ghost" disabled={busy}
+                  onClick={() => void onChange(m, { display_name: null }, COPY.done.nameReverted(m.default_label))}>
+                  {COPY.backToDefault(m.default_label)}
+                </Button>
+              )}
+            </div>
+          )}
 
-      <section className="dpart">
-        <h3>{COPY.partApp}</h3>
-        <div className="drow">
-          <Switch checked={m.exposed} aria-label={COPY.exposeInSheet} disabled={busy || (!canExpose(m) && !m.exposed)}
-            onCheckedChange={(on) => void onChange(m, { exposed: on })} />
-          <span>{m.exposed ? COPY.shown : !m.is_chat ? COPY.notChat : m.status === 'missing' ? COPY.missing : COPY.hidden}</span>
-        </div>
-        <div className="drow">
-          <Button size="sm" disabled={busy || !m.exposed || m.is_default} onClick={() => onChange(m, { is_default: true }, COPY.done.defaultChanged(m.label))}>
-            {m.is_default ? COPY.isDefault : COPY.makeDefault}
-          </Button>
+          <span className="dlab">{app.expose}</span>
+          <div className="drow">
+            <Switch checked={m.exposed} aria-label={COPY.exposeInSheet} disabled={busy || (!canExpose(m) && !m.exposed)}
+              onCheckedChange={(on) => void onChange(m, { exposed: on })} />
+            <span>{m.exposed ? COPY.shown : !m.is_chat ? COPY.notChat : m.status === 'missing' ? COPY.missing : COPY.hidden}</span>
+          </div>
+
+          <span className="dlab">{app.default}</span>
+          <div className="drow">
+            <Button size="sm" disabled={busy || !m.exposed || m.is_default} onClick={() => onChange(m, { is_default: true }, COPY.done.defaultChanged(m.label))}>
+              {m.is_default ? COPY.isDefault : COPY.makeDefault}
+            </Button>
+          </div>
+
           {m.status === 'present' && (
-            <span className="dord">
-              <span title={COPY.orderIn(providerName(m))}>{COPY.order} <b className="ui-num">{at + 1}</b> / {total}</span>
-              <IconButton size="sm" icon="arrow-up" label={COPY.moveUp} disabled={busy || !prev} onClick={() => prev && onChange(m, { order: prev.order })} />
-              <IconButton size="sm" icon="arrow-down" label={COPY.moveDown} disabled={busy || !next} onClick={() => next && onChange(m, { order: next.order })} />
-            </span>
+            <>
+              <span className="dlab">{app.order}</span>
+              <div className="drow dord">
+                <span title={COPY.orderIn(providerName(m))}><b className="ui-num">{at + 1}</b> / {total} · {providerName(m)}</span>
+                <IconButton size="sm" icon="arrow-up" label={COPY.moveUp} disabled={busy || !prev} onClick={() => prev && onChange(m, { order: prev.order })} />
+                <IconButton size="sm" icon="arrow-down" label={COPY.moveDown} disabled={busy || !next} onClick={() => next && onChange(m, { order: next.order })} />
+              </div>
+            </>
           )}
         </div>
+        {dup === 'user' && <Callout tone="warn" className="dwarn">{COPY.dupUserLong}</Callout>}
+        {dup === 'hidden' && <Callout className="dwarn soft">{COPY.dupHiddenLong}</Callout>}
       </section>
 
       <section className="dpart">
@@ -103,11 +112,22 @@ function SheetBody({ m, rows, dup, busy, gateway, now, onChange, onProbe, editin
       <section className="dpart">
         <h3>{COPY.partGateway} <span className="dhint">{COPY.readOnly}</span></h3>
         <KeyValue variant="plain" className="dkv" items={[
-          { key: 'provider', label: kv.provider, value: [providerName(m), ...m.provider_ids.slice(1).map((p) => providerLabel(p))].join(' · ') },
+          {
+            key: 'provider', label: kv.provider,
+            value: (
+              <span className="dprov">
+                <ProviderIcon provider={m.provider} size="sm" />
+                {[providerName(m), ...m.provider_ids.slice(1).map((p) => providerLabel(p))].join(' · ')}
+                {m.family ? <span className="dhint">{COPY.familyOf(m.family)}</span> : null}
+              </span>
+            ),
+          },
+          { key: 'context', label: kv.context, value: tokens(m.max_input_tokens) ? kv.tokens(tokens(m.max_input_tokens)!) : '—' },
+          { key: 'maxOut', label: kv.maxOut, value: tokens(m.max_output_tokens) ? kv.tokens(tokens(m.max_output_tokens)!) : '—' },
+          { key: 'input', label: kv.input, value: cost(m.input_cost_per_token) },
+          { key: 'output', label: kv.output, value: cost(m.output_cost_per_token) },
+          { key: 'features', label: kv.features, value: <Caps m={m} labeled /> },
           { key: 'source', label: kv.source, value: m.source ? SOURCE[m.source].long : kv.unknownSource },
-          { key: 'features', label: kv.features, value: ginfo.join(' · ') || '—' },
-          { key: 'maxOut', label: kv.maxOut, value: tokens(m.max_output_tokens) ?? '—' },
-          { key: 'price', label: kv.price, value: price ? kv.priceUnit(price) : '—', mono: true },
           { key: 'first', label: kv.firstSeen, value: ago(m.first_seen, now) ?? '—' },
           { key: 'last', label: kv.lastSeen, value: ago(m.last_seen, now) ?? '—' },
         ]} />

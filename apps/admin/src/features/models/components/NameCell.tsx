@@ -19,6 +19,7 @@ export const SourceBadge = ({ source, title }: { source: NonNullable<AdminModel[
   <Badge size="sm" className="src" title={title}>{SOURCE[source].tag}</Badge>
 );
 
+// 모델 칸 = 데스크톱 모델 메뉴처럼 두 줄: 위 = 보이는 이름(굵게) · 아래 = 실제 모델 이름(고정폭 · 옅게).
 // 표시 이름 = 연필로 바꾼다 (Enter 저장 · Esc 취소 · 비우면 기본 이름으로). 이름을 누르면 서랍
 export function NameCell({ m, busy, onChange, dup, onOpen }: { m: AdminModel; busy: boolean; onChange: Change; dup: Dup; onOpen: () => void }) {
   const [editing, setEditing] = useState(false);
@@ -43,15 +44,12 @@ export function NameCell({ m, busy, onChange, dup, onOpen }: { m: AdminModel; bu
         <IconButton ref={editBtn} className="nedit-btn" size="sm" icon="pen" label={COPY.rename(m.label)} disabled={busy} onClick={() => setEditing(true)} />
       </span>
       <span className="sub">
-        <code title={COPY.gatewayId}>{m.id}</code>
-        {m.source && <SourceBadge source={m.source} title={COPY.registeredAt(SOURCE[m.source].long)} />}
+        <code className="mid ui-ell" title={COPY.gatewayId}>{m.id}</code>
         {m.display_name && (
-          <>
-            <span className="was" title={COPY.defaultNameTitle}>{COPY.defaultName(m.default_label)}</span>
-            <Button size="sm" variant="ghost" disabled={busy} onClick={() => void onChange(m, { display_name: null }, COPY.done.nameReverted(m.default_label))}>
-              {COPY.revert}
-            </Button>
-          </>
+          <Button size="sm" variant="ghost" className="nrevert" disabled={busy} title={COPY.revertTitle(m.default_label)}
+            onClick={() => void onChange(m, { display_name: null }, COPY.done.nameReverted(m.default_label))}>
+            {COPY.revert}
+          </Button>
         )}
       </span>
     </div>

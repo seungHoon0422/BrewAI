@@ -21,7 +21,6 @@ export const SHELL_COPY = {
   brand: 'BrewAI',
   brandTag: '관리자',
   nav: '관리 메뉴', // E2E: navigation 이름
-  footer: '사용자 앱과 분리된 콘솔',
   env: '로컬',
   envTitle: '실행 환경',
   gallery: 'UI 부품 (개발)',

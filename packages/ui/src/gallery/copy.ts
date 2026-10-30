@@ -36,3 +36,12 @@ export const MODELS: SampleModel[] = [
   { id: 'old-model', name: 'Old Model', provider: 'deepseek', state: 'missing', ctx: 64 },
 ];
 export const STATE_TEXT = { exposed: '노출', hidden: '숨김', candidate: '새로 들어옴', missing: '게이트웨이에 없음' } as const;
+
+// 모델 기능 아이콘 (관리자 모델 표 '기능' 칸과 같은 짝)
+export const MODEL_CAPS = [
+  { icon: 'text', label: '텍스트' },
+  { icon: 'image', label: '이미지 입력' },
+  { icon: 'wrench', label: '도구 호출' },
+  { icon: 'bulb', label: '생각(추론)' },
+  { icon: 'embed', label: '임베딩' },
+] as const;

@@ -4,6 +4,7 @@ export const AUTH_COPY = {
   lead: '관리자 계정으로 로그인하세요.',
   form: '관리자 로그인',
   email: '이메일',
+  emailPlaceholder: 'name@company.com',
   password: '비밀번호',
   submit: '로그인',
   submitting: '로그인하는 중',
@@ -15,6 +16,9 @@ export const AUTH_COPY = {
   bootstrapSub: '.env 의 BREWAI_ADMIN_EMAIL · BREWAI_ADMIN_PASSWORD 를 채우고 conductor 를 다시 켜 주세요 (node scripts/stack.mjs secrets).',
   firstLogin: '처음이면',
   firstLoginSub: '.env 의 BREWAI_ADMIN_EMAIL · BREWAI_ADMIN_PASSWORD 로 로그인해요.',
+  // 테스트 관리자 (서버가 test_admin 을 줄 때만 · 이메일 칸에 admin)
+  testAdmin: '테스트 계정',
+  testAdminSub: '이메일 칸에 admin · 비밀번호 admin 으로 로그인해요 (이 PC 에서만).',
   // 화면 머리 계정 메뉴
   account: '계정',
   signedInAs: (name: string) => `${name} (관리자)`,

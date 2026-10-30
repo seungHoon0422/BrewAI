@@ -57,10 +57,21 @@ test('빈 주소·모르는 주소·사용자 앱 주소·부품 모음(빌드�
 test('모델 화면에 가격·컨텍스트·provider 입력칸이 없다', async ({ page }) => {
   await page.goto('/#/models');
   await expectScreen(page, NAV, MODELS);
-  for (const role of ['textbox', 'searchbox', 'spinbutton', 'combobox', 'slider'] as const) {
+  for (const role of ['textbox', 'searchbox', 'spinbutton', 'slider'] as const) {
     await expect(page.getByRole(role, { name: GATEWAY_ONLY })).toHaveCount(0);
   }
   await expect(page.getByPlaceholder(GATEWAY_ONLY)).toHaveCount(0);
+  // 고르기 상자도 같은 규칙 — 예외는 '제공사 필터' 하나 = 표를 거르는 것 (게이트웨이 값을 바꾸는 칸이 아니다)
+  await expect(page.getByRole('combobox', { name: '제공사 필터' })).toBeVisible();
+  for (const box of await page.getByRole('combobox', { name: GATEWAY_ONLY }).all()) {
+    await expect(box).toHaveAccessibleName('제공사 필터');
+  }
+  // 모델 추가 탭 = 등록 순서 안내 · LiteLLM 링크 · 동기화 · 후보 확인뿐 (입력칸 · 등록 버튼 없음)
+  await goHash(page, '#/models/add');
+  await expect(page.getByRole('heading', { name: '모델을 추가하는 순서' })).toBeVisible();
+  for (const role of ['textbox', 'searchbox', 'spinbutton', 'combobox', 'slider'] as const) {
+    await expect(page.getByRole(role)).toHaveCount(0);
+  }
   // 모델을 직접 등록하는 버튼·링크도 없다
   await expect(page.getByRole('button', { name: REGISTER }).or(page.getByRole('link', { name: REGISTER }))).toHaveCount(0);
 });

@@ -11,7 +11,11 @@
 .ui-tab:focus-visible{outline-offset:-2px}
 .ui-tab-count{min-width:18px;height:18px;padding:0 5px;border-radius:var(--radius-pill);background:var(--surface-chip);color:var(--text-muted);
   font-size:var(--fs-2xs);font-weight:var(--fw-semibold);line-height:18px;text-align:center}
-.ui-tabs[data-variant="line"] .ui-tablist{box-shadow:inset 0 -1px var(--border)}
+/* 탭 줄 = 탭 + (있으면) 오른쪽 버튼 · 시각. 밑줄은 줄 전체에 · 좁으면 버튼이 아래 줄로 */
+.ui-tabs-bar{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-1-5) var(--space-3);min-width:0}
+.ui-tabs-bar>.ui-tablist{flex:1 1 auto;min-width:0}
+.ui-tabs-actions{display:flex;align-items:center;flex-wrap:wrap;justify-content:flex-end;gap:var(--space-1-5) var(--space-2);margin-left:auto;padding-bottom:var(--space-1)}
+.ui-tabs[data-variant="line"] .ui-tabs-bar{box-shadow:inset 0 -1px var(--border)}
 .ui-tabs[data-variant="line"] .ui-tab{height:36px;padding:0 var(--space-2-5);border-bottom:2px solid transparent;border-radius:var(--radius-sm) var(--radius-sm) 0 0}
 .ui-tabs[data-variant="line"] .ui-tab[aria-selected="true"]{border-bottom-color:var(--text)}
 .ui-tabs[data-variant="pill"] .ui-tab{height:var(--control-md);padding:0 12px;border-radius:var(--radius-pill)}

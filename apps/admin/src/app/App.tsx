@@ -117,7 +117,6 @@ function Console() {
               )}
             </ul>
           </nav>
-          <p className="side-foot">{C.footer}</p>
         </header>
 
         <main className="main">

@@ -15,6 +15,7 @@
   - Google: 'Web application' client · conductor 가 secret 으로 교환 → 데스크톱엔 127.0.0.1 임의 포트 loopback 으로 60초 1회용 handoff code(PKCE S256 에 묶음). 설정 › 계정 › Google 연결도 code 로 받아 앱이 로그인한 채 `POST /api/me/google/link/complete` (남이 보낸 시작 주소로는 안 붙는다 = 연결 CSRF). 딥링크(Google custom scheme 중단) · polling(피싱 경로) 안 씀. 키 없으면 버튼 숨김.
   - 비밀번호: argon2id m=19456 · t=2 · p=1 · 15~128자(`CONDUCTOR_PASSWORD_MIN`) · 조합 규칙 없음 · 실패 응답 하나 + 더미 해시 · 계정 지수 지연(하루 창) + IP 상한(50번 · 15분 창 · 관리자 Vite proxy 는 `xfwd`).
   - 첫 관리자: `stack.mjs` 가 `.env` 에 `BREWAI_ADMIN_EMAIL` + 무작위 `BREWAI_ADMIN_PASSWORD` → users 0명일 때만 시드. E2E 도 같은 길로 진짜 로그인 (서버 뒷문 0).
+  - 테스트 단계 관리자 `admin` / `admin`: `BREWAI_TEST_ADMIN=1`(`npm run dev` 기본) + 주소·요청 모두 loopback 일 때만. 길이 규칙 예외는 이 계정 하나 · `0` 이면 잠금 + 세션 폐기. 출시 전 끈다.
 - 탈락: Keycloak · Zitadel · authentik · Logto 컨테이너(RAM 0.5~1.4 GiB + Postgres · E2E 에 Docker · 조직 모델 이중) · fastapi-users(maintenance mode) · JWT(즉시 폐기 어려움).
 - 순서: 로그인 = slice 03 · 04 (사용자: "지금부터 로그인부터"). 옛 03 툴·trace → 05 · 04 승인 → 06.
 - 재검토: SAML · SCIM · 고객사 IdP 요구 → Keycloak 을 OIDC issuer 로 (identities 키 = (issuer, sub) 라 그대로 붙음).

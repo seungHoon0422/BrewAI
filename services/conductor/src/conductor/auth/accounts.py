@@ -35,6 +35,9 @@ OAUTH_FLOW_S = 10 * 60
 LOCK_FREE_FAILURES = 5  # 이만큼은 바로 다시 시도 가능
 LOCK_MAX_S = 15 * 60
 DISPLAY_NAME_MAX = 40
+# 테스트 관리자 (BREWAI_TEST_ADMIN · loopback 만 · directory.ensure_test_admin). 이메일 모양이 아닌 유일한 로그인 ID
+TEST_ADMIN_ID = "admin"
+TEST_ADMIN_PASSWORD = "admin"  # 비밀번호 길이 규칙을 건너뛰는 유일한 계정 (켤 때마다 이 값으로 되돌린다)
 _EMAIL = re.compile(r"^[^@\s]{1,64}@[^@\s]+\.[^@\s]+$")
 
 Client = Literal["desktop", "admin"]
@@ -103,9 +106,10 @@ def default_display_name(email: str, name: str | None = None) -> str:
 
 
 class Accounts:
-    def __init__(self, store: Store, *, password_min: int) -> None:
+    def __init__(self, store: Store, *, password_min: int, test_login: bool = False) -> None:
         self.store = store
         self.password_min = password_min
+        self.test_login = test_login  # True = 로그인 ID 'admin' 도 받는다 (settings.test_admin_active 일 때만)
         self.clock: Callable[[], datetime] = lambda: datetime.now(UTC)
 
     # ── 시각 ──
@@ -118,6 +122,13 @@ class Accounts:
     def seconds_until(self, iso: str) -> int:
         then = datetime.fromisoformat(iso.replace("Z", "+00:00"))
         return max(1, int((then - self.clock()).total_seconds() + 0.999))
+
+    def login_id(self, raw: str | None) -> str | None:
+        """로그인 칸 → email_norm. 이메일 · 테스트 관리자가 켜져 있으면 'admin' 하나만 더 (가입 · 초대는 normalize_email 그대로)."""
+        email = normalize_email(raw)
+        if email is not None:
+            return email
+        return TEST_ADMIN_ID if self.test_login and (raw or "").strip().lower() == TEST_ADMIN_ID else None
 
     # ── 사용자 · 로그인 수단 ──
     def user(self, user_id: str) -> sqlite3.Row | None:
@@ -199,7 +210,7 @@ class Accounts:
 
     def check_password(self, email: str, password: str) -> sqlite3.Row | None:
         """맞으면 활성 사용자 줄 · 아니면 None (없는 계정 · 비활성 · 비밀번호 없음 · 틀림 = 모두 같은 시간 · 같은 결과)."""
-        email_norm = normalize_email(email)
+        email_norm = self.login_id(email)
         user = self.user_by_email(email_norm) if email_norm else None
         stored = self.password_hash(user["id"]) if user is not None and user["status"] == "active" else None
         if not passwords.verify(stored, password):

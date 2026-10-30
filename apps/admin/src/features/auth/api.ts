@@ -4,7 +4,8 @@ import { API_URL, call, callJson, expectObj, isObj, num, str, strOrNull } from '
 
 export type AdminMe = { id: string; email: string; display_name: string; instance_role: 'admin' | 'user' };
 export type AdminSession = { user: AdminMe; csrf_token: string; expires_at: string | null };
-export type AuthState = { google: boolean; password_min: number; needs_bootstrap: boolean; first_login: boolean };
+// test_admin = 테스트 관리자 admin / admin 이 켜져 있음 (npm run dev · 이 PC 에서만)
+export type AuthState = { google: boolean; password_min: number; needs_bootstrap: boolean; first_login: boolean; test_admin: boolean };
 
 // 관리자 Google 로그인 = 브라우저가 이 주소로 간다 → Google → 같은 출처 콜백이 쿠키를 심고 '/' (실패 = '/?auth_error=<code>')
 export const GOOGLE_START = `${API_URL}/api/auth/google/start?client=admin`;
@@ -40,6 +41,6 @@ export async function getAuthState(signal?: AbortSignal): Promise<AuthState> {
   const providers = isObj(d.providers) ? d.providers : {};
   return {
     google: providers.google === true, password_min: num(d.password_min) ?? 15,
-    needs_bootstrap: d.needs_bootstrap === true, first_login: d.first_login === true,
+    needs_bootstrap: d.needs_bootstrap === true, first_login: d.first_login === true, test_admin: d.test_admin === true,
   };
 }

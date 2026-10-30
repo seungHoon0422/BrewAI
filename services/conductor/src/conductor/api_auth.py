@@ -1,9 +1,11 @@
 """로그인 · 세션 · 내 계정 경로 (ADR-0010 · slice 03). 요청 · 응답 JSON = snake_case · 오류 = {detail: code}.
 
 공개 (시도 제한)
-  GET    /api/auth/state             {needs_bootstrap, first_login, providers: {password, google}, password_min}
+  GET    /api/auth/state             {needs_bootstrap, first_login, providers: {password, google}, password_min[, test_admin: true]}
                                      (first_login = 계정은 있는데 아직 아무도 로그인 안 함 → 로그인 화면이 .env 첫 관리자 값을 알려 준다)
+                                     (test_admin = 테스트 관리자 admin / admin 이 켜져 있을 때만 붙는다 → 로그인 화면 안내)
   POST   /api/auth/login             {email, password} → Tokens · 401 invalid_credentials · 429 rate_limited (+Retry-After)
+                                     (email = 이메일 · 테스트 관리자가 켜져 있으면 'admin' 도. 관리자 로그인도 같다)
   POST   /api/auth/token             {grant_type: refresh_token, refresh_token} | {grant_type: handoff, code, code_verifier} → Tokens
                                      · 401 invalid_grant (만료 · 이미 씀 · 폐기 — 이미 쓴 refresh 는 세션 통째 폐기)
   POST   /api/auth/invite/preview    {code} → {org, inviter_name, org_role, spaces, email_hint, expires_at, google} · 404 invite_invalid
@@ -44,6 +46,7 @@ from .auth import passwords, tokens
 from .auth.accounts import (
     LINK_S,
     OAUTH_FLOW_S,
+    TEST_ADMIN_ID,
     Accounts,
     AuthFailed,
     Principal,
@@ -60,6 +63,7 @@ from .auth.http import (
     clear_admin_cookie,
     client_ip,
     directory_of,
+    from_this_pc,
     guard_of,
     limit,
     require_admin,
@@ -174,16 +178,20 @@ def password_login(request: Request, body: LoginIn) -> Any:
     """비밀번호 확인 + 시도 제한 (계정 키 · IP 키). 틀림 · 없는 계정 · 비활성 = 같은 응답 401 invalid_credentials.
     IP 키는 15분 창 (회사 NAT · 관리자 Vite proxy 뒤 여러 사람 — 하루 치 오타가 쌓여 모두를 잠그지 않게)."""
     acc, ip = accounts_of(request), client_ip(request)
-    account_key = f"login:acct:{normalize_email(body.email) or body.email.strip().lower()[:320]}"
+    login_id = acc.login_id(body.email)
+    account_key = f"login:acct:{login_id or body.email.strip().lower()[:320]}"
     ip_key = f"login:ip:{ip}"
     wait = acc.retry_after(account_key) or acc.retry_after(ip_key)
     if wait:
         raise AuthFailed(429, "rate_limited", retry_after=wait)
     user = acc.check_password(body.email, body.password)
+    # 테스트 관리자 admin / admin = 이 PC 에서 온 요청만 (설정 주소가 loopback 이어도 같은 PC 의 reverse proxy · 0.0.0.0 바인드 뒤라면 막는다)
+    if user is not None and login_id == TEST_ADMIN_ID and not from_this_pc(request):
+        user = None
     if user is None:
         acc.failed(account_key)
         acc.failed(ip_key, free=50, window_s=IP_WINDOW_S)
-        acc.audit("login", actor=None, result="denied", ip=ip, detail={"email": normalize_email(body.email)})
+        acc.audit("login", actor=None, result="denied", ip=ip, detail={"email": login_id})
         raise AuthFailed(401, "invalid_credentials")
     acc.cleared(account_key)
     return user
@@ -271,6 +279,7 @@ def register(public: APIRouter, user: APIRouter, admin: APIRouter, *, settings: 
             "needs_bootstrap": acc.count_users() == 0, "first_login": not acc.anyone_logged_in(),
             "providers": {"password": True, "google": google.enabled},
             "password_min": settings.password_min,
+            **({"test_admin": True} if settings.test_admin_active else {}),
         }
 
     @public.post("/api/auth/login")

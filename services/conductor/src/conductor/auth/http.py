@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+import ipaddress
+
 from fastapi import Request
 from fastapi.responses import JSONResponse, Response
 
@@ -44,6 +46,16 @@ def scopes_of(request: Request) -> Scopes:
 
 def client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
+
+
+def from_this_pc(request: Request) -> bool:
+    """요청이 이 PC(loopback)에서 왔나. 관리자 Vite proxy 뒤면 X-Forwarded-For 의 브라우저 주소 (uvicorn 이 127.0.0.1 proxy 를 믿는다)."""
+    try:
+        ip = ipaddress.ip_address(client_ip(request))
+    except ValueError:
+        return False
+    mapped = getattr(ip, "ipv4_mapped", None)  # ::ffff:127.0.0.1 (node 듀얼 스택)
+    return (mapped or ip).is_loopback
 
 
 async def require_user(request: Request) -> Principal:

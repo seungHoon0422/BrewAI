@@ -15,7 +15,7 @@ import { Avatar, Badge, Callout, Card, CardHeader, Chip, EmptyState, Kbd, KeyVal
 import { Table, type Column, type SortState } from '../table';
 import { Breadcrumb, PageHeader, Tabs, Toolbar, ToolbarSpacer } from '../navigation';
 import { kindIcon } from '../scope';
-import { COPY, KIND_LABEL, LONG_PATH, MODELS, SCOPE_PATH, STATE_TEXT, type SampleModel } from './copy';
+import { COPY, KIND_LABEL, LONG_PATH, MODEL_CAPS, MODELS, SCOPE_PATH, STATE_TEXT, type SampleModel } from './copy';
 
 type ThemeMode = 'both' | 'light' | 'dark';
 
@@ -245,8 +245,9 @@ function Choice() {
         ))}
       </Row>
       <Tabs label="상태" value={tab} onChange={setTab}
-        items={[{ id: 'all', label: '전체', count: 5 }, { id: 'exposed', label: '노출', count: 2 }, { id: 'hidden', label: '숨김', count: 1 }]}>
-        <p className="gal-note">탭 내용 — {tab}</p>
+        items={[{ id: 'all', label: '전체', count: 5 }, { id: 'exposed', label: '노출', count: 2 }, { id: 'hidden', label: '숨김', count: 1 }]}
+        actions={<><span className="gal-note">3분 전</span><Button size="sm" icon="refresh">동기화</Button></>}>
+        <p className="gal-note">탭 내용 — {tab} · 탭 줄 오른쪽 = actions</p>
       </Tabs>
       <Tabs label="거르개" variant="pill" value={tab} onChange={setTab}
         items={[{ id: 'all', label: '전체' }, { id: 'exposed', label: '노출' }, { id: 'hidden', label: '숨김' }]} />
@@ -445,6 +446,12 @@ function Icons() {
       <div className="gal-icons">
         {PROVIDER_IDS.map((p) => (
           <span key={p} className="gal-icon" title={p}><ProviderIcon provider={p} size="lg" /><code>{p}</code></span>
+        ))}
+      </div>
+      {/* 모델 기능 = 관리자 모델 표의 '기능' 칸 (아이콘 + 툴팁 · 한 색) */}
+      <div className="gal-icons">
+        {MODEL_CAPS.map((c) => (
+          <span key={c.icon} className="gal-icon" title={c.label}><Icon name={c.icon} label={c.label} /><code>{c.label}</code></span>
         ))}
       </div>
     </Sec>

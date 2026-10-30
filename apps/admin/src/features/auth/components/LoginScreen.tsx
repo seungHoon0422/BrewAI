@@ -20,13 +20,16 @@ export function LoginScreen({ notice }: { notice: string | null }) {
         </header>
 
         {auth?.needs_bootstrap && <Callout tone="warn" title={C.bootstrap}>{C.bootstrapSub}</Callout>}
-        {auth && !auth.needs_bootstrap && auth.first_login && <Callout tone="info" title={C.firstLogin}>{C.firstLoginSub}</Callout>}
+        {auth?.test_admin && <Callout tone="info" title={C.testAdmin}>{C.testAdminSub}</Callout>}
+        {auth && !auth.needs_bootstrap && !auth.test_admin && auth.first_login && <Callout tone="info" title={C.firstLogin}>{C.firstLoginSub}</Callout>}
         {shown && !form.error && <Callout live tone={shown.tone}>{shown.text}</Callout>}
         {form.error && <Callout live tone="danger">{form.error}</Callout>}
 
         <form className="login-form" aria-label={C.form} onSubmit={(e) => void form.submit(e)} noValidate>
           <Field label={C.email}>
-            <Input type="email" size="lg" autoComplete="username" autoFocus value={form.email} onChange={(e) => form.setEmail(e.target.value)} />
+            {/* type=text: 테스트 관리자 ID 'admin' 은 이메일 모양이 아니다 (검사는 서버가 한다) */}
+            <Input type="text" inputMode="email" size="lg" autoComplete="username" autoCapitalize="off" spellCheck={false} autoFocus
+              placeholder={C.emailPlaceholder} value={form.email} onChange={(e) => form.setEmail(e.target.value)} />
           </Field>
           <Field label={C.password}>
             <PasswordInput size="lg" autoComplete="current-password" value={form.password} onChange={(e) => form.setPassword(e.target.value)} />

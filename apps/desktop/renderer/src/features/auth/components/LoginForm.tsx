@@ -44,7 +44,9 @@ export function LoginForm() {
       )}
       <form className="auth-form" onSubmit={onSubmit} noValidate>
         <Field label={AUTH.email}>
-          <Input type="email" autoComplete="username" placeholder={AUTH.emailPlaceholder} value={email} data-autofocus autoFocus
+          {/* type=text: 테스트 계정 ID 'admin' 은 이메일 모양이 아니다 (검사는 서버가 한다) */}
+          <Input type="text" inputMode="email" autoComplete="username" autoCapitalize="off" spellCheck={false}
+            placeholder={AUTH.emailPlaceholder} value={email} data-autofocus autoFocus
             onChange={(e) => setEmail(e.target.value)} size="lg" />
         </Field>
         <Field label={AUTH.password}

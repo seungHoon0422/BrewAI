@@ -13,6 +13,7 @@ export function AuthScreen({ overlay }: { overlay: boolean }) {
   const pending = useAuth((s) => s.googlePending);
   const needsBootstrap = useAuth((s) => s.server.info?.needsBootstrap ?? false);
   const firstLogin = useAuth((s) => s.server.info?.firstLogin ?? false);
+  const testAdmin = useAuth((s) => s.server.info?.testAdmin ?? false);
 
   // Google 을 기다리는 동안에도 서식은 그대로 둔다 (숨김만) — 끝나면 실패 안내 · 초대 미리보기 · 쓰던 칸이 그 자리에 남는다
   const form = view === 'invite' ? <InviteSignup /> : view === 'reset' ? <ResetForm /> : <LoginForm />;
@@ -47,7 +48,8 @@ export function AuthScreen({ overlay }: { overlay: boolean }) {
       <div className="auth-card">
         <Mark size={32} className="auth-mark" />
         {needsBootstrap && view === 'login' && <Callout tone="warn" title={AUTH.bootstrap}>{AUTH.bootstrapSub}</Callout>}
-        {!needsBootstrap && firstLogin && view === 'login' && <Callout tone="info" title={AUTH.firstLogin}>{AUTH.firstLoginSub}</Callout>}
+        {testAdmin && view === 'login' && <Callout tone="info" title={AUTH.testAccount}>{AUTH.testAccountSub}</Callout>}
+        {!needsBootstrap && !testAdmin && firstLogin && view === 'login' && <Callout tone="info" title={AUTH.firstLogin}>{AUTH.firstLoginSub}</Callout>}
         {body}
       </div>
       {status !== 'no_bridge' && <ServerStatus />}

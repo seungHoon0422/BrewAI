@@ -17,8 +17,9 @@ const post = (pathname: string, body: unknown) =>
   fetch(`${API}${pathname}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 const tryLogin = (email: string, password: string) => post('/api/auth/login', { email, password });
 
-test('사용자 탭: 나(관리자) · 테스트 사용자 · 로그인 방법 · 조직 · 검색', async ({ page }) => {
+test('사용자 탭: 나(관리자) · 테스트 사용자 · 조직 · 검색 (로그인 방법 칸 없음 — 서랍에만)', async ({ page }) => {
   await page.goto('/#/users');
+  await expect(people(page).getByRole('columnheader')).toHaveText(['사용자', '조직', '마지막 접속', '상태']);
   await expect(tabs(page).getByRole('tab', { name: '사용자' })).toHaveAttribute('aria-selected', 'true');
   const me = personRow(page, ADMIN_USER.email);
   await expect(me).toContainText('나');
@@ -26,7 +27,7 @@ test('사용자 탭: 나(관리자) · 테스트 사용자 · 로그인 방법 �
   const member = personRow(page, poolEmail('member'));
   await expect(member).toContainText('일반 멤버');
   await expect(member).toContainText('우리 팀 · 멤버');
-  await expect(member).toContainText('비밀번호');
+  await expect(member).not.toContainText('비밀번호');
   await page.getByRole('searchbox', { name: '닉네임 · 이메일 검색' }).fill('일반 멤버');
   await expect(people(page).locator('tbody tr')).toHaveCount(1);
   await expect(page.getByText('1명', { exact: true })).toBeVisible();

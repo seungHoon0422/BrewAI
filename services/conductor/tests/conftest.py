@@ -32,6 +32,7 @@ SKILLS_DIR = Path(__file__).resolve().parents[3] / "runtime" / "skills"  # 레�
 ADMIN_EMAIL = "admin@brewai.test"
 ADMIN_PASSWORD = "test-admin-password-0001"
 PASSWORD = "member-password-000001"  # add_user 기본 비밀번호 (15자 이상)
+LOCAL = ("127.0.0.1", 50000)  # 요청 주소 = 이 PC (데스크톱 · 관리자 Vite proxy 와 같다)
 SETTINGS = Settings(
     gateway_url="http://gateway.invalid",
     gateway_key="sk-test-secret-0000",
@@ -118,10 +119,10 @@ class Api:
         return self.client.app
 
     def anon(self) -> TestClient:
-        return TestClient(self.app, base_url="http://127.0.0.1")
+        return TestClient(self.app, base_url="http://127.0.0.1", client=LOCAL)
 
     def login(self, email: str = ADMIN_EMAIL, password: str = PASSWORD, *, admin: bool = False) -> AuthClient:
-        c = AuthClient(self.app, base_url="http://127.0.0.1")
+        c = AuthClient(self.app, base_url="http://127.0.0.1", client=LOCAL)
         res = c.post("/api/auth/login", json={"email": email, "password": password})
         assert res.status_code == 200, res.text
         c.bearer = res.json()["access_token"]

@@ -142,7 +142,9 @@ function ensureAdmin() {
   const where = rel && !rel.startsWith('..') ? rel : ENV_FILE;
   if (added.length) say(`첫 관리자 계정을 ${where} 에 만들었어요 (비밀번호는 찍지 않아요): ${added.join(' · ')}`);
   const { text, values: now } = readEnv();
-  say(`conductor 로그인 = ${now.BREWAI_ADMIN_EMAIL} · 비밀번호 = ${where} 의 BREWAI_ADMIN_PASSWORD (새 DB 에서 처음 켤 때만 계정이 생겨요)`);
+  // 테스트 관리자(npm run dev 가 켠다)면 로그인 안내는 dev-all 이 한 번만 (관리자 로그인: admin / admin)
+  if ((process.env.BREWAI_TEST_ADMIN || now.BREWAI_TEST_ADMIN) !== '1')
+    say(`conductor 로그인 = ${now.BREWAI_ADMIN_EMAIL} · 비밀번호 = ${where} 의 BREWAI_ADMIN_PASSWORD (새 DB 에서 처음 켤 때만 계정이 생겨요)`);
   // 공백 있는 값을 따옴표 없이 = uv 가 .env 를 거기서 못 읽어 첫 관리자가 안 생기고 뒤 줄도 빠진다 (이 파일 · dev-all 은 읽어서 서로 어긋난다)
   const raw = (text.match(/^[ \t]*(?:export[ \t]+)?BREWAI_ADMIN_PASSWORD[ \t]*=(.*)$/m)?.[1] ?? '').replace(/\s+#.*$/, '').trim();
   if (/\s/.test(raw) && !/^(['"]).*\1$/.test(raw))

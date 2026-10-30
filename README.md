@@ -39,9 +39,13 @@
 
 ## 실행
 
+**한 번에 켜기 = `./run.sh`** (맥 · 더블클릭 `start.command` 도 같음) · 윈도우 = 더블클릭 `start.cmd`. 차례: ① `git pull --ff-only` (upstream 있는 브랜치 · 고친 파일 없을 때만, 아니면 이유를 말하고 건너뜀) ② `npm ci` (`package-lock.json` 이 지난번 설치 뒤 바뀌었을 때만) ③ `uv sync --locked` ④ `npm run dev`. 실패하면 이유를 말하고 멈춘다. 미리 보기 = `BREWAI_RUN_DRY=1 ./run.sh` · pull 건너뛰기 = `BREWAI_RUN_NO_PULL=1`.
+**관리자 로그인 = `admin` / `admin`** (지금은 테스트 단계 · `npm run dev` 가 켜는 테스트 관리자 · conductor 가 이 PC 주소일 때만 · 데스크톱 앱도 같은 계정 · 끄기 = `.env` 에 `BREWAI_TEST_ADMIN=0` → 그 계정은 잠긴다).
+
 | 명령 | 무엇 |
 |---|---|
-| `npm run dev` · 더블클릭 `start.cmd`(윈도우) · `start.command`(맥) | **게이트웨이 + conductor + 데스크톱 + 관리자 한 번에** (관리자는 브라우저로 열림 · 끄기 = Ctrl+C 또는 데스크톱 앱 종료). 게이트웨이 = Docker 가 켜져 있으면 스택 LiteLLM (`.env` 에 `BREWAI_TRACE=1` 이면 Langfuse 도) · Docker 가 없거나 꺼져 있으면 venv 게이트웨이 · `BREWAI_STACK=0`(셸 또는 `.env`) = 일부러 venv. Ctrl+C 로는 스택이 안 꺼진다 (다음 실행이 빠름 · Docker Desktop 을 다시 켜도 뜬다 → 끄기 = `npm run stack:down`). 이미 8787 에 떠 있으면 그대로 쓴다 |
+| `./run.sh` · 더블클릭 `start.cmd`(윈도우) · `start.command`(맥) | 위 4단계 후 `npm run dev` |
+| `npm run dev` | **게이트웨이 + conductor + 데스크톱 + 관리자 한 번에** (관리자는 브라우저로 열림 · 끄기 = Ctrl+C 또는 데스크톱 앱 종료). 게이트웨이 = Docker 가 켜져 있으면 스택 LiteLLM (`.env` 에 `BREWAI_TRACE=1` 이면 Langfuse 도) · Docker 가 없거나 꺼져 있으면 venv 게이트웨이 · `BREWAI_STACK=0`(셸 또는 `.env`) = 일부러 venv. Ctrl+C 로는 스택이 안 꺼진다 (다음 실행이 빠름 · Docker Desktop 을 다시 켜도 뜬다 → 끄기 = `npm run stack:down`). 이미 8787 에 떠 있으면 그대로 쓴다 |
 | `npm run stack` | 로컬 Docker 스택 = **LiteLLM + 그 전용 Postgres**(DB 모드 · 호스트에 안 열림) → http://127.0.0.1:4000 · 관리 화면 `/ui` (`admin` / `LITELLM_MASTER_KEY` · 모델 추가 = Models + Endpoints → `config.yaml` 모델과 함께 conductor 가 `/model_group/info` 로 가져감) · 비밀값이 없으면 `.env` 에 만든다 |
 | `npm run stack:trace` (= `npm run stack -- trace`) | + Langfuse 묶음 (web · worker · Postgres · ClickHouse · Redis · MinIO, 한도 합 ~2.4 GiB) → http://localhost:3000 (`dev@brewai.local` / `.env` 비번) · trace 받는 곳 `/api/public/otel` |
 | `npm run stack:down` | 스택 전부 끄기 (데이터는 남음) · `stack:status` = 상태 + 메모리 · `stack:logs -- <서비스>` · `stack:reset -- --yes` = 볼륨까지 삭제 (UI 로 넣은 모델·키도) |

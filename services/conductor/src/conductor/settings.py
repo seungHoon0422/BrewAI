@@ -50,6 +50,9 @@ class Settings:
     google_client_secret: str | None = field(default=None, repr=False)
     google_issuer: str = GOOGLE_ISSUER
     e2e: bool = False  # BREWAI_E2E=1 — http mock OIDC issuer 를 허용하는 유일한 조건 (public_url 도 loopback 일 때만)
+    # 테스트 관리자 admin / admin (BREWAI_TEST_ADMIN=1 · npm run dev 가 기본으로 켠다). 켜지는 건 test_admin_active 일 때만
+    test_admin: bool = False
+    test_admin_off: bool = False  # BREWAI_TEST_ADMIN=0 이라고 적었을 때만 True → 그 계정을 잠근다 (비어 있음 = 그대로 둔다)
 
     @property
     def google_enabled(self) -> bool:
@@ -58,6 +61,18 @@ class Settings:
             return False
         scheme = urlsplit(self.google_issuer).scheme
         return scheme == "https" or (scheme == "http" and self.e2e and is_loopback(self.public_url))
+
+    @property
+    def test_admin_active(self) -> bool:
+        """테스트 관리자 = 이 PC 안에서만: conductor 공개 주소 · 관리자 콘솔 주소가 둘 다 loopback 일 때 (mock OIDC 규칙과 같은 생각)."""
+        return self.test_admin and is_loopback(self.public_url) and is_loopback(self.admin_url)
+
+    @property
+    def test_admin_lock(self) -> bool:
+        """테스트 관리자 계정을 잠글 때 = 일부러 끔(0) 또는 이 PC 밖 주소. 그냥 비어 있으면(npm run api 만 다시 켬 등) 그대로 둔다
+        — 꺼져 있는 동안 로그인 ID 'admin' 은 어차피 안 받으니 비밀번호 로그인은 안 되고, 켜 둔 세션만 끊기지 않는다."""
+        here = is_loopback(self.public_url) and is_loopback(self.admin_url)
+        return not self.test_admin_active and (self.test_admin_off or not here)
 
     @property
     def secure_cookies(self) -> bool:
@@ -107,7 +122,16 @@ def load_settings(env: Mapping[str, str] = os.environ) -> Settings:
         google_client_secret=(env.get("GOOGLE_CLIENT_SECRET") or "").strip() or None,
         google_issuer=(env.get("GOOGLE_ISSUER") or GOOGLE_ISSUER).rstrip("/"),
         e2e=env.get("BREWAI_E2E") == "1",
+        test_admin=_test_admin(env),
+        test_admin_off=(env.get("BREWAI_TEST_ADMIN") or "").strip() == "0",
     )
+
+
+def _test_admin(env: Mapping[str, str]) -> bool:
+    # 개발 = BREWAI_TEST_ADMIN=1 (npm run dev 가 넣는다 · .env 의 0 이 이긴다).
+    # E2E 는 셸에 남은 1 이 새어 들지 않게 'e2e' 라고 적은 스펙만 (playwright.config 의 api env)
+    raw = (env.get("BREWAI_TEST_ADMIN") or "").strip().lower()
+    return raw == ("e2e" if env.get("BREWAI_E2E") == "1" else "1")
 
 
 def _password_min(raw: str | None) -> int:

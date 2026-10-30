@@ -18,7 +18,6 @@
 .nav a[aria-current="page"] .ui-icon{color:var(--text)}
 .nav a:focus-visible{outline-offset:-2px}
 .nav li[data-sep]{margin-top:var(--space-1-5);padding-top:var(--space-2);border-top:1px solid var(--border)}
-.side-foot{margin:auto 0 0;padding:0 var(--space-2);font-size:var(--fs-xs);color:var(--text-muted)}
 
 /* 본문 면 */
 .main{min-width:0;margin-top:var(--space-2);background:var(--surface);border-top-left-radius:var(--radius-lg);
@@ -33,7 +32,6 @@
   .nav ul{flex-direction:row;gap:var(--space-0-5);padding:var(--space-1) var(--space-3) var(--space-2-5);overflow-x:auto;scrollbar-width:thin}
   .nav a{padding:var(--space-1-5) var(--space-2-5)}
   .nav li[data-sep]{margin:0 0 0 var(--space-1-5);padding:0 0 0 var(--space-2);border-top:0;border-left:1px solid var(--border)}
-  .side-foot{display:none}
   .main{margin-top:0;border-radius:0;box-shadow:0 -1px 0 var(--border-hair)}
   .wrap{width:min(var(--width-page),100% - 32px);padding:var(--space-5) 0 var(--space-10)}
 }

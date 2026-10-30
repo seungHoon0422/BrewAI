@@ -296,12 +296,22 @@ def create_app(
     )
     store = store or Store(settings.db_path)
     registry = ModelRegistry(store, catalog, bootstrap=settings.bootstrap_models, default_model=settings.default_model)
-    accounts = Accounts(store, password_min=settings.password_min)
+    test_admin = settings.test_admin_active
+    accounts = Accounts(store, password_min=settings.password_min, test_login=test_admin)
     directory = Directory(accounts)
     scopes = Scopes(store)
     guard = Guard(directory, scopes)
     google = google or GoogleOIDC(settings)
-    directory.bootstrap(settings.admin_email, settings.admin_password)  # users 가 비었을 때만 (.env 첫 관리자)
+    # .env 첫 관리자 (users 가 비었을 때만) → 테스트 관리자 admin / admin (켜져 있으면 · .env 값이 없으면 그가 첫 관리자)
+    if not (test_admin and not settings.admin_email):
+        directory.bootstrap(settings.admin_email, settings.admin_password)
+    if test_admin:
+        directory.ensure_test_admin()
+    else:
+        if settings.test_admin:
+            log.warning("BREWAI_TEST_ADMIN 을 무시해요: CONDUCTOR_PUBLIC_URL · CONDUCTOR_ADMIN_URL 이 이 PC(loopback) 주소가 아니에요")
+        if settings.test_admin_lock:
+            directory.lock_test_admin()
     redact_access_log()
 
     async def _poll_models() -> None:

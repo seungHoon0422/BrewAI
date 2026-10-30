@@ -4,6 +4,7 @@
 계정 만들기 = 한 트랜잭션: users + 로그인 수단 + org_members + 내 스페이스(personal · 주인 = admin 멤버) + 초대가 준 스페이스.
 첫 관리자(bootstrap) = users 가 비어 있고 BREWAI_ADMIN_EMAIL · BREWAI_ADMIN_PASSWORD 가 있을 때만 → 기본 조직 '우리 팀' owner +
 instance admin + 내 스페이스 + 옛 대화 · 실행(space_id NULL) 귀속.
+테스트 관리자 admin / admin = BREWAI_TEST_ADMIN (loopback 만 · ensure_test_admin) · 일부러 끄면(0) · 이 PC 밖 주소면 그 계정은 잠근다 (lock_test_admin · settings.test_admin_lock).
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from datetime import timedelta
 from typing import Any
 
 from . import passwords, tokens
-from .accounts import Accounts, default_display_name, normalize_email
+from .accounts import TEST_ADMIN_ID, TEST_ADMIN_PASSWORD, Accounts, default_display_name, normalize_email
 from .policy import ProjectFacts, SpaceFacts, ThreadFacts
 
 log = logging.getLogger("conductor.auth")
@@ -315,18 +316,73 @@ class Directory:
         with self.store.tx() as db:
             if db.execute("SELECT 1 FROM users").fetchone():
                 return None  # 다른 프로세스가 먼저
-            org = db.execute("SELECT id FROM orgs ORDER BY created_at LIMIT 1").fetchone()
-            org_id = org["id"] if org else self.create_org(db, DEFAULT_ORG_NAME, owner_id=None, slug="team")
-            user_id = self.create_account(
-                db, email=email or email_norm, display_name=default_display_name(email_norm), org_id=org_id, org_role="owner",
-                password_hash=hashed, instance_role="admin", email_verified=True,
-            )
-            personal = db.execute("SELECT id FROM spaces WHERE owner_user_id = ? AND kind = 'personal'", (user_id,)).fetchone()["id"]
-            adopted = db.execute(
-                "UPDATE threads SET space_id = ?, user_id = ?, visibility = 'private' WHERE space_id IS NULL", (personal, user_id)
-            ).rowcount
-            db.execute("UPDATE runs SET space_id = ?, user_id = ?, org_id = ? WHERE space_id IS NULL", (personal, user_id, org_id))
+            user_id, adopted = self._first_admin(db, email=email or email_norm, display_name=default_display_name(email_norm), password_hash=hashed)
             self.accounts.audit("bootstrap", actor=user_id, target_type="user", target_id=user_id, detail={"adopted_threads": adopted}, db=db)
         # warning = 로깅 설정 없이도 uvicorn 줄 옆에 보인다 (첫 실행에 어디로 로그인하는지)
         log.warning("첫 관리자 %s · 비밀번호는 .env BREWAI_ADMIN_PASSWORD · 옛 대화 %d개 → 내 스페이스", email_norm, adopted)
         return user_id
+
+    def _first_admin(self, db: sqlite3.Connection, *, email: str, display_name: str, password_hash: str, adopt: bool = True) -> tuple[str, int]:
+        """첫 조직(없으면 '우리 팀') owner + instance admin + 내 스페이스. adopt = 옛 대화 · 실행(space_id NULL)을 그 내 스페이스로. (id, 귀속 대화 수)"""
+        org = db.execute("SELECT id FROM orgs ORDER BY created_at LIMIT 1").fetchone()
+        org_id = org["id"] if org else self.create_org(db, DEFAULT_ORG_NAME, owner_id=None, slug="team")
+        user_id = self.create_account(
+            db, email=email, display_name=display_name, org_id=org_id, org_role="owner",
+            password_hash=password_hash, instance_role="admin", email_verified=True,
+        )
+        if not adopt:
+            return user_id, 0
+        personal = db.execute("SELECT id FROM spaces WHERE owner_user_id = ? AND kind = 'personal'", (user_id,)).fetchone()["id"]
+        adopted = db.execute(
+            "UPDATE threads SET space_id = ?, user_id = ?, visibility = 'private' WHERE space_id IS NULL", (personal, user_id)
+        ).rowcount
+        db.execute("UPDATE runs SET space_id = ?, user_id = ?, org_id = ? WHERE space_id IS NULL", (personal, user_id, org_id))
+        return user_id, adopted
+
+    # ── 테스트 관리자 admin / admin ──
+    def ensure_test_admin(self) -> str:
+        """켤 때마다 (settings.test_admin_active · loopback 만): 로그인 ID 'admin' · 비밀번호 'admin' · instance admin · 활성.
+        없으면 만든다 = 첫 조직 owner + 내 스페이스 (users 가 비어 있었으면 .env 첫 관리자처럼 옛 대화 귀속).
+        있으면 그대로 두고 instance admin · 활성으로 되돌리고, 비밀번호가 'admin' 이 아니면 'admin' 으로 (바꿔 둔 값은 다시 켜면 사라진다).
+        비밀번호 길이 규칙을 건너뛰는 유일한 계정 — 가입 · 재설정 · 비밀번호 변경 규칙은 그대로."""
+        acc = self.accounts
+        created, adopted, fixed = False, 0, []
+        with self.store.tx() as db:
+            row = db.execute("SELECT * FROM users WHERE email_norm = ?", (TEST_ADMIN_ID,)).fetchone()
+            if row is None:
+                first = db.execute("SELECT 1 FROM users").fetchone() is None
+                user_id, adopted = self._first_admin(
+                    db, email=TEST_ADMIN_ID, display_name=TEST_ADMIN_ID, password_hash=passwords.hash_password(TEST_ADMIN_PASSWORD), adopt=first,
+                )
+                created = True
+            else:
+                user_id = row["id"]
+                if row["instance_role"] != "admin":
+                    db.execute("UPDATE users SET instance_role = 'admin' WHERE id = ?", (user_id,))
+                    fixed.append("role")
+                if row["status"] != "active":
+                    db.execute("UPDATE users SET status = 'active' WHERE id = ?", (user_id,))
+                    fixed.append("status")
+        if not created and not passwords.verify(acc.password_hash(user_id), TEST_ADMIN_PASSWORD):
+            with self.store.tx() as db:
+                acc.set_password(db, user_id, passwords.hash_password(TEST_ADMIN_PASSWORD))
+            fixed.append("password")
+        acc.cleared(f"login:acct:{TEST_ADMIN_ID}")  # 지난번 오타 잠금이 남아 있지 않게
+        if created or fixed:
+            acc.audit("test_admin", actor=user_id, target_type="user", target_id=user_id,
+                      detail={"created": created, "adopted_threads": adopted, "fixed": fixed})
+        log.warning("테스트 관리자 admin / admin 켜짐 (이 PC 에서만 · 끄기 = .env 에 BREWAI_TEST_ADMIN=0)")
+        return user_id
+
+    def lock_test_admin(self) -> bool:
+        """테스트 관리자가 꺼졌는데 그 계정이 활성이면 잠근다 (비활성 + 세션 폐기). 다시 켜면 ensure_test_admin 이 푼다. True = 잠갔다."""
+        acc = self.accounts
+        with self.store.tx() as db:
+            row = db.execute("SELECT id FROM users WHERE email_norm = ? AND status = 'active'", (TEST_ADMIN_ID,)).fetchone()
+            if row is None:
+                return False
+            db.execute("UPDATE users SET status = 'disabled' WHERE id = ?", (row["id"],))
+            acc.revoke_user(row["id"], "test_admin_off", db=db)
+            acc.audit("test_admin_off", actor=None, target_type="user", target_id=row["id"], db=db)
+        log.warning("테스트 관리자 admin 꺼짐 → 그 계정을 잠갔어요 (다시 켜면 풀려요)")
+        return True

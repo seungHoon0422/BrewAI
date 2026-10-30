@@ -1,9 +1,10 @@
 import { useState, type DragEvent, type MouseEvent } from 'react';
-import { Badge, Checkbox, Icon, IconButton, Radio, Switch, flag, type Tone } from '@brewai/ui';
+import { Badge, Checkbox, Icon, IconButton, ProviderIcon, Radio, Switch, flag, type Tone } from '@brewai/ui';
 import type { AdminModel, ModelState } from '../api';
-import { COPY, STATE_TEXT } from '../copy';
-import { canExpose, info, priceOf, providerName, type Dup } from '../derive';
+import { COL_LABEL, COPY, STATE_TEXT } from '../copy';
+import { canExpose, perM, providerName, tokens, type Dup } from '../derive';
 import type { Change, Probe } from '../hooks';
+import { Caps } from './Caps';
 import { Health } from './Health';
 import { NameCell } from './NameCell';
 
@@ -13,8 +14,17 @@ export const StateBadge = ({ state }: { state: ModelState }) => (
   <Badge dot tone={STATE_TONE[state]} className="chip">{STATE_TEXT[state]}</Badge>
 );
 
-export function ModelRow({ m, pos, prev, next, busy, onChange, onProbe, now, dup, checked, onCheck, onOpen, canDrag, canDrop, dragging, onDragStart, onDragEnd, onDrop }: {
+// 제공사 = 아이콘 + 이름 (좁은 창에선 아이콘만 · 이름은 툴팁)
+export const ProviderName = ({ m }: { m: AdminModel }) => (
+  <span className="prov" title={providerName(m)}><ProviderIcon provider={m.provider} /><span className="pname ui-ell">{providerName(m)}</span></span>
+);
+
+// 비용 · 컨텍스트 = 숫자만 (단위는 머리 글 툴팁 · 표 아래 한 줄). 모르면 —
+const Num = ({ v, title }: { v: string | null; title?: string }) => (v ? <span className="ui-num" title={title}>{v}</span> : <span className="nil">—</span>);
+
+export function ModelRow({ m, groupStart, pos, prev, next, busy, onChange, onProbe, now, dup, checked, onCheck, onOpen, canDrag, canDrop, dragging, onDragStart, onDragEnd, onDrop }: {
   m: AdminModel;
+  groupStart: boolean; // 제공사가 바뀌는 줄 (위에 선)
   pos?: number;
   prev?: AdminModel;
   next?: AdminModel;
@@ -35,8 +45,6 @@ export function ModelRow({ m, pos, prev, next, busy, onChange, onProbe, now, dup
 }) {
   const missing = m.status === 'missing';
   const exposeWhy = !m.is_chat ? COPY.notChat : missing ? COPY.missing : undefined;
-  const ginfo = info(m);
-  const price = priceOf(m);
   const [over, setOver] = useState(false);
   // 줄의 빈 곳을 누르면 서랍 (버튼 · 입력 · 링크는 제 일을 한다)
   const onRowClick = (e: MouseEvent<HTMLTableRowElement>) => {
@@ -50,12 +58,12 @@ export function ModelRow({ m, pos, prev, next, busy, onChange, onProbe, now, dup
   } : {};
 
   return (
-    <tr data-model={m.id} data-state={m.state} data-clickable="" data-selected={flag(checked)} data-busy={flag(busy)}
+    <tr data-model={m.id} data-provider={m.provider} data-group-start={flag(groupStart)} data-state={m.state} data-clickable="" data-selected={flag(checked)} data-busy={flag(busy)}
       data-dragging={flag(dragging)} data-over={flag(over)} aria-busy={busy} onClick={onRowClick} {...dragProps}>
-      <td className="sel">
+      <td className="sel" data-col="select">
         <Checkbox aria-label={COPY.select(m.label)} checked={checked} onChange={onCheck} />
       </td>
-      <td className="ord" title={canDrag ? COPY.ordTitle(providerName(m), pos ?? '—') : COPY.ordLocked}>
+      <td className="ord" data-col="order" title={canDrag ? COPY.ordTitle(providerName(m), pos ?? '—') : COPY.ordLocked}>
         {missing ? '—' : (
           <span className="ordc">
             {canDrag && (
@@ -73,23 +81,23 @@ export function ModelRow({ m, pos, prev, next, busy, onChange, onProbe, now, dup
           </span>
         )}
       </td>
-      <td className="mcell"><NameCell m={m} busy={busy} onChange={onChange} dup={dup} onOpen={onOpen} /></td>
-      <td><StateBadge state={m.state} /></td>
-      <td>
+      <td className="mprov" data-col="provider"><ProviderName m={m} /></td>
+      <td className="mcell" data-col="model"><NameCell m={m} busy={busy} onChange={onChange} dup={dup} onOpen={onOpen} /></td>
+      <td data-col="state"><StateBadge state={m.state} /></td>
+      <td data-col="exposed">
         <Switch checked={m.exposed} aria-label={COPY.exposeSwitch(m.label)} title={exposeWhy ?? (m.exposed ? COPY.exposeOn : COPY.exposeOff)}
           disabled={busy || (!canExpose(m) && !m.exposed)} onCheckedChange={(on) => void onChange(m, { exposed: on })} />
       </td>
-      <td>
+      <td data-col="default">
         <Radio name="default-model" aria-label={COPY.defaultRadio(m.label)} checked={m.is_default}
           disabled={busy || !m.exposed} title={m.exposed ? COPY.defaultTitle : COPY.defaultNeedsExposed}
           onChange={() => onChange(m, { is_default: true }, COPY.done.defaultChanged(m.label))} />
       </td>
-      <td className="conn"><Health m={m} busy={busy} onProbe={onProbe} now={now} /></td>
-      <td className="ginfo" data-hide-below="lg">
-        {ginfo.length > 0 && <span>{ginfo.join(' · ')}</span>}
-        {price && <span className="price" title={COPY.priceTitle}>{price}</span>}
-        {!ginfo.length && !price && <span className="nil">—</span>}
-      </td>
+      <td className="conn" data-col="health"><Health m={m} busy={busy} onProbe={onProbe} now={now} /></td>
+      <td className="gnum" data-col="context" data-align="end"><Num v={tokens(m.max_input_tokens)} /></td>
+      <td className="gnum" data-col="input" data-align="end"><Num v={perM(m.input_cost_per_token)} title={COPY.costTitle(COL_LABEL.input)} /></td>
+      <td className="gnum" data-col="output" data-align="end"><Num v={perM(m.output_cost_per_token)} title={COPY.costTitle(COL_LABEL.output)} /></td>
+      <td className="gcaps" data-col="caps"><Caps m={m} /></td>
     </tr>
   );
 }

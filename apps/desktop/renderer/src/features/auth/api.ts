@@ -36,7 +36,8 @@ export function toMe(v: unknown): Me | null {
 }
 
 // GET /api/auth/state — 로그인 화면이 먼저 읽는다 (Google 버튼 · 비밀번호 최소 길이 · 첫 계정 여부 · 아직 아무도 로그인 안 함)
-export type ServerInfo = { google: boolean; passwordMin: number; needsBootstrap: boolean; firstLogin: boolean };
+// testAdmin = 테스트 계정 admin / admin 이 켜져 있음 (npm run dev · 이 PC 에서만)
+export type ServerInfo = { google: boolean; passwordMin: number; needsBootstrap: boolean; firstLogin: boolean; testAdmin: boolean };
 export const DEFAULT_PASSWORD_MIN = 15; // 서버 값(password_min)을 못 읽었을 때만
 
 export async function getServerInfo(signal?: AbortSignal): Promise<ServerInfo> {
@@ -45,7 +46,7 @@ export async function getServerInfo(signal?: AbortSignal): Promise<ServerInfo> {
   const providers = isObj(data.providers) ? data.providers : {};
   return {
     google: providers.google === true, passwordMin: num(data.password_min) ?? DEFAULT_PASSWORD_MIN,
-    needsBootstrap: data.needs_bootstrap === true, firstLogin: data.first_login === true,
+    needsBootstrap: data.needs_bootstrap === true, firstLogin: data.first_login === true, testAdmin: data.test_admin === true,
   };
 }
 

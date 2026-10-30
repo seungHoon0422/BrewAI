@@ -1,18 +1,17 @@
 // 모델 목록에서 화면 값을 계산한다 (순수 함수 · 상태 없음). hooks.ts · 컴포넌트가 같이 쓴다.
-// 묶음 순서 = 처음 나온 회사 순서 (사용자 앱 모델 메뉴와 같은 규칙 — 기본 모델은 메뉴에서 맨 위).
-// 화면의 순서 숫자 = 그 회사 묶음 안 자리 (1 · 2 …). ↑↓ · 끌기 모두 같은 회사 안에서만 옮긴다.
-import { providerLabel } from '@brewai/ui';
+// 표 = 한 장 (제공사 = 칸). 줄 순서 = 처음 나온 제공사끼리 모아서 (사용자 앱 모델 메뉴와 같은 규칙 — 기본 모델은 메뉴에서 맨 위).
+// 화면의 순서 숫자 = 그 제공사 안 자리 (1 · 2 …). ↑↓ · 끌기 모두 같은 제공사 안에서만 옮긴다.
+import { providerLabel, type IconName } from '@brewai/ui';
 import type { AdminModel } from './api';
-import { COL_LABEL, COPY, ERROR_DETAIL, FIX_HINT, UNKNOWN_ERROR_HINT, type StateFilter } from './copy';
+import { CAP, COL_LABEL, COPY, ERROR_DETAIL, FIX_HINT, UNKNOWN_ERROR_HINT, type CapId, type StateFilter } from './copy';
 
-// 표 칸 (E2E: 순서). 글 = copy.ts COL_LABEL · 정보 = 좁은 창(<1100)에선 숨김 (서랍에 있다)
-export const COL_IDS = ['select', 'order', 'model', 'state', 'exposed', 'default', 'health', 'info'] as const;
+// 표 칸 (E2E: 순서). 글 = copy.ts COL_LABEL · 좁은 창에서 숨는 칸 = models.css (data-col)
+export const COL_IDS = ['select', 'order', 'provider', 'model', 'state', 'exposed', 'default', 'health', 'context', 'input', 'output', 'caps'] as const;
 export type ColId = (typeof COL_IDS)[number];
 export const COL_LABELS = COL_IDS.map((id) => COL_LABEL[id]);
 
 // 같은 표시 이름: user = 둘 다 노출이라 사용자 앱에서 겹친다 · hidden = 한쪽이 숨김이라 지금은 안 겹친다
 export type Dup = 'user' | 'hidden' | null;
-export type ProviderGroup = { id: string; label: string; rows: AdminModel[] };
 export type ProviderSummary = { id: string; label: string; total: number; exposed: number };
 
 export const providerName = (m: Pick<AdminModel, 'provider' | 'provider_label'>) => providerLabel(m.provider, m.provider_label);
@@ -21,11 +20,25 @@ export const providerName = (m: Pick<AdminModel, 'provider' | 'provider_label'>)
 export const tokens = (n: number | null) =>
   n == null ? null : n >= 1_000_000 ? `${+(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${Math.round(n / 1000)}K` : String(n);
 // 토큰당 → 100만 토큰당 달러 (게이트웨이 가격표 스냅샷)
-const perM = (c: number | null) => {
+export const perM = (c: number | null) => {
   if (c == null) return null;
   const n = c * 1_000_000;
   return `$${n > 0 && n < 1 ? n.toFixed(2) : +n.toFixed(2)}`; // $0.15 · $0.60 · $3 · $15
 };
+
+// 게이트웨이 값 → 기능 아이콘 (표 '기능' 칸 · 서랍). 대화 모델 = 텍스트 + 아는 기능 · 임베딩 · 그 밖의 mode = 대화에 안 씀
+export type Cap = { id: CapId; icon: IconName; label: string; long: string };
+const cap = (id: CapId, long?: string): Cap => ({ id, ...CAP[id], long: long ?? CAP[id].long });
+export function capsOf(m: AdminModel): Cap[] {
+  if (m.mode === 'embedding') return [cap('embedding')];
+  if (!m.is_chat) return [cap('other', COPY.capOther(m.mode ?? ''))];
+  return [
+    cap('text'),
+    ...(m.supports_vision ? [cap('image')] : []),
+    ...(m.supports_function_calling ? [cap('tools')] : []),
+    ...(m.supports_reasoning ? [cap('reasoning')] : []),
+  ];
+}
 
 export function ago(iso: string | null, now: number) {
   const t = iso ? Date.parse(iso) : NaN;
@@ -45,22 +58,10 @@ export const canProbe = (m: AdminModel) => m.is_chat && m.status === 'present';
 const norm = (s: string) => s.normalize('NFC').toLowerCase();
 const labelKey = (s: string) => norm(s).replace(/\s+/g, '');
 
-// 게이트웨이 값 → 짧은 낱말들 (정보 칸 · 서랍 '기능')
-export const info = (m: AdminModel) => [
-  !m.is_chat ? `${m.mode === 'embedding' ? COPY.info.embedding : m.mode ?? COPY.info.notChat} · ${COPY.info.unused}` : '',
-  tokens(m.max_input_tokens) ? COPY.info.context(tokens(m.max_input_tokens)!) : '',
-  m.supports_function_calling ? COPY.info.tools : '',
-  m.supports_reasoning ? COPY.info.reasoning : '',
-  m.supports_vision ? COPY.info.vision : '',
-].filter(Boolean);
-export const priceOf = (m: AdminModel) => (m.input_cost_per_token != null || m.output_cost_per_token != null
-  ? `${perM(m.input_cost_per_token) ?? '—'} / ${perM(m.output_cost_per_token) ?? '—'}`
-  : null);
-
 export const errorOf = (code: string) =>
   (Object.prototype.hasOwnProperty.call(ERROR_DETAIL, code) ? ERROR_DETAIL[code] : undefined) ?? { short: code, hint: UNKNOWN_ERROR_HINT };
 
-// 고치는 곳은 아는 만큼 좁힌다: 등록한 곳(config.yaml · 관리 화면) × 회사 → .env 키 이름 · LiteLLM 화면
+// 고치는 곳은 아는 만큼 좁힌다: 등록한 곳(config.yaml · 관리 화면) × 제공사 → .env 키 이름 · LiteLLM 화면
 const ENV_KEY: Record<string, string> = { anthropic: 'ANTHROPIC_API_KEY', openai: 'OPENAI_API_KEY', gemini: 'GEMINI_API_KEY', google: 'GEMINI_API_KEY' };
 const envKey = (provider: string) => ENV_KEY[provider] ?? `${provider.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_API_KEY`;
 const KEY_CODES = new Set(['provider_key_missing', 'provider_key_invalid', 'provider_auth_failed']);
@@ -98,7 +99,7 @@ export function dupIndex(rows: readonly AdminModel[]): (m: AdminModel) => Dup {
   };
 }
 
-// 묶음 안 자리 (1 · 2 …) = 화면의 순서 숫자. 전체 sort_order 는 회사를 건너 이어져 1 · 3 · 2 처럼 읽히므로 안 보인다
+// 제공사 안 자리 (1 · 2 …) = 화면의 순서 숫자. 전체 sort_order 는 제공사를 건너 이어져 1 · 3 · 2 처럼 읽히므로 안 보인다
 export function positions(rows: readonly AdminModel[]): Map<string, number> {
   const seen = new Map<string, number>();
   const pos = new Map<string, number>();
@@ -111,7 +112,7 @@ export function positions(rows: readonly AdminModel[]): Map<string, number> {
   return pos;
 }
 
-// 회사별 개수 · 노출 수. 칩 순서 = 목록 묶음과 같은 순서 (처음 나온 회사)
+// 제공사별 개수 · 노출 수. 고르기 상자 순서 = 표 줄 순서 (처음 나온 제공사)
 export function providerSummary(rows: readonly AdminModel[]): ProviderSummary[] {
   const map = new Map<string, ProviderSummary>();
   for (const r of rows) {
@@ -133,17 +134,16 @@ export function filterRows(rows: readonly AdminModel[], { provider, state, query
     && (!q || norm(r.label).includes(q) || norm(r.id).includes(q)));
 }
 
-export function groupRows(rows: readonly AdminModel[]): ProviderGroup[] {
-  const out: ProviderGroup[] = [];
-  for (const r of rows) {
-    const g = out.find((x) => x.id === r.provider);
-    if (g) g.rows.push(r);
-    else out.push({ id: r.provider, label: providerName(r), rows: [r] });
-  }
-  return out;
+// 표 줄 순서 = 처음 나온 제공사끼리 모은다 (안에서는 sort_order 그대로 · 서버가 이미 그 순서로 준다)
+export function orderRows(rows: readonly AdminModel[]): AdminModel[] {
+  const rank = new Map<string, number>();
+  for (const r of rows) if (!rank.has(r.provider)) rank.set(r.provider, rank.size);
+  return rows.map((r, i) => ({ r, i })).sort((a, b) => rank.get(a.r.provider)! - rank.get(b.r.provider)! || a.i - b.i).map((x) => x.r);
 }
 
-// 같은 회사 · 게이트웨이에 있는 줄 사이에서 앞 · 뒤 (↑↓ 로 옮길 자리)
+export const candidatesOf = (rows: readonly AdminModel[]) => rows.filter((r) => r.state === 'candidate');
+
+// 같은 제공사 · 게이트웨이에 있는 줄 사이에서 앞 · 뒤 (↑↓ 로 옮길 자리)
 export function neighbors(list: readonly AdminModel[], m: AdminModel) {
   const live = list.filter((r) => r.provider === m.provider && r.status === 'present');
   const at = live.findIndex((r) => r.id === m.id);

@@ -1,10 +1,10 @@
-// 모델 화면 상태. useModels = 서버 데이터 · 바꾸기 · 연결 시험 · 동기화 · 알림 줄 / useModelView = 거르개 · 고르기 · 접기 · 서랍 · 끌기.
+// 모델 화면 상태. useModels = 서버 데이터 · 바꾸기 · 연결 시험 · 동기화 · 알림 줄 / useModelView = 거르개 · 고르기 · 서랍 · 끌기.
 // 컴포넌트는 이 둘이 주는 값과 함수만 쓴다 (fetch 없음).
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AdminApiError, isConductorDown, loadErrorOf, type LoadError } from '../../shared/http';
 import { getGateway, listAdminModels, patchModel, syncModels, testModel, type AdminModel, type GatewayInfo, type ModelPatch, type ProbeResult } from './api';
 import { COPY, LOAD_ERROR, PATCH_ERROR, syncText, type StateFilter } from './copy';
-import { canProbe, dupIndex, errorOf, filterRows, fixFor, groupRows, positions, providerSummary } from './derive';
+import { canProbe, countsOf, dupIndex, errorOf, filterRows, fixFor, orderRows, positions, providerSummary } from './derive';
 
 type Load = { kind: 'loading' } | { kind: 'ok'; rows: AdminModel[] } | { kind: 'error'; error: LoadError };
 export type Flash = { kind: 'ok' | 'error'; text: string } | null;
@@ -226,32 +226,28 @@ export function useModelView(rows: AdminModel[]) {
   const [stateFilter, setStateFilter] = useState<StateFilter>('all');
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [openId, setOpenId] = useState<string | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
 
   const providers = useMemo(() => providerSummary(rows), [rows]);
   const posOf = useMemo(() => positions(rows), [rows]);
   const dupOf = useMemo(() => dupIndex(rows), [rows]);
-  // 거르던 회사가 목록에서 사라지면 전체로
+  const counts = useMemo(() => countsOf(rows), [rows]);
+  // 거르던 제공사가 목록에서 사라지면 전체로
   const activeProvider = provider !== 'all' && !providers.some((p) => p.id === provider) ? 'all' : provider;
-  const visible = filterRows(rows, { provider: activeProvider, state: stateFilter, query });
-  const groups = groupRows(visible);
+  const visible = orderRows(filterRows(rows, { provider: activeProvider, state: stateFilter, query })); // 표 줄 = 제공사끼리 모은 순서
 
   return {
     provider: activeProvider, setProvider,
     stateFilter, setStateFilter,
-    pickCard: (f: StateFilter) => setStateFilter((cur) => (cur === f ? 'all' : f)),
     query, setQuery,
     clearFilters: () => { setQuery(''); setProvider('all'); setStateFilter('all'); },
     unfiltered: activeProvider === 'all' && stateFilter === 'all' && !query.trim(),
-    providers, posOf, dupOf, visible, groups,
+    providers, posOf, dupOf, counts, visible,
     selected,
     picked: rows.filter((r) => selected.has(r.id)),
     toggleSel: (id: string) => setSelected((s) => toggled(s, id)),
     clearSel: () => setSelected(new Set()),
-    collapsed,
-    toggleGroup: (id: string) => setCollapsed((c) => toggled(c, id)),
     open: openId ? rows.find((r) => r.id === openId) ?? null : null,
     setOpenId,
     dragId, setDragId,

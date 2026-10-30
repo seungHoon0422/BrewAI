@@ -28,6 +28,9 @@ export const AUTH = {
   bootstrapSub: '.env 의 BREWAI_ADMIN_EMAIL · BREWAI_ADMIN_PASSWORD 를 채우고 서버를 다시 시작해 주세요 (node scripts/stack.mjs secrets)',
   firstLogin: '처음이면',
   firstLoginSub: '.env 의 BREWAI_ADMIN_EMAIL · BREWAI_ADMIN_PASSWORD 로 로그인해요',
+  // 테스트 계정 (서버가 test_admin 을 줄 때만 · 이메일 칸에 admin)
+  testAccount: '테스트 계정',
+  testAccountSub: '이메일 칸에 admin · 비밀번호 admin 으로 로그인해요 (이 PC 에서만)',
   // 서버 상태 줄
   server: (host: string) => `서버 ${host}`,
   serverOk: '연결됨',
