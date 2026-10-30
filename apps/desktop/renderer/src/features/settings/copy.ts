@@ -1,0 +1,22 @@
+// 설정 화면 문구 (한국어)
+export const SETTINGS = {
+  sub: '내 계정과 이 기기의 BrewAI 설정이에요.',
+  general: '일반',
+  theme: '테마',
+  themeSub: '시스템 설정을 따라요',
+  themeValue: (dark: boolean) => `시스템 따름 · 지금 ${dark ? '다크' : '라이트'}`,
+  model: '모델',
+  currentModel: '지금 쓰는 모델',
+  currentModelSub: '대화 입력창의 모델 버튼에서 바꿔요 · 허용된 모델만 보여요',
+  modelLoading: '불러오는 중…',
+  modelOffline: '서버 연결 후',
+  depth: '생각 깊이',
+  depthSub: '생각을 지원하는 모델에만 적용돼요',
+  about: '앱 정보',
+  version: '버전',
+  runtime: '실행 환경',
+  desktop: '데스크톱',
+  browser: '브라우저',
+  devServer: '개발 서버',
+  localBuild: '로컬 빌드',
+} as const;

@@ -1,0 +1,5 @@
+/* 짧은 위치 줄 (표 칸 · 서랍) — 토큰만 */
+.scope-path{display:inline-flex;align-items:center;flex-wrap:wrap;gap:var(--space-1);min-width:0;font-size:var(--fs-xs);color:var(--text-2)}
+.scope-crumb{display:inline-flex;align-items:center;gap:var(--space-1);min-width:0}
+.scope-crumb .ui-icon{color:var(--text-muted)}
+.scope-crumb .scope-sep{color:var(--text-faint)}

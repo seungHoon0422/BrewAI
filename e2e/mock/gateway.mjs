@@ -23,7 +23,7 @@
 //   실패 흉내 (LiteLLM 1.106.2 의 실제 status · type · 문구 — FAILURES 표): [fake:401] provider 키 없음 · [fake:key-invalid] provider 키 틀림
 //   · [fake:gateway-key] 게이트웨이 키 틀림(DB 모드) · [fake:model-404] provider 에 없는 모델 · [fake:reasoning-400] 생각 파라미터 거절
 //   · [fake:bad-request] provider 400 · [fake:openai-missing] OpenAI 키 없음(500 Missing credentials)
-//   [fake:think] → reasoning_effort 없이도 생각 조각
+//   [fake:think] → reasoning_effort 없이도 생각 조각 · [fake:system] → 답 끝에 ' · 지침: <system 메시지 마지막 줄>' (프로젝트 지침이 모델까지 갔는지)
 //   툴 (적은 순서대로 하나씩 부른다 · 요청 tools 에 있을 때만): [fake:skill <이름>] → use_skill · [fake:convert <값> <단위> <단위>] → unit_convert
 //   · [fake:calc] <수식> → calculator (줄 끝까지가 수식, 없으면 12*(3+4)) · [fake:time] → current_time. 다 부르면 결과들로 답한다
 // drop_params: 요청에 drop_params true 면 (LiteLLM 처럼) 모델이 지원 안 하는 reasoning_effort 를 400 대신 버린다
@@ -161,13 +161,17 @@ const textOf = (content) =>
 
 const userTexts = (messages) => messages.filter((m) => m?.role === 'user').map((m) => textOf(m.content));
 const lastUserText = (messages) => userTexts(messages).at(-1) ?? '';
+// system 메시지(들)의 마지막 글 줄 — conductor 는 프로젝트 지침을 시스템 프롬프트 맨 뒤에 붙인다
+const systemTail = (messages) =>
+  messages.filter((m) => m?.role === 'system').map((m) => textOf(m.content)).join('\n').split('\n').map((l) => l.trim()).filter(Boolean).at(-1) ?? '';
 
 // 결정적인 답: 같은 대화 + 같은 모델 = 같은 답. 앞 질문이 있으면 끝에 붙인다 (멀티턴 확인)
 function replyFor(model, messages) {
   const users = userTexts(messages);
   const question = users.at(-1) ?? '';
   const prev = users.length > 1 ? ` · 이전 질문: ${users.at(-2).trim()}` : '';
-  return `안녕하세요! 가짜 게이트웨이(${model})가 답해요. 받은 질문: ${question.trim() || '(빈 메시지)'}${prev}`;
+  const system = question.includes('[fake:system]') ? ` · 지침: ${systemTail(messages) || '(없음)'}` : '';
+  return `안녕하세요! 가짜 게이트웨이(${model})가 답해요. 받은 질문: ${question.trim() || '(빈 메시지)'}${prev}${system}`;
 }
 
 const THOUGHT = '질문을 살펴보는 중이에요. 무엇을 묻는지 나눠 보고, 필요한 도구가 있는지 확인해요.';

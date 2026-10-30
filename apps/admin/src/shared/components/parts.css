@@ -1,0 +1,29 @@
+/* 화면 안 작은 틀 — 배치만 (모양은 @brewai/ui 부품). 토큰만 쓴다 (ADR-0012) */
+.part{display:grid;gap:var(--space-2-5);padding:var(--space-4) 0;border-top:1px solid var(--border-subtle)}
+.part:first-child{padding-top:0;border-top:0}
+.part-title{margin:0;font-size:var(--fs-sm);font-weight:var(--fw-semibold);color:var(--text)}
+.part-hint{margin:0;font-size:var(--fs-xs);line-height:var(--lh-base);color:var(--text-muted)}
+.part-row{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-2);min-width:0}
+.part-row>.ui-field,.part-row>.ui-input{flex:1 1 calc(var(--width-read) / 4);min-width:0}
+.part-count{font-size:var(--fs-xs);color:var(--text-muted)}
+.part-muted{color:var(--text-muted)}
+
+/* 표의 이름 칸 */
+.name-cell{display:flex;align-items:center;gap:var(--space-2-5);min-width:0;padding:var(--space-1-5) 0}
+.name-icon{display:inline-grid;place-items:center;flex:none;width:var(--control-sm);height:var(--control-sm);border-radius:var(--radius-sm);
+  background:var(--surface-chip);color:var(--text-2)}
+.name-text{display:grid;gap:var(--space-0-5);min-width:0}
+.name-line{display:flex;align-items:center;gap:var(--space-1-5);min-width:0}
+.name-line b{font-weight:var(--fw-medium);color:var(--text)}
+.name-sub{font-size:var(--fs-xs);font-weight:var(--fw-regular);color:var(--text-muted)}
+
+/* 탭 한 장 = 도구 줄 · 알림 줄 · 표를 세로로 */
+.part-stack{display:flex;flex-direction:column;gap:var(--space-3);min-width:0}
+.part-search{flex:0 1 calc(var(--width-read) / 3);min-width:0}
+.part-tags{display:inline-flex;flex-wrap:wrap;align-items:center;gap:var(--space-1)}
+/* 비활성 줄 · 보관 줄 = 옅게 (Table rowState) */
+.ui-table tbody tr:is([data-state="disabled"],[data-state="archived"],[data-state="inactive"]) :is(td,th){color:var(--text-muted)}
+.part-row>.part-grow{flex:1 1 calc(var(--width-read) / 4);min-width:0}
+.part-avatar{display:inline-flex;flex:none}
+.part-inline{align-items:flex-end}
+.part-titled{display:inline-flex;align-items:center;gap:var(--space-2);min-width:0}

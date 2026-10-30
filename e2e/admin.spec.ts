@@ -11,7 +11,7 @@ const MENU: MenuItem[] = [
   { id: 'catalog', label: '카탈로그' },
   { id: 'approvals', label: '승인 기록' },
   { id: 'traces', label: '트레이스' },
-  { id: 'users', label: '사용자·예산' },
+  { id: 'users', label: '사용자·조직' },
   { id: 'docs', label: '문서' },
   { id: 'settings', label: '설정' },
 ];
@@ -44,9 +44,9 @@ test('메뉴를 누르면 그 화면이 뜬다', async ({ page }) => {
   }
 });
 
-test('빈 주소·모르는 주소·사용자 앱 주소는 개요로 간다', async ({ page }) => {
+test('빈 주소·모르는 주소·사용자 앱 주소·부품 모음(빌드에서 빠짐)은 개요로 간다', async ({ page }) => {
   await page.goto('/');
-  for (const hash of ['', '#/', '#/nope', '#/chat']) {
+  for (const hash of ['', '#/', '#/nope', '#/chat', '#/ui']) {
     await goHash(page, '#/settings');
     await expectScreen(page, NAV, SETTINGS);
     await goHash(page, hash);

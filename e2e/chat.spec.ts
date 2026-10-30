@@ -1,19 +1,13 @@
-import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
-import fs from 'node:fs';
-import net from 'node:net';
-import os from 'node:os';
-import path from 'node:path';
+import { test, expect, type ElectronApplication, type Page } from '@playwright/test';
+import { launchDesktop, userApi } from './auth';
 import { API } from './env';
-import { expectHeading, shot } from './helpers';
+import { expectHeading, relay, shot, type Relay } from './helpers';
 
 // 대화 관통 (slice 02 데모): 데스크톱 → conductor → mock 게이트웨이 → 글이 흘러 들어온다. 서버는 config.webServer 가 띄운다.
-const APP = path.join(__dirname, '..', 'apps', 'desktop');
 const HOME_H1 = '무엇을 맡길까요?';
 
-async function launch(apiUrl: string) {
-  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'brewai-e2e-'));
-  const app = await electron.launch({ args: [APP], env: { ...process.env, BREWAI_API_URL: apiUrl, BREWAI_USER_DATA: userData } });
-  const win = await app.firstWindow();
+async function launch(apiUrl = API) {
+  const { app, win } = await launchDesktop({ apiUrl });
   await expectHeading(win, HOME_H1);
   return { app, win };
 }
@@ -22,7 +16,7 @@ const ui = (win: Page) => ({
   box: win.getByRole('textbox', { name: '요청 입력' }),
   send: win.getByRole('button', { name: '보내기', exact: true }), // exact: 사이드바 최근(대화 제목)과 안 겹치게
   log: win.getByRole('log', { name: '대화 내용' }),
-  model: win.locator('.composer .model'),
+  model: win.locator('.composer .mpick-btn'),
 });
 
 async function ask(win: Page, text: string) {
@@ -36,7 +30,7 @@ test.describe('conductor 켜짐', () => {
   let win: Page;
   test.beforeAll(async () => {
     test.setTimeout(120_000);
-    ({ app, win } = await launch(API));
+    ({ app, win } = await launch());
   });
   test.afterAll(async () => app?.close());
 
@@ -113,7 +107,7 @@ test.describe('conductor 켜짐', () => {
       await expect(ui(win).log.locator('p.msg.note').last()).not.toHaveText(''); // 앞 실패는 한 줄로 남는다
     }
     // 진행 상황 목록엔 짧은 이유
-    const runs = (await (await fetch(`${API}/api/runs`)).json()) as { error_code: string | null }[];
+    const runs = await (await userApi()).get<{ error_code: string | null }[]>('/api/runs');
     expect(runs.slice(0, 4).map((r) => r.error_code)).toEqual(['provider_rejected', 'provider_rejected', 'gateway_auth_failed', 'provider_auth_failed']);
   });
 
@@ -141,21 +135,22 @@ test.describe('conductor 꺼짐', () => {
   test.describe.configure({ mode: 'serial' });
   let app: ElectronApplication;
   let win: Page;
+  let link: Relay;
   test.beforeAll(async () => {
     test.setTimeout(120_000);
-    // 아무도 안 듣는 포트 (잠깐 열었다 닫는다). CSP·onBeforeRequest 는 이 주소를 허용 → 진짜 '연결 거부' 를 본다
-    const port = await new Promise<number>((resolve) => {
-      const s = net.createServer().listen(0, '127.0.0.1', () => {
-        const p = (s.address() as net.AddressInfo).port;
-        s.close(() => resolve(p));
-      });
-    });
-    ({ app, win } = await launch(`http://127.0.0.1:${port}`));
+    // 로그인은 해 둔 채로 conductor 만 사라지게: 데스크톱은 중계 주소로 붙고, 중계를 닫으면 '연결 거부' (진짜 꺼짐과 같다)
+    link = await relay(API);
+    ({ app, win } = await launch(link.url));
+    await expect(ui(win).model).toContainText('fake-chat-small'); // 모델 목록까지 받은 뒤에 끊는다 (앞 테스트의 실패 점이 붙어 있을 수 있다)
+    await link.close();
   });
-  test.afterAll(async () => app?.close());
+  test.afterAll(async () => {
+    await app?.close();
+    await link?.close();
+  });
 
   test('보내면 "서버에 연결할 수 없어요" + 다시 시도 (말풍선은 그대로)', async () => {
-    await expect(ui(win).model).toHaveText('기본 모델');
+    await expect(ui(win).model).toContainText('fake-chat-small'); // 꺼지기 전에 받은 목록은 그대로
     await ask(win, '아무도 없나요');
     const alert = ui(win).log.getByRole('alert');
     await expect(alert).toContainText('서버에 연결할 수 없어요');

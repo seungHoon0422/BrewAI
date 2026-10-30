@@ -1,7 +1,7 @@
 {
   "name": "brewai",
   "private": true,
-  "workspaces": ["apps/desktop", "apps/admin", "e2e"],
+  "workspaces": ["packages/ui", "apps/desktop", "apps/admin", "e2e"],
   "engines": { "node": "24.22.x" },
   "scripts": {
     "dev": "node scripts/dev-all.mjs",
@@ -16,7 +16,7 @@
     "stack:logs": "node scripts/stack.mjs logs",
     "stack:reset": "node scripts/stack.mjs reset",
     "build": "npm run build -w apps/desktop && npm run build -w apps/admin",
-    "typecheck": "npm run typecheck -w apps/desktop && npm run typecheck -w apps/admin",
+    "typecheck": "npm run typecheck -w packages/ui && npm run typecheck -w apps/desktop && npm run typecheck -w apps/admin",
     "e2e": "npm run build && npm test -w e2e"
   }
 }

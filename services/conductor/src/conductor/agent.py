@@ -14,6 +14,8 @@ POST /api/chat 본문 = AG-UI RunAgentInput, 응답 = AG-UI SSE. 이벤트 순�
   brewai.run_summary.usage.reasoning_tokens (추가) = 생각 토큰 (글이 없어도 >0 이면 '생각은 했지만 내용은 안 보냄').
 모델 = LiteLLM 프록시의 OpenAI 호환 /v1/chat/completions (LiteLLMProvider, api_base = LLM_GATEWAY_URL + /v1).
 멀티턴 = 서버가 원본: 클라이언트가 보낸 messages 중 마지막 user 메시지만 쓰고, 앞 대화는 저장된 기록(message_history)으로.
+범위 = forwardedProps.spaceId · projectId (새 대화만 · 판정은 app.py prepare). 프로젝트 지침은 시스템 프롬프트 '뒤'에 붙는다
+(conductor 규칙을 덮지 못하게) · LiteLLM 요청 `user` = users.id (ADR-0011).
 """
 
 from __future__ import annotations
@@ -120,6 +122,18 @@ class ChatRequest:
     prompt: str
     model: str | None  # forwardedProps.model (None = 기본 모델)
     reasoning: Reasoning  # forwardedProps.reasoning (기본 off)
+    space_id: str | None = None  # forwardedProps.spaceId (새 대화만 · 없으면 내 스페이스)
+    project_id: str | None = None  # forwardedProps.projectId (새 대화만)
+
+
+@dataclass(frozen=True)
+class RunScope:
+    """prepare 가 정한 실행 범위 (누가 · 어디서 · 프로젝트 지침)."""
+
+    user_id: str | None = None
+    space_id: str | None = None
+    project_id: str | None = None
+    instructions: str | None = None  # 프로젝트 지침 (시스템 프롬프트 뒤에 붙는다)
 
 
 class RunSink(Protocol):
@@ -140,8 +154,8 @@ class RunSink(Protocol):
     ) -> None: ...
 
 
-# prepare = 모델 고르기 · 기록 읽기 · 실행 시작 기록. (모델, 앞 대화 JSON 들, sink) 를 돌려준다. 거절 = ChatRequestError
-Prepare = Callable[[ChatRequest], Awaitable[tuple[ModelChoice, list[str], RunSink]]]
+# prepare = 권한 · 모델 고르기 · 기록 읽기 · 실행 시작 기록. (모델, 앞 대화 JSON 들, sink, 범위) 를 돌려준다. 거절 = ChatRequestError
+Prepare = Callable[[ChatRequest], Awaitable[tuple[ModelChoice, list[str], RunSink, RunScope]]]
 
 
 def diagnose(error: BaseException) -> dx.Diagnosis:
@@ -568,7 +582,14 @@ class ChatRuntime:
         reasoning = props.get("reasoning", "off")
         if reasoning not in REASONING_LEVELS:
             raise ChatRequestError(400, "bad_reasoning")
-        return ChatRequest(thread_id=run_input.thread_id, run_id=run_input.run_id, prompt=prompt, model=model or None, reasoning=reasoning)
+        scope = {k: props.get(k) for k in ("spaceId", "projectId")}
+        for key, value in scope.items():
+            if value is not None and not (isinstance(value, str) and _ID.match(value)):
+                raise ChatRequestError(400, f"bad_{key}")
+        return ChatRequest(
+            thread_id=run_input.thread_id, run_id=run_input.run_id, prompt=prompt, model=model or None, reasoning=reasoning,
+            space_id=scope["spaceId"], project_id=scope["projectId"],
+        )
 
     async def handle(self, request: Request, prepare: Prepare) -> Response:
         try:
@@ -576,23 +597,31 @@ class ChatRuntime:
         except ValidationError as e:
             return Response(e.json(include_input=False), status_code=422, media_type="application/json")
         req = self.parse(adapter)
-        model, blobs, sink = await prepare(req)
+        model, blobs, sink, scope = await prepare(req)
         activity = _Activity(sink=sink, labels=self.skills.labels())  # 여기부터 실행 기록이 열려 있다 → 어떤 길로 나가든 finish
         try:
-            return self._stream(adapter, req, model, blobs, activity)
+            return self._stream(adapter, req, model, blobs, activity, scope)
         except BaseException:
             activity.status, activity.code = "error", "internal_error"
             activity.finish()
             raise
 
-    def _stream(self, adapter: _Adapter, req: ChatRequest, model: ModelChoice, blobs: list[str], activity: _Activity) -> Response:
+    def _stream(
+        self, adapter: _Adapter, req: ChatRequest, model: ModelChoice, blobs: list[str], activity: _Activity, scope: RunScope | None = None
+    ) -> Response:
+        scope = scope or RunScope()
         history = load_history(blobs)
         # 서버가 원본: 이번 질문(마지막 user 메시지)만 어댑터에 남긴다. 클라이언트가 보낸 앞 대화는 쓰지 않는다
         last = adapter.run_input.messages[-1]
         single = _Adapter(agent=self.agent, run_input=adapter.run_input.model_copy(update={"messages": [last]}), accept=adapter.accept)
         settings = self.model_settings(model, req.reasoning)
         effective: Reasoning = req.reasoning if settings is not None else "off"
-        log.info("chat run thread=%s run=%s model=%s reasoning=%s turns=%d", req.thread_id, req.run_id, model.id, effective, len(blobs))
+        if scope.user_id:  # LiteLLM 요청 user = users.id (게이트웨이 로그 · 예산 · trace)
+            settings = OpenAIChatModelSettings(**(settings or {}), openai_user=scope.user_id)  # type: ignore[typeddict-item]
+        log.info(
+            "chat run thread=%s run=%s model=%s reasoning=%s turns=%d user=%s space=%s",
+            req.thread_id, req.run_id, model.id, effective, len(blobs), scope.user_id, scope.space_id,
+        )
 
         def on_complete(result: Any) -> None:
             new = result.all_messages()[len(history):]  # 이번 질문 + 이번 답 (툴 왕복 포함)
@@ -620,13 +649,16 @@ class ChatRuntime:
             "tools": [t.name for t in self.tools] if model.supports_tools else [],
             "skills": [s.name for s in self.skills.list()] if model.supports_tools else [],
             "turn": len(blobs) + 1,
+            "space_id": scope.space_id,
+            "project_id": scope.project_id,
         }
         llm = self._model_factory(model.id)
-        if settings is not None and model.supports_tools and _signed_thinking(model):
+        if effective != "off" and model.supports_tools and _signed_thinking(model):
             llm = _ThinkFirstOnly(llm)
         events = single.run_stream(
             model=llm,
             message_history=history,
+            instructions=scope.instructions,
             model_settings=settings,
             toolsets=[self._toolset] if model.supports_tools else None,
             usage_limits=UsageLimits(request_limit=MAX_MODEL_REQUESTS),

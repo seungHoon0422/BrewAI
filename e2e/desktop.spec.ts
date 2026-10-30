@@ -1,14 +1,11 @@
-import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
+import { test, expect, type ElectronApplication, type Page } from '@playwright/test';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
+import { launchDesktop } from './auth';
 import { API } from './env';
 import { expectMenu, expectScreen, goHash, openMenu, shot, type MenuItem } from './helpers';
 
-// 사용자 데스크톱 앱 (Electron) 빌드본. npm run e2e 가 먼저 빌드한다
-const APP = path.join(__dirname, '..', 'apps', 'desktop');
+// 사용자 데스크톱 앱 (Electron) 빌드본. npm run e2e 가 먼저 빌드한다. 로그인한 상태로 연다 (e2e/auth.ts)
 
 // 메뉴 계약: 레일 순서 그대로 (설정은 구분선 아래)
 const NAV = '메뉴';
@@ -40,9 +37,7 @@ test.beforeAll(async () => {
   OUTSIDE = `http://127.0.0.1:${(outside.address() as AddressInfo).port}/`;
   // API 출처와 '바깥' 서버는 반드시 달라야 한다 (같으면 아래 차단 테스트가 의미 없다). 포트 0 = 임시 포트 ≠ 8787
   expect(new URL(OUTSIDE).origin).not.toBe(API);
-  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'brewai-e2e-'));
-  app = await electron.launch({ args: [APP], env: { ...process.env, BREWAI_API_URL: API, BREWAI_USER_DATA: userData } });
-  win = await app.firstWindow();
+  ({ app, win } = await launchDesktop());
 });
 
 test.afterAll(async () => {

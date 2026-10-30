@@ -1,0 +1,132 @@
+/* @brewai/ui 토큰 — 데스크톱 · 관리자 콘솔이 같이 쓰는 한 벌 (ADR-0012). 값의 출처 = design/prototype.html (클린룸, ADR-0005).
+   규칙: 기능 CSS 는 여기 이름만 쓴다 (색 · 크기 · 둥글기 · 그림자 · 움직임을 직접 적지 않는다). 다시 그릴 때 = 이 파일 값만 바꾼다.
+   테마: 기본 = OS 설정 · 강제 = <html data-theme="light|dark"> · 부분 강제 = 아무 요소에 data-theme (UI 부품 모음이 두 테마를 나란히 그릴 때).
+   구조: ① 테마마다 다른 원본 값 (라이트 · 다크) → ② 원본에서 계산하는 값 (:root, [data-theme] 에서 다시 계산 → 부분 테마도 맞다)
+        → ③ 테마와 무관한 값 (글자 · 간격 · 둥글기 · 크기 · 움직임 · 층). */
+
+/* ① 라이트 */
+:root,[data-theme="light"]{
+  color-scheme:light;
+  /* 면: 회색 틀(app) 위에 흰 면(surface) */
+  --surface-app:#f7f7f8; --surface:#ffffff; --surface-sunken:#f2f2f3; --surface-chip:#f4f4f5;
+  --surface-hover:#f3f3f4; --surface-active:rgba(0,0,0,.045); --scrim:rgba(0,0,0,.28);
+  /* 글: text = 본문 · text-2 = 보조 본문 · text-muted = 설명 · 12px 이하 글의 최저선 (AA) · text-faint = 아이콘 · 장식만 (글 금지) */
+  --text:#1d1d1f; --text-2:#3a3a3c; --text-muted:#6e6e73; --text-faint:#86868b;
+  /* 선: subtle = 안쪽 구분선 · default = 상자 테두리 · 입력칸 · hair = 면 경계 · edge = 면 그림자 선 */
+  --border-subtle:#efeff1; --border:#e7e7e9; --border-hair:#f0f0f2; --border-edge:rgba(0,0,0,.05);
+  /* 강조 = 잉크 (라이트 = 검정 · 다크 = 흰색). 주 버튼 · 켬 · 고른 것. 색은 상태에만 쓴다 */
+  --accent:#111113; --on-accent:#ffffff;
+  /* 상태: 점 · 막대 = info|ok|warn|danger · 글 = *-text (흰 바탕 4.5:1) */
+  --info:#2f6fed; --ok:#1f9d55; --warn:#d48a06; --danger:#d93636;
+  --info-text:#2563d9; --ok-text:#17803d; --warn-text:#9a5b00; --danger-text:#c42f2f;
+  /* 그림자: sm = 고른 칸 · 슬라이드 손잡이 · md = 떠 있는 층(팝오버) · lg = 대화상자 · 서랍 */
+  --shadow-sm:0 1px 2px rgba(0,0,0,.06);
+  --shadow-md:0 1px 2px rgba(0,0,0,.04),0 10px 30px rgba(0,0,0,.08);
+  --shadow-lg:0 2px 6px rgba(0,0,0,.06),0 24px 60px rgba(0,0,0,.16);
+  /* 유리 (떠 있는 일시적 층만 — 팝오버 · 메뉴 · 알림 · 살아 있는 상태 줄). 새 색 없음: 흰/검은 반투명 + 위 토큰.
+     뒤가 단색이라 흐림만으로는 안 보인다 → 겹친 그라데이션 채움 + 1px 그라데이션 테두리 + 위 밝은 선 · 아래 어두운 선 + 옅은 띄움 */
+  --glass-bg:rgba(255,255,255,.55); --glass-bg-strong:rgba(255,255,255,.72); --glass-border:rgba(0,0,0,.07);
+  --glass-hi:inset 0 1px 0 rgba(255,255,255,.9),inset 0 -1px 0 rgba(0,0,0,.035);
+  --glass-edge:linear-gradient(180deg,rgba(255,255,255,.95),rgba(0,0,0,.07) 55%,rgba(0,0,0,.11));
+  --glass-lift:0 1px 2px rgba(0,0,0,.04),0 6px 18px rgba(0,0,0,.06);
+  --glass-sheen-mix:7%;
+}
+
+/* ① 다크 (OS 설정 · 강제) — 두 덩어리 값이 같아야 한다 */
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --surface-app:#161618; --surface:#1e1e21; --surface-sunken:#252528; --surface-chip:#2a2a2e;
+    --surface-hover:#29292d; --surface-active:rgba(255,255,255,.07); --scrim:rgba(0,0,0,.55);
+    --text:#ececee; --text-2:#d0d0d4; --text-muted:#9a9aa0; --text-faint:#7c7c82;
+    --border-subtle:#2a2a2e; --border:#34343a; --border-hair:#2a2a2e; --border-edge:rgba(255,255,255,.06);
+    --accent:#f2f2f4; --on-accent:#111113;
+    --info:#5b8cff; --ok:#3fcf7f; --warn:#f0b34a; --danger:#ff6b6b;
+    --info-text:#7aa2ff; --ok-text:#3fcf7f; --warn-text:#f0b34a; --danger-text:#ff7b7b;
+    --shadow-sm:0 1px 2px rgba(0,0,0,.35);
+    --shadow-md:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.45);
+    --shadow-lg:0 2px 6px rgba(0,0,0,.35),0 24px 60px rgba(0,0,0,.55);
+    --glass-bg:rgba(40,40,44,.55); --glass-bg-strong:rgba(34,34,38,.78); --glass-border:rgba(255,255,255,.08);
+    --glass-hi:inset 0 1px 0 rgba(255,255,255,.07),inset 0 -1px 0 rgba(0,0,0,.28);
+    --glass-edge:linear-gradient(180deg,rgba(255,255,255,.2),rgba(255,255,255,.05) 55%,rgba(255,255,255,.03));
+    --glass-lift:0 1px 2px rgba(0,0,0,.3),0 6px 18px rgba(0,0,0,.28);
+    --glass-sheen-mix:8%;
+  }
+}
+[data-theme="dark"]{
+  color-scheme:dark;
+  --surface-app:#161618; --surface:#1e1e21; --surface-sunken:#252528; --surface-chip:#2a2a2e;
+  --surface-hover:#29292d; --surface-active:rgba(255,255,255,.07); --scrim:rgba(0,0,0,.55);
+  --text:#ececee; --text-2:#d0d0d4; --text-muted:#9a9aa0; --text-faint:#7c7c82;
+  --border-subtle:#2a2a2e; --border:#34343a; --border-hair:#2a2a2e; --border-edge:rgba(255,255,255,.06);
+  --accent:#f2f2f4; --on-accent:#111113;
+  --info:#5b8cff; --ok:#3fcf7f; --warn:#f0b34a; --danger:#ff6b6b;
+  --info-text:#7aa2ff; --ok-text:#3fcf7f; --warn-text:#f0b34a; --danger-text:#ff7b7b;
+  --shadow-sm:0 1px 2px rgba(0,0,0,.35);
+  --shadow-md:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.45);
+  --shadow-lg:0 2px 6px rgba(0,0,0,.35),0 24px 60px rgba(0,0,0,.55);
+  --glass-bg:rgba(40,40,44,.55); --glass-bg-strong:rgba(34,34,38,.78); --glass-border:rgba(255,255,255,.08);
+  --glass-hi:inset 0 1px 0 rgba(255,255,255,.07),inset 0 -1px 0 rgba(0,0,0,.28);
+  --glass-edge:linear-gradient(180deg,rgba(255,255,255,.2),rgba(255,255,255,.05) 55%,rgba(255,255,255,.03));
+  --glass-lift:0 1px 2px rgba(0,0,0,.3),0 6px 18px rgba(0,0,0,.28);
+  --glass-sheen-mix:8%;
+}
+
+/* ② 계산하는 값 — var() 는 선언한 요소에서 풀린다 → data-theme 를 붙인 요소마다 다시 계산 */
+:root,[data-theme]{
+  --border-strong:var(--text-faint);
+  --focus:var(--info);
+  /* 상태 옅은 바탕 (배지 · 알림 · 고른 줄) */
+  --info-soft:color-mix(in srgb,var(--info) 11%,transparent);
+  --ok-soft:color-mix(in srgb,var(--ok) 12%,transparent);
+  --warn-soft:color-mix(in srgb,var(--warn) 14%,transparent);
+  --danger-soft:color-mix(in srgb,var(--danger) 10%,transparent);
+  --warn-dot:color-mix(in srgb,var(--warn) 70%,var(--text)); /* 6~7px 점 = 흰 바탕 · 옅은 줄 모두 3:1 넘게 */
+  --glass-blur:saturate(160%) blur(14px);
+  --glass-sheen:color-mix(in srgb,var(--text) var(--glass-sheen-mix),transparent);
+  --glass-fill:linear-gradient(135deg,color-mix(in srgb,var(--surface) 70%,transparent),color-mix(in srgb,var(--surface-chip) 85%,transparent));
+  --glass-fill-live:linear-gradient(135deg,color-mix(in srgb,var(--surface) 70%,transparent),color-mix(in srgb,var(--info) 7%,color-mix(in srgb,var(--surface-chip) 85%,transparent)));
+  --shimmer-a:var(--text-muted); --shimmer-b:var(--text);
+  --glow-live:0 0 14px var(--info-soft); /* 흐르는 중인 상태 줄 가장자리 빛 */
+}
+
+/* ③ 테마와 무관한 값 */
+:root{
+  /* 글꼴 */
+  --font-sans:"Pretendard Variable",Pretendard,-apple-system,BlinkMacSystemFont,"Segoe UI","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  --font-mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  /* 글자 크기 — 8단. 12px · 12.5px 이 섞이던 것을 sm 하나로, 11px · 11.5px 을 xs 하나로 */
+  --fs-2xs:10.5px;  /* 배지 · 작은 꼬리표 */
+  --fs-xs:11.5px;   /* 메타 · 힌트 · 표 보조 줄 */
+  --fs-sm:12.5px;   /* 버튼 · 입력 · 표 · 보조 글 */
+  --fs-base:13px;   /* 본문 (화면 기본) */
+  --fs-md:13.5px;   /* 읽는 글 (대화 답 · 입력창) */
+  --fs-lg:15px;     /* 서랍 · 대화상자 · 카드 제목 */
+  --fs-xl:20px;     /* 화면 제목 h1 */
+  --fs-2xl:22px;    /* 첫 화면 인사 · 큰 숫자 */
+  /* 굵기 — 세 단만 (관리자 650 → 600) */
+  --fw-regular:400; --fw-medium:500; --fw-semibold:600;
+  --lh-tight:1.3; --lh-base:1.5; --lh-read:1.65;
+  --tracking-base:-.005em; --tracking-title:-.015em; --tracking-display:-.02em;
+
+  /* 간격 — 4px 격자 (+ 2 · 6 · 10 · 14 반 칸) */
+  --space-0-5:2px; --space-1:4px; --space-1-5:6px; --space-2:8px; --space-2-5:10px; --space-3:12px; --space-3-5:14px;
+  --space-4:16px; --space-5:20px; --space-6:24px; --space-8:32px; --space-10:40px; --space-12:48px; --space-16:64px;
+
+  /* 둥글기 — 목록 칸 · 아이콘 버튼 = md · 상자 · 표 · 팝오버 = lg · 큰 면(대화 카드) = xl · 입력창 = 2xl · 버튼 · 배지 · 칩 = pill */
+  --radius-xs:4px; --radius-sm:6px; --radius-md:8px; --radius-lg:12px; --radius-xl:16px; --radius-2xl:20px; --radius-pill:999px;
+
+  /* 크기 */
+  --control-sm:24px; --control-md:30px; --control-lg:36px;
+  --icon-xs:12px; --icon-sm:14px; --icon-md:16px; --icon-lg:18px;
+  --row-compact:40px; --row-comfortable:52px;
+  --width-read:720px;  /* 대화 · 메뉴 화면 본문 폭 */
+  --width-page:1100px; /* 관리자 표 화면 폭 */
+
+  /* 움직임 */
+  --dur-fast:120ms; --dur-base:180ms; --dur-slow:280ms;
+  --ease-standard:cubic-bezier(.2,0,0,1); --ease-out:cubic-bezier(0,0,.2,1);
+
+  /* 층 (대화상자 · 서랍은 <dialog> 최상위 층이라 숫자가 없다) */
+  --z-sticky:10; --z-popover:20; --z-toast:40; --z-tooltip:50;
+}

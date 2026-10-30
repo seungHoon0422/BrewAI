@@ -1,0 +1,80 @@
+/* 떠 있는 층 — 팝오버 · 메뉴 · 대화상자 · 서랍 · 툴팁 · 알림 (ADR-0012 표면 규칙).
+   유리 = 팝오버 · 메뉴 · 알림 (일시적 · 내용 위) / 불투명 + shadow-lg = 대화상자 · 서랍 / 잉크 = 툴팁 */
+
+/* 팝오버 */
+.ui-popover-anchor{position:relative;display:inline-flex;min-width:0;vertical-align:middle}
+.ui-popover{position:absolute;z-index:var(--z-popover);min-width:200px;max-width:calc(100vw - 32px);max-height:min(520px,calc(100vh - 120px));overflow:auto;
+  padding:var(--space-1-5);border-radius:var(--radius-lg);color:var(--text);animation:ui-fade var(--dur-fast) var(--ease-out);scrollbar-width:thin}
+.ui-popover[data-surface="glass"]{border:1px solid var(--glass-border)}
+.ui-popover[data-surface="glass"]::after{display:none} /* 스크롤하는 상자라 그라데이션 테두리 대신 1px 선 (desktop 모델 메뉴와 같음) */
+.ui-popover[data-surface="solid"]{background:var(--surface);border:1px solid var(--border);box-shadow:var(--shadow-md)}
+.ui-popover[data-placement="bottom-start"]{top:calc(100% + 6px);left:0}
+.ui-popover[data-placement="bottom-end"]{top:calc(100% + 6px);right:0}
+.ui-popover[data-placement="top-start"]{bottom:calc(100% + 6px);left:0}
+.ui-popover[data-placement="top-end"]{bottom:calc(100% + 6px);right:0}
+.ui-popover:focus-visible{outline:0}
+
+/* 메뉴 */
+.ui-menu{display:grid;gap:1px}
+.ui-menu-heading{margin:6px 8px 3px;font-size:var(--fs-2xs);font-weight:var(--fw-semibold);color:var(--text-muted)}
+.ui-menu-sep{height:1px;margin:4px 6px;background:var(--border-subtle)}
+.ui-menu-item{display:flex;align-items:center;gap:var(--space-2);width:100%;min-height:var(--control-md);padding:5px 8px;border:0;border-radius:var(--radius-md);
+  background:transparent;color:var(--text);font-size:var(--fs-sm);text-align:left;cursor:pointer}
+.ui-menu-item:hover,.ui-menu-item:focus-visible{background:var(--surface-hover);outline:0}
+.ui-menu-item .ui-icon{color:var(--text-muted)}
+.ui-menu-item[data-danger]{color:var(--danger-text)}
+.ui-menu-item[data-danger] .ui-icon{color:currentColor}
+.ui-menu-item:disabled{opacity:.45;cursor:default;background:transparent}
+.ui-menu-check{display:grid;place-items:center;width:var(--icon-sm);flex:none}
+.ui-menu-check .ui-icon{color:var(--text)}
+.ui-menu-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ui-menu-hint{margin-left:auto;font-size:var(--fs-xs);color:var(--text-muted);white-space:nowrap}
+
+/* 대화상자 · 서랍 (<dialog>) */
+.ui-dialog,.ui-sheet{padding:0;border:0;color:var(--text);background:var(--surface);box-shadow:var(--shadow-lg);overflow:hidden}
+.ui-dialog::backdrop,.ui-sheet::backdrop{background:var(--scrim);animation:ui-fade-in var(--dur-base) var(--ease-out)}
+.ui-dialog{width:min(480px,calc(100vw - 32px));max-height:min(720px,calc(100dvh - 64px));border-radius:var(--radius-xl);animation:ui-fade var(--dur-base) var(--ease-out)}
+.ui-dialog[data-size="sm"]{width:min(380px,calc(100vw - 32px))}
+.ui-dialog[data-size="lg"]{width:min(680px,calc(100vw - 32px))}
+.ui-sheet{position:fixed;inset:0 0 0 auto;width:min(480px,100vw);max-width:none;height:100dvh;max-height:none;margin:0;border-left:1px solid var(--border);
+  animation:ui-slide-in-right var(--dur-base) var(--ease-out)}
+.ui-sheet[data-side="left"]{inset:0 auto 0 0;border-left:0;border-right:1px solid var(--border);animation-name:ui-slide-in-left}
+.ui-modal-in{display:grid;grid-template-rows:auto minmax(0,1fr) auto;max-height:inherit;height:100%}
+.ui-dialog .ui-modal-in{max-height:min(720px,calc(100dvh - 64px))}
+.ui-modal-head{display:flex;align-items:flex-start;gap:var(--space-3);padding:var(--space-5) var(--space-5) var(--space-3)}
+.ui-sheet .ui-modal-head{padding-bottom:var(--space-4);border-bottom:1px solid var(--border-subtle)}
+.ui-modal-titles{flex:1;min-width:0}
+.ui-modal-title{margin:0;font-size:var(--fs-lg);font-weight:var(--fw-semibold);letter-spacing:var(--tracking-title);line-height:var(--lh-tight);overflow-wrap:anywhere}
+.ui-modal-desc{margin:var(--space-1) 0 0;color:var(--text-muted)}
+.ui-modal-x{margin:-4px -6px 0 0}
+.ui-modal-body{min-height:0;padding:0 var(--space-5) var(--space-5)}
+.ui-sheet .ui-modal-body{padding-top:var(--space-4)}
+.ui-modal-foot{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:var(--space-2);padding:var(--space-3) var(--space-5);border-top:1px solid var(--border-subtle)}
+html:has(.ui-dialog[open],.ui-sheet[open]){overflow:hidden}
+@media (max-width:760px){
+  .ui-sheet,.ui-sheet[data-side="left"]{inset:auto 0 0 0;width:100vw;height:auto;max-height:88dvh;border:0;border-top:1px solid var(--border);
+    border-radius:var(--radius-xl) var(--radius-xl) 0 0;animation-name:ui-slide-in-up}
+}
+
+/* 툴팁 — 잉크 바탕 작은 글. 손을 올리고 조금 뒤 (바로 뜨면 시끄럽다) */
+.ui-tip{position:relative;display:inline-flex}
+.ui-tip-body{position:absolute;left:50%;bottom:calc(100% + 6px);z-index:var(--z-tooltip);width:max-content;max-width:260px;padding:5px 9px;
+  border-radius:var(--radius-md);background:var(--accent);color:var(--on-accent);font-size:var(--fs-xs);line-height:1.4;box-shadow:var(--shadow-md);
+  transform:translate(-50%,2px);opacity:0;visibility:hidden;pointer-events:none;transition:opacity var(--dur-fast),transform var(--dur-fast),visibility 0s linear var(--dur-fast)}
+.ui-tip[data-side="bottom"] .ui-tip-body{bottom:auto;top:calc(100% + 6px);transform:translate(-50%,-2px)}
+.ui-tip:hover .ui-tip-body,.ui-tip:focus-within .ui-tip-body{opacity:1;visibility:visible;transform:translate(-50%,0);transition-delay:350ms,350ms,0s}
+.ui-tip:focus-within .ui-tip-body{transition-delay:0s}
+.ui-tip[data-hidden] .ui-tip-body{opacity:0;visibility:hidden}
+
+/* 알림 — 유리 카드 · 상태 = 앞 점 */
+.ui-toast-region{position:fixed;right:var(--space-4);bottom:var(--space-4);z-index:var(--z-toast);display:grid;gap:var(--space-2);width:min(360px,calc(100vw - 32px));pointer-events:none}
+.ui-toast-region:empty{display:none}
+.ui-toast{display:flex;align-items:flex-start;gap:var(--space-2-5);padding:10px 8px 10px 14px;border-radius:var(--radius-lg);color:var(--text);
+  pointer-events:auto;animation:ui-fade var(--dur-base) var(--ease-out)}
+.ui-toast .ui-dot{margin-top:6px}
+.ui-toast-main{flex:1;min-width:0}
+.ui-toast-title{margin:0;font-size:var(--fs-sm);font-weight:var(--fw-medium);overflow-wrap:anywhere}
+.ui-toast-body{margin:2px 0 0;font-size:var(--fs-xs);color:var(--text-muted);overflow-wrap:anywhere}
+.ui-toast-action{flex:none;margin-top:1px;padding:2px 6px;border:0;border-radius:var(--radius-sm);background:transparent;color:var(--info-text);
+  font-size:var(--fs-sm);font-weight:var(--fw-medium);cursor:pointer}
+.ui-toast-action:hover{background:var(--surface-hover)}

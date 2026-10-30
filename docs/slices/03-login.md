@@ -2,7 +2,7 @@
 
 - 목표: 데스크톱 · 관리자 콘솔 모두 로그인해야 쓴다. 이메일+비밀번호와 Google. 사용자마다 '내 스페이스'에 대화가 쌓인다 (ADR-0010 · ADR-0011).
 - 연결된 exit criteria: **P1-6**
-- 시작: 2026-10-30 (금) — 설계 문서만. 구현은 HANDOFF '결정 대기' 답을 받은 뒤 · 파일 10개 이상 → 계획 먼저 승인.
+- 시작: 2026-10-30 (금) — 결정 확정(로그인 ID = 이메일 · 닉네임 · 비밀번호 15자 · 초대 코드 가입 · 프로젝트 층) → conductor 먼저, 데스크톱 · 관리자 화면은 그 API 로.
 
 ## 구성 한눈에 (자세히 = slice 04)
 | 층 | 무엇 | 예 |
@@ -10,6 +10,7 @@
 | 설치본 | conductor 1개 + SQLite · instance admin(설치 관리자) | 두 PC 는 DB 가 따로 = 계정도 따로 |
 | 조직 | 사람 묶음. 항상 1개 이상, 1개면 UI 에서 숨김 | 첫 실행 때 '우리 팀' |
 | 스페이스 | 작업공간. 내 스페이스(personal, 사용자마다 1개) + 공유(shared) | 이 slice 는 내 스페이스만 |
+| 프로젝트 | 스페이스 안 묶음 + 지침 (선택 · 대화는 '프로젝트 없음'도 됨) | slice 04 |
 | 대화 · 실행 | 스페이스 안. 대화는 기본 '나만 보기' | 옛 대화 = 첫 관리자의 내 스페이스 |
 
 ## 로그인 방법
@@ -18,6 +19,9 @@
 | 이메일(= 로그인 ID) + 비밀번호 | 로그인 게이트 → main 이 `POST /api/auth/login` | `POST /api/admin/auth/login` → 쿠키 |
 | Google | 시스템 브라우저 → conductor 콜백 → 127.0.0.1 loopback handoff → `POST /api/auth/token` | `localhost:5174` proxy 콜백에서 바로 쿠키 |
 | 첫 관리자 | `.env` `BREWAI_ADMIN_EMAIL`(dev@brewai.local) · `BREWAI_ADMIN_PASSWORD`(stack.mjs 가 무작위 24자) | 같은 계정 |
+
+- 로그인 ID = 이메일 (따로 아이디 없음 · 대소문자 무시). 사람이 보이는 곳 = **닉네임**(`users.display_name` · 1~40자 · 중복 허용 · 기본 = 이메일 @ 앞 또는 Google 이름 · 설정 › 계정에서 변경).
+- 비밀번호 15~128자 (`CONDUCTOR_PASSWORD_MIN`, 기본 15 = OWASP · MFA 없음) · 조합 규칙 없음.
 
 ## 토큰 · 세션
 | 종류 | 수명 | 어디에 |
@@ -37,7 +41,7 @@ DB 엔 sha256 만. `/api/*` = Bearer 만 · `/api/admin/*` = 쿠키만 (표면�
 | 3 | conductor | state · nonce · PKCE 를 DB 에 + 바인딩 쿠키 → Google (openid email profile) |
 | 4 | conductor | `/api/auth/google/callback`: state·쿠키 확인 → httpx2 로 code 교환 → claim 검사 → 사용자 결정(아래) |
 | 5 | conductor | `302 http://127.0.0.1:{port}/cb?code&ds` (host 고정 · port 숫자만) |
-| 6 | main | ds 확인 → 'BrewAI 로 돌아가세요' → handoff code + verifier 로 세션 → 창 포커스 |
+| 6 | main | ds 확인 → 'BrewAI 로 돌아가세요' → handoff code + verifier 로 세션 (연결이면 로그인한 채 `POST /api/me/google/link/complete`) → 창 포커스 |
 
 Google 토큰은 데스크톱에 안 오고 서버에도 저장하지 않는다. 아래 2~4 는 `email_verified` 참일 때만.
 
@@ -45,33 +49,33 @@ Google 토큰은 데스크톱에 안 오고 서버에도 저장하지 않는다.
 |---|---|---|
 | 1 | identities(issuer, sub) 있음 | 그 사람 (이메일로 찾지 않음) |
 | 2 | 유효한 초대 (이메일 지정이면 같아야) | 가입 (slice 04) |
-| 3 | 같은 이메일 + Google 이 권위 (@gmail.com · hd 있음) | 자동 연결 + audit · 아니면 '비밀번호로 로그인 후 설정 › 계정에서 연결' |
+| 3 | 같은 이메일 + Google 이 권위 (@gmail.com · hd 있음) | 자동 연결 + audit (이메일 미확인 계정 = 비밀번호 · 세션 끊음 `google_claim`) · 아니면 '비밀번호로 로그인 후 설정 › 계정에서 연결' |
 | 4 | 조직 domain_auto · `hd` = google_hd | member 로 가입 (slice 04) |
 | 5 | 그 밖 | '이 Google 계정은 아직 초대받지 않았어요' (계정 안 만듦) |
 
 ## 테이블 (SQLite v1 → v2 · 이 slice 에서 전부 만든다)
 | 테이블 | 핵심 |
 |---|---|
-| users | uuid · email_norm UNIQUE · instance_role(admin\|user) · status · last_space_id |
+| users | uuid · email_norm UNIQUE(로그인 ID) · display_name(닉네임) · instance_role(admin\|user) · status · last_space_id · email_verified_at(첫 관리자 · Google · 이메일 지정 초대) |
 | identities | provider(password\|google) · UNIQUE(issuer, subject) · argon2id 해시(password 만) · hd |
 | sessions · refresh_tokens | client(desktop\|admin) · access_hash · idle/abs 만료 · revoked_at · family = session_id |
 | one_time_tokens · login_attempts | handoff · reset · oauth_flow / 시도 제한 카운터 |
-| orgs · org_members · spaces · space_members · invites · audit_events | 쓰는 건 slice 04 (두 번째 마이그레이션을 피하려고 지금 만든다) |
-| threads · runs (+) | space_id · created_by · visibility / user_id · space_id · org_id |
+| orgs · org_members · spaces · space_members · projects · invites · audit_events | 쓰는 건 slice 04 (두 번째 마이그레이션을 피하려고 지금 만든다) |
+| threads · runs (+) | space_id · project_id · user_id(만든 사람) · visibility / user_id · space_id · org_id |
 
 ## API
 | 묶음 | 경로 | 인증 |
 |---|---|---|
-| 공개 | `GET /healthz` · `GET /api/auth/state`(needs_bootstrap · providers) · `POST /api/auth/login` · `/api/auth/token`(refresh · handoff) | 시도 제한 |
+| 공개 | `GET /healthz` · `GET /api/auth/state`(needs_bootstrap · first_login · providers) · `POST /api/auth/login` · `/api/auth/token`(refresh · handoff) | 시도 제한 |
 | 브라우저 | `GET /api/auth/google/start` · `/api/auth/google/callback` | oauth_flow + 바인딩 쿠키 |
-| 사용자 | `POST /api/auth/logout` · `GET/PATCH /api/me` · Google 연결/해제 · 기존 `/api/chat` · `/api/threads` · `/api/runs` · `/api/models` · `/api/tools` · `/api/skills` | Bearer · 내 스페이스만 |
+| 사용자 | `POST /api/auth/logout` · `GET/PATCH /api/me`(닉네임) · `POST /api/me/password` · Google 연결(`/api/me/google/link` → `…/link/complete`)/해제 · 기존 `/api/chat` · `/api/threads` · `/api/runs` · `/api/models` · `/api/tools` · `/api/skills` | Bearer · 내 스페이스만 |
 | 관리자 | `POST /api/admin/auth/login` · `/logout` · `GET /api/admin/auth/me` · 기존 `/api/admin/*` | 쿠키 + CSRF + instance admin |
 
 ## 화면 · 문구
 | 어디 | 무엇 |
 |---|---|
-| 데스크톱 로그인 게이트 (셸보다 먼저) | 'BrewAI에 로그인' · [Google로 계속](키 있을 때만) · 이메일 · 비밀번호 · [로그인] · '초대 코드가 있어요 · 비밀번호를 잊었어요' · '서버 127.0.0.1:8787 ●연결됨' |
-| 데스크톱 사이드바 아래 · 설정 › 계정 | 계정 칩(이름 ▾ 설정 › 계정 · 로그아웃) · 이름 · 이메일 · 로그인 방법(비밀번호 · Google 연결/해제, 마지막 방법은 해제 불가) |
+| 데스크톱 로그인 게이트 (셸보다 먼저) | 'BrewAI에 로그인' · [Google로 계속](키 있을 때만) · 이메일 · 비밀번호 · [로그인] · '초대 코드가 있어요 · 비밀번호를 잊었어요' · '서버 127.0.0.1:8787 ●연결됨' · 아직 아무도 로그인 안 했으면 '처음이면 .env 의 BREWAI_ADMIN_EMAIL · BREWAI_ADMIN_PASSWORD' (관리자 콘솔도) |
+| 데스크톱 사이드바 아래 · 설정 › 계정 | 계정 칩(닉네임 ▾ 설정 › 계정 · 로그아웃) · 닉네임 [변경] · 이메일(로그인 ID · 읽기 전용) · 비밀번호 변경 · 로그인 방법(비밀번호 · Google 연결/해제, 마지막 방법은 해제 불가) |
 | 관리자 콘솔 | 미로그인 = 전체 화면 로그인 · 헤더 '관리자 로그인 (P2)' → 계정 칩 |
 | 틀림 · 없는 계정 · 비활성 | 이메일 또는 비밀번호가 맞지 않아요 |
 | 429 · 서버 꺼짐 · 만료 | 잠시 후 다시 시도해 주세요 · n초 / 서버에 연결할 수 없어요 [다시 시도] / 다시 로그인해 주세요 |
@@ -80,12 +84,12 @@ Google 토큰은 데스크톱에 안 오고 서버에도 저장하지 않는다.
 ## 사람이 할 일
 | 언제 | 무엇 |
 |---|---|
-| 기본 (할 일 없음) | `npm run dev` 가 `.env` 에 관리자 이메일 · 무작위 비번을 만든다 → 그걸로 로그인 |
+| 기본 (할 일 없음) | `npm run dev` 가 `.env` 에 관리자 이메일 · 무작위 비번을 만든다 → 그걸로 로그인 (Docker 안 쓰는 PC = `node scripts/stack.mjs secrets`) |
 | Google 쓸 때 (~10분) | console.cloud.google.com → 프로젝트 'BrewAI-dev' → Branding · Audience(Internal 또는 External + Testing 사용자) · 범위 openid email profile → Client **Web application** → redirect URI `http://127.0.0.1:8787/api/auth/google/callback` · `http://localhost:5174/api/auth/google/callback` → `.env` 에 `GOOGLE_CLIENT_ID` · `GOOGLE_CLIENT_SECRET` (두 PC 같은 값 · 커밋 금지) |
 | 운영 | https 도메인 필수 → `CONDUCTOR_PUBLIC_URL` · redirect URI 를 그 도메인으로 · Audience 를 In production 으로 |
 
 ## 데모 스크립트 (금요일 — 두 PC 각각)
-1. 새 DB 로 `npm run dev` → 로그 '첫 관리자 dev@brewai.local · 비밀번호는 .env BREWAI_ADMIN_PASSWORD'
+1. 새 DB 로 `npm run dev` → 로그 '[stack] conductor 로그인 = dev@brewai.local …' · conductor 경고 줄 '첫 관리자 dev@brewai.local · 비밀번호는 .env BREWAI_ADMIN_PASSWORD' · 로그인 화면 '처음이면'
 2. 데스크톱: 틀린 비번 → '이메일 또는 비밀번호가 맞지 않아요' → 맞는 비번 → 옛 대화가 '내 스페이스'에 그대로
 3. 앱 재시작 → 로그인 유지 · 계정 칩 › 로그아웃 → 게이트
 4. `curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8787/api/threads` → `401`
@@ -111,8 +115,12 @@ Google 토큰은 데스크톱에 안 오고 서버에도 저장하지 않는다.
 ## 함정
 - id_token 서명 검증 생략은 서버가 Google token endpoint 에서 TLS 로 직접 받을 때만. issuer 는 https 만 (`BREWAI_E2E=1` + `CONDUCTOR_PUBLIC_URL` 이 loopback 일 때만 http mock 허용 — 그게 E2E 의 유일한 예외)
 - refresh 하나를 여러 Electron launch 가 나눠 쓰면 회전 → 재사용 감지 오탐 → E2E 는 launch 마다 로그인해 `BREWAI_E2E_REFRESH` + `BREWAI_TOKEN_STORE=memory` (`!app.isPackaged` 일 때만)
+- 가입은 IP 당 10분에 10번 → E2E 테스트 사용자는 실행 시작 때 `e2e/global-setup.ts` 가 한 번 만든다 (`e2e/auth.ts` POOL · 바꾸는 일마다 따로). 스펙에서 새로 가입하지 않는다
 - 관리자 `localhost:5174` ↔ conductor `127.0.0.1:8787` 은 다른 site → 쿠키가 안 붙음 → admin `API_URL` = '' + Vite `server.proxy` · `preview.proxy`. 관리자 경로의 'Origin 없으면 통과' 규칙은 없앤다
 - Google 은 localhost · 127.0.0.1 밖의 http · IP redirect 를 거부 → 운영은 https 도메인. 키가 없으면 버튼을 숨기고 나머지는 동작
 - 개발용(미서명) Electron = macOS 키체인 팝업('항상 허용') · Windows 방화벽이 loopback 리스너에 경고할 수 있음(미확인) · Linux basic_text 면 refresh 저장 안 함
-- 비밀번호 최소 15자 = OWASP(MFA 없을 때) · 12자로 할지는 결정 대기
+- 데스크톱은 한 번에 하나만 (`requestSingleInstanceLock`) — 두 개가 같은 refresh 를 회전하면 재사용 감지로 둘 다 로그아웃. `BREWAI_USER_DATA` + 개발본(E2E 여러 사용자)만 예외
+- `.env` 에 직접 넣은 비밀번호에 공백이 있으면 "따옴표" — 아니면 uv 가 거기서 파일을 못 읽어 첫 관리자가 안 생긴다 (`stack.mjs` 가 경고)
+- 로그인 IP 키는 15분 창 · 관리자 Vite proxy 는 `xfwd` (아니면 모든 관리자가 127.0.0.1 하나로 같이 잠긴다)
+- 비밀번호 최소 15자 = OWASP(MFA 없을 때) · 바꾸려면 `CONDUCTOR_PASSWORD_MIN` (코드 · 화면은 `GET /api/auth/state` 의 password_min 을 읽는다)
 - 목요일까지 데모가 안 되면 관리자 로그인을 slice 04 앞부분으로 미룬다

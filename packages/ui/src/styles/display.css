@@ -1,0 +1,134 @@
+/* 보여 주기 부품 — 배지 · 칩 · 상태 점 · 아바타 · 키 · 카드 · 숫자 카드 · 알림 줄 · 키/값 · 빈 상태.
+   색 = 상태만 (옅은 바탕 + 상태 글자색 · 점). 상자 = 1px --border · 둥글기 lg · 그림자 없음. */
+
+/* 배지 */
+.ui-badge{display:inline-flex;align-items:center;gap:5px;flex:none;height:20px;padding:0 8px;border-radius:var(--radius-pill);
+  font-size:var(--fs-2xs);font-weight:var(--fw-semibold);line-height:1;white-space:nowrap;background:var(--surface-chip);color:var(--text-muted)}
+.ui-badge[data-size="sm"]{height:16px;padding:0 6px;font-weight:var(--fw-medium)}
+.ui-badge[data-mono]{font-family:var(--font-mono);font-weight:var(--fw-medium)}
+.ui-badge[data-dot]::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;flex:none}
+.ui-badge[data-tone="info"]{background:var(--info-soft);color:var(--info-text)}
+.ui-badge[data-tone="ok"]{background:var(--ok-soft);color:var(--ok-text)}
+.ui-badge[data-tone="warn"]{background:var(--warn-soft);color:var(--warn-text)}
+.ui-badge[data-tone="danger"]{background:var(--danger-soft);color:var(--danger-text)}
+.ui-badge[data-tone="accent"]{background:color-mix(in srgb,var(--accent) 9%,var(--surface-chip));color:var(--text)} /* 옅은 잉크 (진한 것 = solid) */
+.ui-badge[data-variant="outline"]{background:transparent;box-shadow:inset 0 0 0 1px var(--border)}
+.ui-badge[data-variant="outline"][data-tone="info"]{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--info) 45%,transparent)}
+.ui-badge[data-variant="outline"][data-tone="ok"]{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--ok) 45%,transparent)}
+.ui-badge[data-variant="outline"][data-tone="warn"]{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--warn) 55%,transparent)}
+.ui-badge[data-variant="outline"][data-tone="danger"]{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--danger) 45%,transparent)}
+.ui-badge[data-variant="outline"][data-tone="accent"]{background:transparent;color:var(--text);box-shadow:inset 0 0 0 1px var(--text)}
+.ui-badge[data-variant="solid"]{color:var(--surface)}
+.ui-badge[data-variant="solid"][data-tone="neutral"]{background:var(--text-muted)}
+.ui-badge[data-variant="solid"][data-tone="info"]{background:var(--info)}
+.ui-badge[data-variant="solid"][data-tone="ok"]{background:var(--ok)}
+.ui-badge[data-variant="solid"][data-tone="warn"]{background:var(--warn)}
+.ui-badge[data-variant="solid"][data-tone="danger"]{background:var(--danger)}
+.ui-badge[data-variant="solid"][data-tone="accent"]{background:var(--accent);color:var(--on-accent)}
+
+/* 칩 (누르는 거르개) — 고름 = 잉크 테두리 */
+.ui-chip{display:inline-flex;align-items:center;gap:var(--space-1-5);height:28px;padding:0 10px;border:1px solid var(--border);border-radius:var(--radius-pill);
+  background:var(--surface);color:var(--text-2);font-size:var(--fs-sm);white-space:nowrap;cursor:pointer;transition:background var(--dur-fast),border-color var(--dur-fast)}
+.ui-chip:hover{background:var(--surface-hover)}
+.ui-chip[aria-pressed="true"]{border-color:var(--text);color:var(--text);box-shadow:inset 0 0 0 .5px var(--text)}
+.ui-chip:disabled{opacity:.5;cursor:default}
+.ui-chip-count{font-size:var(--fs-xs);font-weight:var(--fw-semibold);color:var(--text-muted)}
+
+/* 상태 점 — run 은 숨 쉰다 */
+.ui-dot{display:inline-block;width:8px;height:8px;flex:none;border-radius:50%;background:var(--text-faint)}
+.ui-dot[data-size="sm"]{width:6px;height:6px}
+.ui-dot[data-state="run"]{background:var(--warn);animation:ui-pulse 1.2s infinite}
+.ui-dot[data-state="wait"]{background:var(--info)}
+.ui-dot[data-state="ok"]{background:var(--ok)}
+.ui-dot[data-state="warn"]{background:var(--warn-dot)}
+.ui-dot[data-state="fail"]{background:var(--danger)}
+.ui-dot[data-state="stop"]{background:var(--text-faint)}
+.ui-dot[data-state="idle"]{background:var(--border-strong)}
+
+/* 아바타 — 옅은 4색 (상태 색을 아주 옅게 섞어 '상태'로 읽히지 않게) */
+.ui-avatar{position:relative;display:inline-grid;place-items:center;width:28px;height:28px;flex:none;overflow:hidden;border-radius:50%;
+  background:var(--surface-chip);color:var(--text-2);font-size:var(--fs-2xs);font-weight:var(--fw-semibold);letter-spacing:0;user-select:none}
+.ui-avatar[data-size="xs"]{width:20px;height:20px;font-size:9px}
+.ui-avatar[data-size="sm"]{width:24px;height:24px}
+.ui-avatar[data-size="lg"]{width:40px;height:40px;font-size:var(--fs-sm)}
+.ui-avatar img{width:100%;height:100%;object-fit:cover}
+
+/* 키 */
+.ui-kbd{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;border-radius:var(--radius-xs);
+  background:var(--surface);box-shadow:inset 0 0 0 1px var(--border),0 1px 0 var(--border);color:var(--text-2);font:var(--fw-medium) var(--fs-2xs)/1 var(--font-mono)}
+.ui-kbd-group{display:inline-flex;gap:3px}
+
+/* 카드 */
+.ui-card{min-width:0;border-radius:var(--radius-lg);background:var(--surface);color:var(--text)}
+.ui-card[data-variant="outline"]{border:1px solid var(--border)}
+.ui-card[data-variant="sunken"]{background:var(--surface-sunken)}
+.ui-card[data-variant="glass"]{background:var(--glass-fill),var(--glass-bg);box-shadow:var(--glass-hi),var(--glass-lift)}
+.ui-card[data-padding="sm"]{padding:var(--space-2-5) var(--space-3)}
+.ui-card[data-padding="md"]{padding:var(--space-3-5) var(--space-4)}
+.ui-card[data-padding="lg"]{padding:var(--space-5)}
+.ui-card[data-interactive]{cursor:pointer;transition:border-color var(--dur-fast)}
+.ui-card[data-interactive]:hover{border-color:var(--border-strong)}
+.ui-card[data-selected]{border-color:var(--text);box-shadow:inset 0 0 0 .5px var(--text)}
+.ui-card-head{display:flex;align-items:flex-start;gap:var(--space-3);min-width:0}
+.ui-card-titles{flex:1;min-width:0}
+.ui-card-title{margin:0;font-size:var(--fs-base);font-weight:var(--fw-semibold);line-height:var(--lh-base)}
+.ui-card-desc{margin:2px 0 0;font-size:var(--fs-sm);color:var(--text-muted)}
+.ui-card-actions{display:flex;align-items:center;gap:var(--space-1-5);flex:none}
+
+/* 숫자 카드 */
+.ui-stat{display:grid;align-content:start;gap:2px;min-width:0;padding:var(--space-3) var(--space-4);border:1px solid var(--border);border-radius:var(--radius-lg);
+  background:var(--surface);color:var(--text);text-align:left}
+button.ui-stat{cursor:pointer;transition:border-color var(--dur-fast),box-shadow var(--dur-fast)}
+button.ui-stat:hover{border-color:var(--border-strong)}
+.ui-stat[aria-pressed="true"]{border-color:var(--text);box-shadow:inset 0 0 0 .5px var(--text)}
+.ui-stat-label{display:flex;align-items:center;gap:var(--space-1-5);font-size:var(--fs-xs);color:var(--text-muted)}
+.ui-stat-value{margin-top:var(--space-1-5);font-size:var(--fs-2xl);font-weight:var(--fw-semibold);letter-spacing:var(--tracking-display);line-height:1.2}
+.ui-stat-value[data-tone="info"]{color:var(--info-text)}
+.ui-stat-value[data-tone="ok"]{color:var(--ok-text)}
+.ui-stat-value[data-tone="warn"]{color:var(--warn-text)}
+.ui-stat-value[data-tone="danger"]{color:var(--danger-text)}
+.ui-stat-sub{font-size:var(--fs-xs);color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* 알림 줄 — 옅은 바탕 하나 (테두리 · 색 띠 없음) */
+.ui-callout{display:flex;align-items:flex-start;gap:var(--space-2-5);padding:var(--space-2-5) var(--space-3) var(--space-2-5) var(--space-3-5);border-radius:var(--radius-lg);
+  background:var(--surface-sunken);color:var(--text-2);font-size:var(--fs-sm)}
+.ui-callout>.ui-icon{margin-top:2px;color:var(--text-muted)}
+.ui-callout[data-tone="info"]{background:var(--info-soft)}
+.ui-callout[data-tone="info"]>.ui-icon{color:var(--info-text)}
+.ui-callout[data-tone="ok"]{background:var(--ok-soft)}
+.ui-callout[data-tone="ok"]>.ui-icon{color:var(--ok-text)}
+.ui-callout[data-tone="warn"]{background:var(--warn-soft)}
+.ui-callout[data-tone="warn"]>.ui-icon{color:var(--warn-text)}
+.ui-callout[data-tone="danger"]{background:var(--danger-soft)}
+.ui-callout[data-tone="danger"]>.ui-icon,.ui-callout[data-tone="danger"] .ui-callout-title{color:var(--danger-text)}
+.ui-callout-main{flex:1;min-width:0}
+.ui-callout-title{margin:0;font-weight:var(--fw-semibold);color:var(--text)}
+.ui-callout-body{color:var(--text-2)}
+.ui-callout-body p{margin:0}
+.ui-callout-x{display:grid;place-items:center;width:22px;height:22px;flex:none;padding:0;border:0;border-radius:var(--radius-sm);background:transparent;color:var(--text-muted);cursor:pointer}
+.ui-callout-x:hover{background:var(--surface-hover);color:var(--text)}
+
+/* 키/값 */
+.ui-kv{margin:0;font-size:var(--fs-sm)}
+.ui-kv-row{display:grid;grid-template-columns:minmax(96px,160px) minmax(0,1fr) auto;align-items:baseline;gap:2px var(--space-4)}
+.ui-kv dt{color:var(--text-muted)}
+.ui-kv dd{margin:0;min-width:0;color:var(--text);overflow-wrap:anywhere}
+.ui-kv dd[data-mono]{font-family:var(--font-mono);font-size:var(--fs-xs)}
+.ui-kv .ui-kv-aside{font-size:var(--fs-xs);color:var(--text-muted);text-align:right}
+.ui-kv[data-variant="boxed"]{border:1px solid var(--border);border-radius:var(--radius-lg)}
+.ui-kv[data-variant="boxed"] .ui-kv-row{padding:var(--space-2-5) var(--space-4)}
+.ui-kv[data-variant="boxed"] .ui-kv-row+.ui-kv-row{border-top:1px solid var(--border-subtle)}
+.ui-kv[data-variant="plain"]{display:grid;gap:var(--space-1-5)}
+@media (max-width:560px){
+  .ui-kv-row{grid-template-columns:minmax(0,1fr)}
+  .ui-kv .ui-kv-aside{text-align:left}
+}
+
+/* 빈 상태 */
+.ui-empty{display:flex;flex-direction:column;align-items:center;gap:var(--space-1-5);padding:var(--space-8) var(--space-6);text-align:center}
+.ui-empty[data-variant="boxed"]{border:1px solid var(--border);border-radius:var(--radius-lg)}
+.ui-empty .ui-tile{margin-bottom:var(--space-2)}
+.ui-empty-title{margin:0;font-size:var(--fs-md);font-weight:var(--fw-semibold);color:var(--text)}
+.ui-empty-desc{max-width:440px;color:var(--text-muted);text-wrap:pretty}
+.ui-empty-desc p{margin:0}
+.ui-empty-action{margin-top:var(--space-2-5);display:flex;gap:var(--space-2);flex-wrap:wrap;justify-content:center}

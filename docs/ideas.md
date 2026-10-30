@@ -18,3 +18,8 @@
 - 스페이스 viewer 역할 · 조직 owner·admin 범위의 관리자 콘솔 · 스페이스별 기본 모델
 - 스페이스 → LiteLLM team 예산 매핑 (P6 · Organizations 는 엔터프라이즈 전용이라 안 씀)
 - SSO: Keycloak 을 OIDC issuer 로 붙여 SAML · SCIM · 고객사 IdP (IdP 교체 = identities(issuer, sub) 그대로)
+- 범위 일반화: 대화 범위를 `space_id · project_id` 대신 `path` + 가장 가까운 묶음 `{kind, id}` 로 (chat api · hooks · ChatScreen 공유 판정 · `/api/chat` 의 `scope` · 서버 `Scopes.resolve_container`) — 층을 끼울 때
+- 데스크톱 창 틀 색(`main.js` frame) = renderer 가 `--surface-app` · `--text` 를 읽어 preload 로 넘기기 (지금은 tokens.css 와 같은 값 + 주석)
+- 모델 메뉴를 `Popover`(surface=glass) 부품으로 · 복사 알림 `.copied` → `Tooltip` · 사이드바 줄 `NavItem` · 입력창 `Composer` 부품 (packages/ui)
+- 대화상자 · 서랍의 바쁨/오류 반복을 공용 `useAction()` {busy, error, run} 하나로 (ProjectDialog · SpaceDialog · SpaceSheet · NicknameDialog · PasswordDialog · AccountSection)
+- 기능 CSS 짧은 전역 이름(`.nm` `.sub` `.v` …)을 기능 접두사로 · 또는 CSS Modules (E2E 고리 클래스 같이)

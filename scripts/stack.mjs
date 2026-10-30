@@ -4,6 +4,7 @@
 //   up trace    = litellm + Langfuse 묶음 6개       (npm run stack:trace · npm run stack -- trace)
 //   up auto     = .env(또는 셸)의 BREWAI_TRACE=1 일 때만 trace (npm run dev 가 부른다)
 //   down        = 전부 내린다 (데이터 볼륨은 남는다) · reset --yes = 볼륨까지 지운다 (trace·계정·UI 로 넣은 모델 초기화)
+//   secrets     = Docker 없이 .env 의 첫 관리자 계정(BREWAI_ADMIN_EMAIL · BREWAI_ADMIN_PASSWORD)만 만든다 (BREWAI_STACK=0 인 PC)
 // - 처음 실행: .env 에 없는(또는 빈) 비밀값만 만들어 넣는다. 이미 있는 값은 절대 덮어쓰지 않는다
 // - up = docker compose up -d --wait → 모든 healthcheck 가 통과해야 끝난다 (= 바로 써도 된다)
 // - 의존성 없음 (Node 기본 모듈만). shell:false. 윈도우 · 맥 같은 코드
@@ -73,6 +74,11 @@ function checkDocker(trace = false) {
 
 // ---------- 2. .env 비밀값 (없는 것만 만든다) ----------
 const hex = (n) => crypto.randomBytes(n).toString('hex');
+// conductor 첫 관리자 (ADR-0010) = users 가 비어 있을 때만 이 값으로 만든다. 비밀번호 24자 (CONDUCTOR_PASSWORD_MIN 기본 15 이상)
+const ADMIN = {
+  BREWAI_ADMIN_EMAIL: () => 'dev@brewai.local',
+  BREWAI_ADMIN_PASSWORD: () => crypto.randomBytes(18).toString('base64url'),
+};
 const SECRETS = {
   LITELLM_MASTER_KEY: () => `sk-${hex(32)}`,
   LITELLM_DB_PASSWORD: () => hex(16),
@@ -104,27 +110,19 @@ function readEnv() {
   }
   return { text, values };
 }
-function ensureSecrets() {
+function fillEnv(table, header) {
   const { text, values } = readEnv();
-  if (/cloud\.langfuse\.com/.test(values.OTEL_EXPORTER_OTLP_ENDPOINT ?? '') || /<base64/.test(values.OTEL_EXPORTER_OTLP_HEADERS ?? ''))
-    say('주의: .env 의 OTEL_EXPORTER_OTLP_* 가 아직 Langfuse Cloud 예시예요 → .env.example 의 로컬 값으로 바꾸고 OTEL_EXPORTER_OTLP_HEADERS 줄은 지우세요.');
-  if (values.LITELLM_LICENSE || process.env.LITELLM_LICENSE) fail('LITELLM_LICENSE 가 설정돼 있어요 → 지우세요 (GHSA-w4c7, 1.106.5 전까지 금지).');
-  // LiteLLM DB 가 이미 있는데 SALT·DB 비번이 없다 = 새로 만들면 저장한 provider 키를 못 읽고(SALT) DB 에 못 붙는다(비번) → 만들지 않고 멈춘다
-  const lost = ['LITELLM_SALT_KEY', 'LITELLM_DB_PASSWORD'].filter((k) => !values[k]);
-  if (lost.length && docker(['volume', 'inspect', `${PROJECT}_litellm_db_data`]).status === 0)
-    fail(`.env 에 ${lost.join(' · ')} 가 없는데 LiteLLM DB 는 이미 있어요 (새로 만들면 DB 에 못 붙거나 저장한 키를 못 읽어요).`,
-      '예전 값을 .env 에 되살리거나, UI 로 넣은 모델·키를 버려도 되면 npm run stack:reset -- --yes 후 다시 실행하세요.');
   const eol = text.includes('\r\n') ? '\r\n' : '\n';
   let out = text;
-  const added = [];
   let appended = false;
-  for (const [k, make] of Object.entries(SECRETS)) {
+  const added = [];
+  for (const [k, make] of Object.entries(table)) {
     if (values[k]) continue; // 이미 값이 있으면 그대로 (덮어쓰기 금지)
     const v = make();
     const empty = new RegExp(`^([ \\t]*(?:export[ \\t]+)?${k}[ \\t]*=)[ \\t]*(?:#.*)?$`, 'm');
     if (empty.test(out)) out = out.replace(empty, `$1${v}`); // 빈 KEY= 줄은 그 자리에 채운다
     else {
-      if (!appended) out += `${out && !out.endsWith('\n') ? eol : ''}${eol}# ── 로컬 스택 비밀값 (scripts/stack.mjs 가 처음 한 번 만듦 · 바꾸려면 npm run stack:reset 먼저)${eol}`;
+      if (!appended) out += `${out && !out.endsWith('\n') ? eol : ''}${eol}# ── ${header}${eol}`;
       out += `${k}=${v}${eol}`;
       appended = true;
     }
@@ -134,8 +132,35 @@ function ensureSecrets() {
     fs.writeFileSync(ENV_FILE, out, { mode: 0o600 });
     // mode 는 새 파일에만 → cp .env.example .env (0644) 로 만든 파일도 본인만 읽게
     if (process.platform !== 'win32') try { fs.chmodSync(ENV_FILE, 0o600); } catch { /* 권한 없음 → 그대로 */ }
-    say(`.env 에 비밀값 ${added.length}개를 만들었어요 (값은 찍지 않아요): ${added.join(' · ')}`);
   }
+  return added;
+}
+// 첫 관리자 계정: Docker 와 상관없이 (up 이 Docker 검사보다 먼저 부른다 · BREWAI_STACK=0 인 PC = node scripts/stack.mjs secrets)
+function ensureAdmin() {
+  const added = fillEnv(ADMIN, 'conductor 첫 관리자 (scripts/stack.mjs 가 처음 한 번 만듦 · DB 에 사용자가 없을 때만 쓰인다)');
+  const rel = path.relative(ROOT, ENV_FILE);
+  const where = rel && !rel.startsWith('..') ? rel : ENV_FILE;
+  if (added.length) say(`첫 관리자 계정을 ${where} 에 만들었어요 (비밀번호는 찍지 않아요): ${added.join(' · ')}`);
+  const { text, values: now } = readEnv();
+  say(`conductor 로그인 = ${now.BREWAI_ADMIN_EMAIL} · 비밀번호 = ${where} 의 BREWAI_ADMIN_PASSWORD (새 DB 에서 처음 켤 때만 계정이 생겨요)`);
+  // 공백 있는 값을 따옴표 없이 = uv 가 .env 를 거기서 못 읽어 첫 관리자가 안 생기고 뒤 줄도 빠진다 (이 파일 · dev-all 은 읽어서 서로 어긋난다)
+  const raw = (text.match(/^[ \t]*(?:export[ \t]+)?BREWAI_ADMIN_PASSWORD[ \t]*=(.*)$/m)?.[1] ?? '').replace(/\s+#.*$/, '').trim();
+  if (/\s/.test(raw) && !/^(['"]).*\1$/.test(raw))
+    say(`주의: ${where} 의 BREWAI_ADMIN_PASSWORD 에 공백이 있어요 → "따옴표"로 감싸세요 (안 그러면 첫 관리자가 만들어지지 않아요)`);
+}
+
+function ensureSecrets() {
+  const { values } = readEnv();
+  if (/cloud\.langfuse\.com/.test(values.OTEL_EXPORTER_OTLP_ENDPOINT ?? '') || /<base64/.test(values.OTEL_EXPORTER_OTLP_HEADERS ?? ''))
+    say('주의: .env 의 OTEL_EXPORTER_OTLP_* 가 아직 Langfuse Cloud 예시예요 → .env.example 의 로컬 값으로 바꾸고 OTEL_EXPORTER_OTLP_HEADERS 줄은 지우세요.');
+  if (values.LITELLM_LICENSE || process.env.LITELLM_LICENSE) fail('LITELLM_LICENSE 가 설정돼 있어요 → 지우세요 (GHSA-w4c7, 1.106.5 전까지 금지).');
+  // LiteLLM DB 가 이미 있는데 SALT·DB 비번이 없다 = 새로 만들면 저장한 provider 키를 못 읽고(SALT) DB 에 못 붙는다(비번) → 만들지 않고 멈춘다
+  const lost = ['LITELLM_SALT_KEY', 'LITELLM_DB_PASSWORD'].filter((k) => !values[k]);
+  if (lost.length && docker(['volume', 'inspect', `${PROJECT}_litellm_db_data`]).status === 0)
+    fail(`.env 에 ${lost.join(' · ')} 가 없는데 LiteLLM DB 는 이미 있어요 (새로 만들면 DB 에 못 붙거나 저장한 키를 못 읽어요).`,
+      '예전 값을 .env 에 되살리거나, UI 로 넣은 모델·키를 버려도 되면 npm run stack:reset -- --yes 후 다시 실행하세요.');
+  const added = fillEnv(SECRETS, '로컬 스택 비밀값 (scripts/stack.mjs 가 처음 한 번 만듦 · 바꾸려면 npm run stack:reset 먼저)');
+  if (added.length) say(`.env 에 비밀값 ${added.length}개를 만들었어요 (값은 찍지 않아요): ${added.join(' · ')}`);
   const now = readEnv().values;
   if (!/^[0-9a-f]{64}$/i.test(now.LANGFUSE_ENCRYPTION_KEY)) fail('LANGFUSE_ENCRYPTION_KEY 는 64자 hex 여야 해요 → 그 줄을 지우고 다시 실행하세요.');
   if (!/^sk-[A-Za-z0-9_-]{32,}$/.test(now.LITELLM_MASTER_KEY) || now.LITELLM_MASTER_KEY === 'sk-1234')
@@ -203,6 +228,7 @@ async function up() {
   const unknown = process.argv.slice(3).filter((a) => !['trace', 'auto'].includes(a));
   if (unknown.length) fail(`모르는 옵션: ${unknown.join(' ')} → npm run stack · npm run stack -- trace`);
   if (!fs.existsSync(COMPOSE)) fail(`${path.relative(ROOT, COMPOSE)} 이 없어요.`);
+  ensureAdmin(); // Docker 가 없어도 (dev-all 은 그때 venv 게이트웨이로 간다) 로그인 계정은 있어야 한다
   const pre = readEnv().values;
   const trace = wantTrace(pre);
   checkDocker(trace);
@@ -256,7 +282,8 @@ switch (cmd) {
   case 'up': await up(); break;
   case 'down': down(false); break;
   case 'reset': down(true); break;
+  case 'secrets': ensureAdmin(); break;
   case 'status': checkDocker(); compose(['ps', '-a'], { stdio: 'inherit', env: placeholderEnv() }); memory(); break;
   case 'logs': checkDocker(); compose(['logs', '--tail', '200', ...process.argv.slice(3)], { stdio: 'inherit', env: placeholderEnv() }); break;
-  default: fail(`모르는 명령: ${cmd} → up [trace] · down · status · logs · reset --yes`);
+  default: fail(`모르는 명령: ${cmd} → up [trace] · down · status · logs · reset --yes · secrets`);
 }

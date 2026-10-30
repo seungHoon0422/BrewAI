@@ -1,4 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 
 // 메뉴 계약 한 칸: 링크 이름 · 해시 경로(#/id) · 화면 h1 (없으면 링크 이름)
@@ -54,4 +56,38 @@ export async function goHash(page: Page, hash: string) {
 // 가로로 넘친 px. 0 이하 = 가로 스크롤 없음
 export function overflowX(page: Page) {
   return page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+}
+
+// 127.0.0.1 임시 포트의 중계 → target. close() = 연결 거부 (서버가 꺼진 것과 같다) · open() = 같은 포트로 다시 켬.
+// 스트리밍(SSE)도 그대로 흘린다
+export type Relay = { url: string; close: () => Promise<void>; open: () => Promise<void> };
+export async function relay(target: string): Promise<Relay> {
+  const to = new URL(target);
+  const server = http.createServer((req, res) => {
+    const up = http.request({ host: to.hostname, port: to.port, method: req.method, path: req.url, headers: { ...req.headers, host: to.host } }, (r) => {
+      res.writeHead(r.statusCode ?? 502, r.headers);
+      r.pipe(res);
+    });
+    up.on('error', () => res.destroy());
+    req.pipe(up);
+  });
+  const listen = (port: number) => new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(port, '127.0.0.1', () => {
+      server.off('error', reject);
+      resolve();
+    });
+  });
+  await listen(0);
+  const port = (server.address() as AddressInfo).port;
+  return {
+    url: `http://127.0.0.1:${port}`,
+    close: () =>
+      new Promise<void>((resolve) => {
+        if (!server.listening) return resolve();
+        server.close(() => resolve());
+        server.closeAllConnections();
+      }),
+    open: () => (server.listening ? Promise.resolve() : listen(port)),
+  };
 }

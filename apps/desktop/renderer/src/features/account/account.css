@@ -1,0 +1,10 @@
+/* 계정 — 사이드바 아래 칩 · 설정 섹션 알림. 토큰만 (ADR-0012). */
+.sb-foot{position:sticky;bottom:0;margin-top:auto;padding-top:var(--space-2);background:var(--surface)}
+.sb-foot .ui-popover-anchor{display:flex;width:100%}
+.account-chip{display:flex;align-items:center;gap:var(--space-2);width:100%;min-width:0;padding:var(--space-1-5) var(--space-2);border:0;border-radius:var(--radius-md);
+  background:transparent;color:var(--text-2);text-align:left;cursor:pointer}
+.account-chip:hover,.account-chip[aria-expanded="true"]{background:var(--surface-hover);color:var(--text)}
+.account-chip:focus-visible{outline-offset:-2px}
+.account-chip .ui-icon{color:var(--text-faint);margin-left:auto;flex:none}
+.account-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.sec-note{margin:0 0 var(--space-2-5)}

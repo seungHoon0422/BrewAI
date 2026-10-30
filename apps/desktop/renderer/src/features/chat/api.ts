@@ -1,0 +1,229 @@
+// 대화 API — 최근 대화 · 대화 기록 · 한 번 실행(AG-UI SSE).
+// 대화 = POST /api/chat (AG-UI RunAgentInput) → AG-UI SSE. 새 의존성 없이 fetch + ReadableStream 으로 읽는다.
+import { ApiError, call, isObj, json, kindOf, num, reasoningOf, send, str, strOrNull, type Reasoning } from '../../lib/api';
+import type { ScopePath } from '@brewai/ui';
+import { toScopePath } from '../scope/api';
+import { UNTITLED } from './copy';
+
+export type StepStatus = 'running' | 'done' | 'error' | 'cancelled';
+// name = thinking | tool:<이름> | skill:<스킬> | writing · started_ms = 실행 시작부터
+export type Step = { name: string; label: string; status: StepStatus; started_ms: number; duration_ms: number | null };
+// reasoning_tokens = 생각 토큰 (글이 안 와도 >0 이면 생각은 했다 · display omitted · redacted)
+export type Usage = { input_tokens: number | null; output_tokens: number | null; requests: number; tool_calls: number; reasoning_tokens: number | null } | null;
+
+// 대화가 어디에 있고 누구 것인지 (스페이스 · 프로젝트 · 공개 · 만든 사람 닉네임)
+export type ThreadScope = {
+  space_id: string | null;
+  project_id: string | null; // null = 프로젝트 없음
+  visibility: 'private' | 'shared';
+  mine: boolean;
+  owner_name: string | null;
+};
+
+export type ThreadSummary = ThreadScope & {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  turns: number;
+  last_model: string | null;
+  running: boolean;
+  path: ScopePath;
+};
+
+export type HistoryPart =
+  | { type: 'reasoning'; text: string }
+  | { type: 'text'; text: string }
+  | { type: 'tool'; id: string; name: string; label: string; args: unknown; result: unknown; status: 'done' | 'error' | 'running' };
+
+export type HistoryUser = { id: string; role: 'user'; run_id: string; content: string; created_at: string };
+export type HistoryAssistant = {
+  id: string;
+  role: 'assistant';
+  run_id: string;
+  content: string;
+  reasoning: string | null;
+  parts: HistoryPart[];
+  model: string;
+  model_label: string;
+  provider: string;
+  provider_label: string;
+  reasoning_level: Reasoning;
+  duration_ms: number | null;
+  usage: Usage;
+  created_at: string;
+};
+// path = 범위 경로 (조직 › 스페이스 › 프로젝트 › 이 대화). 아직 경로를 안 주는 서버면 빈 배열
+export type ThreadDetail = ThreadScope & {
+  id: string; title: string; created_at: string; updated_at: string; path: ScopePath; messages: (HistoryUser | HistoryAssistant)[];
+};
+
+// 응답(요약 · 상세)에서 범위 칸만 — 범위 칸이 바뀌면 여기와 toThreadScope 만
+export const pickScope = ({ space_id, project_id, visibility, mine, owner_name }: ThreadScope): ThreadScope =>
+  ({ space_id, project_id, visibility, mine, owner_name });
+
+export function toThreadScope(r: Record<string, unknown>): ThreadScope {
+  return {
+    space_id: strOrNull(r.space_id),
+    project_id: strOrNull(r.project_id),
+    visibility: r.visibility === 'shared' ? 'shared' : 'private',
+    mine: r.mine !== false, // 모르는 서버 = 내 것
+    owner_name: strOrNull(r.owner_name),
+  };
+}
+
+export function toSteps(v: unknown): Step[] {
+  if (!Array.isArray(v)) return [];
+  return v.filter(isObj).map((s) => ({
+    name: str(s.name),
+    label: str(s.label, str(s.name)),
+    status: (['running', 'done', 'error', 'cancelled'] as const).find((x) => x === s.status) ?? 'done',
+    started_ms: num(s.started_ms) ?? 0,
+    duration_ms: num(s.duration_ms),
+  }));
+}
+
+export function toUsage(v: unknown): Usage {
+  if (!isObj(v)) return null;
+  return {
+    input_tokens: num(v.input_tokens), output_tokens: num(v.output_tokens), requests: num(v.requests) ?? 0, tool_calls: num(v.tool_calls) ?? 0,
+    reasoning_tokens: num(v.reasoning_tokens),
+  };
+}
+
+function toSummary(r: Record<string, unknown>): ThreadSummary {
+  return {
+    ...toThreadScope(r),
+    id: str(r.id),
+    title: str(r.title).trim() || UNTITLED,
+    created_at: str(r.created_at),
+    updated_at: str(r.updated_at),
+    turns: num(r.turns) ?? 0,
+    last_model: strOrNull(r.last_model),
+    running: r.running === true,
+    path: toScopePath(r.path),
+  };
+}
+
+// 한 스페이스의 대화 (내 것 + 공유된 것). project: id = 그 프로젝트만 · 'none' = 프로젝트 없는 것만 · 없음 = 전부
+export async function listThreads(q: { space?: string | null; project?: string | 'none'; limit?: number }, signal?: AbortSignal): Promise<ThreadSummary[]> {
+  const params = new URLSearchParams({ limit: String(q.limit ?? 50) });
+  if (q.space) params.set('space', q.space);
+  if (q.project) params.set('project', q.project);
+  const data = await json(`/api/threads?${params}`, signal);
+  return Array.isArray(data) ? data.filter((t) => isObj(t) && typeof t.id === 'string').map((t) => toSummary(t as Record<string, unknown>)) : [];
+}
+
+// 제목 · 공유 · 프로젝트 옮기기 (만든 사람만) → 바뀐 대화
+export async function patchThread(id: string, patch: { title?: string; visibility?: 'private' | 'shared'; project_id?: string | null }): Promise<ThreadSummary> {
+  const data = await send(`/api/threads/${encodeURIComponent(id)}`, 'PATCH', patch);
+  if (!isObj(data) || typeof data.id !== 'string') throw new ApiError('server', 'bad_shape');
+  return toSummary(data);
+}
+
+function toPart(p: Record<string, unknown>): HistoryPart | null {
+  if (p.type === 'reasoning' || p.type === 'text') return { type: p.type, text: str(p.text) };
+  if (p.type === 'tool') {
+    const status = p.status === 'error' ? 'error' : p.status === 'running' ? 'running' : 'done';
+    return { type: 'tool', id: str(p.id), name: str(p.name), label: str(p.label, str(p.name)), args: p.args ?? null, result: p.result ?? null, status };
+  }
+  return null;
+}
+
+export async function getThread(id: string, signal?: AbortSignal): Promise<ThreadDetail> {
+  const data = await json(`/api/threads/${encodeURIComponent(id)}`, signal);
+  if (!isObj(data) || !Array.isArray(data.messages)) throw new ApiError('server', 'bad_shape');
+  const messages = data.messages.filter(isObj).flatMap((m): (HistoryUser | HistoryAssistant)[] => {
+    if (m.role === 'user') return [{ id: str(m.id), role: 'user', run_id: str(m.run_id), content: str(m.content), created_at: str(m.created_at) }];
+    if (m.role !== 'assistant') return [];
+    const parts = Array.isArray(m.parts) ? m.parts.filter(isObj).map(toPart).filter((p): p is HistoryPart => p !== null) : [];
+    return [{
+      id: str(m.id), role: 'assistant', run_id: str(m.run_id), content: str(m.content),
+      reasoning: strOrNull(m.reasoning),
+      parts: parts.length ? parts : [{ type: 'text', text: str(m.content) }],
+      model: str(m.model), model_label: str(m.model_label, str(m.model)), provider: str(m.provider, 'other'),
+      provider_label: str(m.provider_label), reasoning_level: reasoningOf(m.reasoning_level),
+      duration_ms: num(m.duration_ms), usage: toUsage(m.usage), created_at: str(m.created_at),
+    }];
+  });
+  return {
+    ...toThreadScope(data), id: str(data.id, id), title: str(data.title), created_at: str(data.created_at), updated_at: str(data.updated_at),
+    path: toScopePath(data.path), messages,
+  };
+}
+
+// AG-UI 이벤트 (필요한 칸만 읽는다. 모르는 type 은 그냥 지나간다)
+export type AgUiEvent = { type: string } & Record<string, unknown>;
+
+// 한 번 실행 (run). 이벤트마다 onEvent. RUN_FINISHED 면 끝, RUN_ERROR 면 ApiError, 끝 신호 없이 닫히면 'cut'.
+// 서버가 대화 기록의 원본이라 이번 질문(마지막 user 메시지)만 보낸다. runId 는 시도마다 새로, threadId 는 대화마다 하나.
+export async function runChat(opts: {
+  threadId: string;
+  runId: string;
+  text: string;
+  model?: string;
+  reasoning: Reasoning;
+  spaceId: string | null; // 새 대화만 쓰인다 (있는 대화는 서버가 기록에서 정한다)
+  projectId: string | null;
+  signal: AbortSignal;
+  onEvent: (ev: AgUiEvent) => void;
+}): Promise<void> {
+  const body = {
+    threadId: opts.threadId,
+    runId: opts.runId,
+    state: {},
+    messages: [{ id: `${opts.runId}:user`, role: 'user', content: opts.text }],
+    tools: [], // 툴은 conductor 가 갖는다 (승인·정책). 프런트 툴은 서버가 400
+    context: [],
+    forwardedProps: {
+      ...(opts.model ? { model: opts.model } : {}),
+      reasoning: opts.reasoning,
+      ...(opts.spaceId ? { spaceId: opts.spaceId } : {}),
+      ...(opts.projectId ? { projectId: opts.projectId } : {}),
+    },
+  };
+  const res = await call('/api/chat', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'text/event-stream' },
+    body: JSON.stringify(body),
+    signal: opts.signal,
+  });
+  if (!res.body) throw new ApiError('server', 'no_body');
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buf = '';
+  try {
+    for (;;) {
+      let chunk: ReadableStreamReadResult<string>;
+      try {
+        chunk = await reader.read();
+      } catch (e) {
+        if ((e as Error).name === 'AbortError' || opts.signal.aborted) throw new DOMException('aborted', 'AbortError');
+        throw new ApiError('cut');
+      }
+      if (chunk.done) throw new ApiError('cut'); // 끝 신호 없이 닫힘
+      buf += chunk.value.replace(/\r\n?/g, '\n');
+      let cut: number;
+      while ((cut = buf.indexOf('\n\n')) >= 0) {
+        const frame = buf.slice(0, cut);
+        buf = buf.slice(cut + 2);
+        const data = frame.split('\n').filter((l) => l.startsWith('data:')).map((l) => l.slice(5).trimStart()).join('\n');
+        if (!data) continue;
+        let ev: AgUiEvent;
+        try {
+          ev = JSON.parse(data) as AgUiEvent;
+        } catch {
+          continue; // 깨진 조각 하나로 대화 전체를 버리지 않는다
+        }
+        if (!isObj(ev) || typeof ev.type !== 'string') continue;
+        if (ev.type === 'RUN_ERROR') {
+          const code = str(ev.code) || undefined;
+          throw new ApiError(kindOf(code), code, str(ev.detail) || undefined); // message 는 안 쓴다 (code · detail → 화면 문구)
+        }
+        opts.onEvent(ev);
+        if (ev.type === 'RUN_FINISHED') return;
+      }
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
+  }
+}

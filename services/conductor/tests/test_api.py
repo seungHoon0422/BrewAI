@@ -267,13 +267,15 @@ def test_models_endpoints_from_litellm_fixture(make_api) -> None:
         ("null", "/api/chat", "POST", False),
         ("app://brewai", "/api/threads/t1", "DELETE", True),
         ("http://localhost:5174", "/api/threads/t1", "DELETE", False),
-        ("app://brewai", "/api/threads/t1", "PATCH", False),
+        ("app://brewai", "/api/threads/t1", "PATCH", True),  # 제목 · 공유 · 프로젝트 옮기기
+        ("app://brewai", "/api/threads/t1", "TRACE", False),
         ("http://localhost:5174", "/api/admin/models", "GET", True),
         ("http://localhost:4174", "/api/admin/models/sync", "POST", True),
         ("http://localhost:5174", "/api/admin/models/fake-chat-small", "PATCH", True),
         ("app://brewai", "/api/admin/models", "GET", False),
         ("app://brewai", "/api/admin/models/fake-chat-small", "PATCH", False),
-        ("http://localhost:5174", "/api/admin/models/fake-chat-small", "DELETE", False),
+        ("http://localhost:5174", "/api/admin/invites/i1", "DELETE", True),
+        ("http://localhost:5174", "/api/admin/models/fake-chat-small", "TRACE", False),
     ],
 )
 def test_cors_is_scoped_by_path(make_api, origin: str, path: str, method: str, allowed: bool) -> None:
@@ -299,7 +301,11 @@ def test_admin_routes_reject_foreign_origins_even_for_simple_requests(make_api) 
             assert res.headers.get("access-control-allow-origin") is None
     ok = api.client.post("/api/admin/models/sync", headers={"origin": "http://localhost:4174"})
     assert ok.status_code == 200 and ok.headers.get("access-control-allow-origin") == "http://localhost:4174"
-    assert api.client.post("/api/admin/models/sync").status_code == 200  # Origin 없음 (curl · 같은 출처)
+    assert api.client.post("/api/admin/models/sync").status_code == 200  # Origin 없음 (같은 출처 proxy) + 쿠키 + CSRF
+    anon = api.anon()
+    assert anon.post("/api/admin/models/sync").json() == {"detail": "auth_required"}  # Origin 없어도 쿠키 없으면 401 (curl)
+    no_csrf = api.client.post("/api/admin/models/sync", headers={"x-csrf-token": "x"})
+    assert (no_csrf.status_code, no_csrf.json()) == (403, {"detail": "csrf_failed"})
     assert api.client.get("/api/models", headers={"origin": "app://brewai"}).status_code == 200  # 데스크톱 경로는 그대로
 
 

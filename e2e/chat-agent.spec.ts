@@ -1,21 +1,16 @@
-import { test, expect, chromium, _electron as electron, type ElectronApplication, type Locator, type Page } from '@playwright/test';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-import { ADMIN_URL, API, GATEWAY, GATEWAY_KEY } from './env';
+import { test, expect, chromium, type ElectronApplication, type Locator, type Page } from '@playwright/test';
+import { adminApi, adminSignIn, launchDesktop, type Client } from './auth';
+import { ADMIN_URL, GATEWAY, GATEWAY_KEY } from './env';
 import { expectHeading, shot } from './helpers';
 
 // 대화 관통 2 (모델 통신): 멀티턴 · 생각(추론) · 도구 카드 · 상태 줄 · 모델 고르기 · 기록 다시 열기 · 진행 상황 · 멈추기
 // + P2-1 (관리자가 숨기면 사용자 모델 메뉴에서 빠진다). 서버 = config.webServer (mock 게이트웨이 · conductor · 관리자 preview)
 // mock 표시(마지막 질문에): [fake:think] 생각 조각 · [fake:calc] <수식> 계산기 (줄 끝까지가 수식 → 마지막 줄에) · [fake:slow] 조각마다 250ms
-const APP = path.join(__dirname, '..', 'apps', 'desktop');
 const HOME_H1 = '무엇을 맡길까요?';
 const browserChannel = process.platform === 'darwin' ? 'chrome' : process.platform === 'win32' ? 'msedge' : undefined;
 
 async function launch() {
-  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'brewai-e2e-'));
-  const app = await electron.launch({ args: [APP], env: { ...process.env, BREWAI_API_URL: API, BREWAI_USER_DATA: userData } });
-  const win = await app.firstWindow();
+  const { app, win } = await launchDesktop();
   await expectHeading(win, HOME_H1);
   return { app, win };
 }
@@ -25,7 +20,7 @@ const ui = (win: Page) => ({
   send: win.getByRole('button', { name: '보내기', exact: true }),
   stop: win.getByRole('button', { name: '멈추기', exact: true }),
   log: win.getByRole('log', { name: '대화 내용' }),
-  model: win.locator('.composer .model'),
+  model: win.locator('.composer .mpick-btn'),
   menu: win.getByRole('dialog', { name: '모델과 생각 깊이' }),
   last: win.locator('.msg.agent:not(.fail)').last(),
   status: win.locator('.msg.agent .trace-line').last(), // 생각 · 도구 상태 줄 (유리 알약)
@@ -110,7 +105,7 @@ test.describe('모델 · 생각 · 도구 · 상태 줄', () => {
     await expect(small).toHaveAccessibleName('fake-chat-small');
     await expect(small).toContainText('기본');
     await expect(small.locator('.cap')).toHaveText(['도구', '이미지']);
-    await expect(small.locator('.ctx')).toHaveText('128K');
+    await expect(small.locator('.mopt-ctx')).toHaveText('128K');
     await expect(opt(menu, 'fake-chat-large').locator('.cap')).toHaveText(['생각', '도구', '이미지']);
     await expect(menu.getByRole('option', { name: /fake-embed/ })).toHaveCount(0); // 임베딩 = 대화 모델 아님
     // 자세히 (넓은 창 = 오른쪽 칸): 출처 = LiteLLM model_info.db_model (mock: small = config.yaml)
@@ -408,31 +403,31 @@ test.describe('P2-1 관리자가 숨기면 사용자 모델 메뉴에서 빠진�
   let app: ElectronApplication;
   let win: Page;
   let admin: Page;
+  let api: Client; // 관리자 API (쿠키 + CSRF)
   let close: () => Promise<void>;
   test.beforeAll(async () => {
     test.setTimeout(120_000);
     ({ app, win } = await launch());
+    api = await adminApi();
     const browser = await chromium.launch({ channel: browserChannel });
     admin = await browser.newPage();
     close = () => browser.close();
+    await adminSignIn(admin);
   });
   test.afterAll(async () => {
     // 다른 스펙이 기대하는 노출 상태로 되돌린다 (fake-chat-large = 노출)
-    await fetch(`${API}/api/admin/models/fake-chat-large`, {
-      method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ exposed: true }),
-    }).catch(() => {});
+    await api?.raw('PATCH', '/api/admin/models/fake-chat-large', { exposed: true }).catch(() => {});
     await close?.();
     await app?.close();
   });
 
   const exposeSwitch = () => admin.getByRole('switch', { name: '노출 — fake-chat-large' });
-  const adminPatch = (id: string, body: object) =>
-    fetch(`${API}/api/admin/models/${id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const adminPatch = (id: string, body: object) => api.raw('PATCH', `/api/admin/models/${id}`, body);
   const fakeCatalog = (body: object) =>
     fetch(`${GATEWAY}/__fake/catalog`, {
       method: 'POST', headers: { authorization: `Bearer ${GATEWAY_KEY}`, 'content-type': 'application/json' }, body: JSON.stringify(body),
     });
-  const probe = (id: string) => fetch(`${API}/api/admin/models/${id}/test`, { method: 'POST' });
+  const probe = (id: string) => api.raw('POST', `/api/admin/models/${id}/test`);
 
   test('이름이 겹치면 ID 를 함께 보여 준다 · 최근 연결에 실패한 모델 = 경고 점 + 이유 (그래도 고를 수 있다)', async () => {
     try {

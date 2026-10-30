@@ -1,0 +1,172 @@
+/* 조작 부품 — 아이콘 · 버튼 · 입력 · 필드 · 체크 · 스위치 · 나눈 버튼 · 기다림. 토큰만 쓴다 (ADR-0012). */
+
+/* 아이콘: 선 1.8 · 크기는 data-size */
+.ui-icon{width:var(--icon-md);height:var(--icon-md);flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.ui-icon[data-size="xs"]{width:var(--icon-xs);height:var(--icon-xs);stroke-width:2.2}
+.ui-icon[data-size="sm"]{width:var(--icon-sm);height:var(--icon-sm);stroke-width:2}
+.ui-icon[data-size="lg"]{width:var(--icon-lg);height:var(--icon-lg);stroke-width:1.7}
+.ui-mark{flex:none;color:var(--text)}
+.ui-provider-icon{width:var(--icon-md);height:var(--icon-md);flex:none;fill:currentColor;color:var(--text-2)}
+.ui-provider-icon[data-size="sm"]{width:var(--icon-sm);height:var(--icon-sm)}
+.ui-provider-icon[data-size="lg"]{width:20px;height:20px}
+.ui-provider-icon[data-kind="line"]{fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.ui-provider-icon[data-dim]{opacity:.55}
+/* 아이콘 칸 (빈 상태 · 화면 머리 · 카드 머리) */
+.ui-tile{width:32px;height:32px;border-radius:var(--radius-md);background:var(--surface-chip);color:var(--text-2);display:grid;place-items:center;flex:none}
+.ui-tile[data-size="lg"]{width:40px;height:40px;border-radius:var(--radius-lg)}
+.ui-tile[data-size="lg"] .ui-icon{width:var(--icon-lg);height:var(--icon-lg)}
+
+/* 버튼 — 알약 하나. variant = 무게 · size = 높이 */
+.ui-btn{display:inline-flex;align-items:center;justify-content:center;gap:var(--space-1-5);height:var(--control-md);padding:0 14px;
+  border:1px solid var(--border);border-radius:var(--radius-pill);background:var(--surface);color:var(--text);
+  font-size:var(--fs-sm);font-weight:var(--fw-medium);line-height:1;white-space:nowrap;text-decoration:none;cursor:pointer;
+  transition:background var(--dur-fast) var(--ease-standard),border-color var(--dur-fast) var(--ease-standard),opacity var(--dur-fast)}
+.ui-btn:hover{background:var(--surface-hover)}
+.ui-btn[data-size="sm"]{height:var(--control-sm);padding:0 10px;font-size:var(--fs-xs);gap:var(--space-1)}
+.ui-btn[data-size="lg"]{height:var(--control-lg);padding:0 18px;font-size:var(--fs-base)}
+.ui-btn[data-block]{display:flex;width:100%}
+.ui-btn[data-variant="primary"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.ui-btn[data-variant="primary"]:hover{background:var(--accent);opacity:.88}
+.ui-btn[data-variant="ghost"]{background:transparent;border-color:transparent;color:var(--text-2)}
+.ui-btn[data-variant="ghost"]:hover{background:var(--surface-hover);color:var(--text)}
+.ui-btn[data-variant="danger"]{color:var(--danger-text)}
+.ui-btn[data-variant="danger"]:hover{background:var(--danger-soft);border-color:color-mix(in srgb,var(--danger) 35%,var(--border))}
+.ui-btn:disabled,.ui-btn[aria-disabled="true"]{cursor:default;opacity:.5}
+.ui-btn:disabled:hover{background:var(--surface)}
+.ui-btn[data-variant="primary"]:disabled:hover{background:var(--accent);opacity:.5}
+.ui-btn[data-variant="ghost"]:disabled:hover{background:transparent}
+.ui-btn[data-loading]{opacity:.75}
+
+/* 아이콘 버튼 — 네모(둥근 8px). 툴바 · 머리 · 표 줄 */
+.ui-icon-btn{width:var(--control-md);height:var(--control-md);display:inline-grid;place-items:center;flex:none;padding:0;
+  border:1px solid transparent;border-radius:var(--radius-md);background:transparent;color:var(--text-muted);cursor:pointer;
+  transition:background var(--dur-fast),color var(--dur-fast)}
+.ui-icon-btn:hover{background:var(--surface-hover);color:var(--text)}
+.ui-icon-btn[data-size="sm"]{width:var(--control-sm);height:var(--control-sm);border-radius:var(--radius-sm)}
+.ui-icon-btn[data-size="lg"]{width:var(--control-lg);height:var(--control-lg);border-radius:var(--radius-lg)}
+.ui-icon-btn[data-variant="secondary"]{border-color:var(--border);background:var(--surface)}
+.ui-icon-btn[aria-pressed="true"]{background:var(--surface-active);color:var(--text)}
+.ui-icon-btn[data-variant="primary"]{background:var(--accent);color:var(--on-accent)}
+.ui-icon-btn[data-variant="primary"]:hover{background:var(--accent);color:var(--on-accent);opacity:.88}
+.ui-icon-btn[data-shape="round"]{border-radius:var(--radius-pill)}
+.ui-icon-btn:disabled{opacity:.45;cursor:default;background:transparent;color:var(--text-muted)}
+.ui-icon-btn[data-variant="primary"]:disabled{background:var(--accent);color:var(--on-accent);opacity:.5}
+.ui-icon-btn:focus-visible{outline-offset:-2px}
+
+/* 입력 — 상자는 래퍼(.ui-input)가 그린다. 포커스 = 테두리가 진해지고 파란 고리 (키보드 · 마우스 모두: 입력은 늘 보여야 한다) */
+.ui-input,.ui-select{position:relative;display:flex;align-items:center;gap:var(--space-1-5);min-width:0;height:var(--control-md);padding:0 10px;
+  border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface);color:var(--text-muted);
+  transition:border-color var(--dur-fast),box-shadow var(--dur-fast)}
+.ui-input[data-size="sm"],.ui-select[data-size="sm"]{height:var(--control-sm);padding:0 8px;border-radius:var(--radius-sm)}
+.ui-input[data-size="lg"],.ui-select[data-size="lg"]{height:var(--control-lg);padding:0 12px}
+.ui-input:hover,.ui-select:hover{border-color:var(--border-strong)}
+.ui-input:focus-within,.ui-select:focus-within{border-color:var(--focus);box-shadow:0 0 0 1px var(--focus)}
+.ui-input input,.ui-select select{flex:1;min-width:0;height:100%;padding:0;border:0;outline:0;background:transparent;color:var(--text);font-size:var(--fs-sm)}
+.ui-input[data-size="lg"] input,.ui-select[data-size="lg"] select{font-size:var(--fs-base)}
+.ui-input input::placeholder,.ui-textarea::placeholder{color:var(--text-muted)} /* 글 = muted (faint 는 아이콘 · 장식만 · 4.5:1) */
+.ui-input input::-webkit-search-cancel-button{cursor:pointer}
+.ui-input[data-invalid],.ui-select[data-invalid]{border-color:var(--danger)}
+.ui-input[data-invalid]:focus-within,.ui-select[data-invalid]:focus-within{box-shadow:0 0 0 1px var(--danger)}
+.ui-input[data-disabled],.ui-select[data-disabled]{background:var(--surface-sunken);opacity:.7}
+.ui-input[data-disabled]:hover,.ui-select[data-disabled]:hover{border-color:var(--border)}
+/* 입력 안 작은 버튼 (보기 · 지우기) */
+.ui-input-btn{display:grid;place-items:center;width:22px;height:22px;margin-right:-4px;padding:0;border:0;border-radius:var(--radius-sm);
+  background:transparent;color:var(--text-muted);cursor:pointer;flex:none}
+.ui-input-btn:hover{background:var(--surface-hover);color:var(--text)}
+.ui-input-btn:focus-visible{outline-offset:0}
+/* 고르기: 브라우저 화살표 대신 우리 꺾쇠 */
+.ui-select{padding-right:8px}
+.ui-select select{appearance:none;-webkit-appearance:none;cursor:pointer;padding-right:18px;margin-right:-18px}
+.ui-select .ui-icon{pointer-events:none;color:var(--text-faint)}
+.ui-select select:disabled{cursor:default}
+
+/* 비밀번호 강도 막대 — 길이만 본다 (색 = 상태 색: 짧음 danger · 쓸 수 있음 warn · 좋음 ok) */
+.ui-password{display:grid;gap:var(--space-1-5);min-width:0}
+.ui-strength{display:flex;align-items:center;gap:var(--space-2);font-size:var(--fs-xs);color:var(--text-muted)}
+.ui-strength-bar{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:3px;width:120px;flex:none}
+.ui-strength-bar i{height:4px;border-radius:var(--radius-pill);background:var(--surface-chip);transition:background var(--dur-base)}
+.ui-strength[data-level="1"] i:nth-child(-n+1){background:var(--danger)}
+.ui-strength[data-level="2"] i:nth-child(-n+2){background:var(--warn)}
+.ui-strength[data-level="3"] i:nth-child(-n+3){background:var(--ok)}
+.ui-strength[data-level="4"] i{background:var(--ok)}
+.ui-strength[data-level="0"] .ui-strength-text{visibility:hidden}
+
+/* 여러 줄 */
+.ui-textarea{display:block;width:100%;min-height:72px;max-height:240px;padding:8px 10px;resize:vertical;
+  border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface);color:var(--text);
+  font-size:var(--fs-sm);line-height:var(--lh-base);transition:border-color var(--dur-fast),box-shadow var(--dur-fast)}
+.ui-textarea[data-autogrow]{field-sizing:content;resize:none}
+.ui-textarea:hover{border-color:var(--border-strong)}
+.ui-textarea:focus{outline:0;border-color:var(--focus);box-shadow:0 0 0 1px var(--focus)}
+.ui-textarea[data-invalid]{border-color:var(--danger)}
+.ui-textarea:disabled{background:var(--surface-sunken);opacity:.7}
+
+/* 필드 = 이름 · 입력 · 힌트 · 오류 */
+.ui-field{display:grid;align-content:start;gap:var(--space-1-5);min-width:0}
+.ui-field-head{display:flex;align-items:baseline;justify-content:space-between;gap:var(--space-2)}
+.ui-field-head a,.ui-field-head button{font-size:var(--fs-xs)}
+.ui-field-label{font-size:var(--fs-sm);font-weight:var(--fw-medium);color:var(--text)}
+.ui-field-req{margin-left:2px;color:var(--text-muted)}
+.ui-field-hint{margin:0;font-size:var(--fs-xs);color:var(--text-muted)}
+.ui-field-error{display:flex;align-items:flex-start;gap:5px;margin:0;font-size:var(--fs-xs);color:var(--danger-text)}
+.ui-field-error .ui-icon{margin-top:2px}
+.ui-field[data-disabled] .ui-field-label{color:var(--text-muted)}
+
+/* 체크 — 브라우저 상자를 지우고 그린다 (켬 = 잉크색) */
+.ui-check{display:inline-flex;align-items:flex-start;gap:var(--space-2);min-width:0;cursor:pointer;font-size:var(--fs-sm);color:var(--text)}
+.ui-check[data-disabled]{cursor:default;color:var(--text-muted)}
+.ui-check-box{position:relative;display:inline-grid;place-items:center;width:16px;height:16px;flex:none;margin-top:1px}
+.ui-check-box input{appearance:none;-webkit-appearance:none;margin:0;width:16px;height:16px;border:1.5px solid var(--border-strong);border-radius:var(--radius-xs);
+  background:var(--surface);cursor:pointer;transition:background var(--dur-fast),border-color var(--dur-fast)}
+.ui-check-box input:hover{border-color:var(--text-muted)}
+.ui-check-box input:checked,.ui-check-box input:indeterminate{background:var(--accent);border-color:var(--accent)}
+.ui-check-box input:disabled{opacity:.45;cursor:default}
+.ui-check-box .ui-icon{position:absolute;color:var(--on-accent);pointer-events:none;visibility:hidden}
+.ui-check-box input:checked:not(:indeterminate)~.ui-check-on,.ui-check-box input:indeterminate~.ui-check-mixed{visibility:visible}
+.ui-radio{appearance:none;-webkit-appearance:none;display:block;width:16px;height:16px;margin:0;border:1.5px solid var(--border-strong);border-radius:50%;
+  background:var(--surface);cursor:pointer;transition:border-color var(--dur-fast),box-shadow var(--dur-fast)}
+.ui-radio:hover{border-color:var(--text-muted)}
+.ui-radio:checked{border-color:var(--accent);background:var(--accent);box-shadow:inset 0 0 0 3px var(--surface)}
+.ui-radio:disabled{opacity:.45;cursor:default}
+.ui-check-text{display:grid;gap:1px;min-width:0}
+.ui-check-desc{font-size:var(--fs-xs);color:var(--text-muted)}
+
+/* 스위치 — 켬 = 잉크 (초록은 상태 색) · 끔 바탕 = border-strong (흰 바탕 3:1) */
+.ui-switch{position:relative;width:32px;height:18px;flex:none;vertical-align:middle;padding:0;border:0;border-radius:var(--radius-pill);background:var(--border-strong);cursor:pointer;
+  transition:background var(--dur-base) var(--ease-standard)}
+.ui-switch[data-size="sm"]{width:26px;height:15px}
+.ui-switch-knob{position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--surface);box-shadow:var(--shadow-sm);
+  transition:transform var(--dur-base) var(--ease-standard)}
+.ui-switch[data-size="sm"] .ui-switch-knob{width:11px;height:11px}
+.ui-switch[aria-checked="true"]{background:var(--accent)}
+.ui-switch[aria-checked="true"] .ui-switch-knob{transform:translateX(14px);background:var(--on-accent)}
+.ui-switch[data-size="sm"][aria-checked="true"] .ui-switch-knob{transform:translateX(11px)}
+.ui-switch:hover{filter:brightness(.97)}
+.ui-switch:disabled{opacity:.4;cursor:default}
+.ui-switch-row{display:inline-flex;align-items:center;gap:var(--space-2);font-size:var(--fs-sm);color:var(--text);cursor:pointer}
+.ui-switch-row[data-disabled]{cursor:default;color:var(--text-muted)}
+
+/* 나눈 버튼 — 회색 홈 + 미끄러지는 흰 손잡이 (칸 너비 같음) */
+.ui-segmented{position:relative;display:inline-grid;grid-template-columns:repeat(var(--seg-n),minmax(0,1fr));padding:2px;border-radius:var(--radius-pill);background:var(--surface-sunken);vertical-align:middle}
+.ui-segmented[data-block]{display:grid;width:100%}
+.ui-segmented-thumb{position:absolute;top:2px;bottom:2px;left:2px;width:calc((100% - 4px) / var(--seg-n));border-radius:var(--radius-pill);
+  background:var(--surface);box-shadow:var(--shadow-sm);transform:translateX(calc(var(--seg-i) * 100%));transition:transform var(--dur-fast) var(--ease-standard)}
+.ui-segmented [role="radio"]{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:5px;height:calc(var(--control-md) - 4px);padding:0 12px;
+  border:0;border-radius:var(--radius-pill);background:transparent;color:var(--text-muted);font-size:var(--fs-sm);white-space:nowrap;cursor:pointer}
+.ui-segmented[data-size="sm"] [role="radio"]{height:calc(var(--control-sm) - 4px);padding:0 10px;font-size:var(--fs-xs)}
+.ui-segmented [role="radio"]:hover{color:var(--text)}
+.ui-segmented [role="radio"][aria-checked="true"]{color:var(--text);font-weight:var(--fw-semibold)}
+.ui-segmented [role="radio"]:focus-visible{outline-offset:-2px}
+.ui-segmented [role="radio"]:disabled{cursor:default;opacity:.55}
+.ui-segmented[aria-disabled="true"]{opacity:.55}
+
+/* 기다림 */
+.ui-spinner{display:inline-block;width:14px;height:14px;flex:none;border:1.5px solid var(--border);border-top-color:var(--info);border-radius:50%;animation:ui-spin .8s linear infinite}
+.ui-spinner[data-size="xs"]{width:12px;height:12px}
+.ui-spinner[data-size="md"]{width:18px;height:18px;border-width:2px}
+.ui-skeleton{display:grid;gap:6px;width:100%}
+.ui-skeleton i{display:block;height:10px;border-radius:var(--radius-sm);
+  background:linear-gradient(90deg,var(--surface-chip) 0%,var(--surface-hover) 50%,var(--surface-chip) 100%);background-size:200% 100%;animation:ui-shimmer 1.4s linear infinite}
+.ui-skeleton[data-radius="md"] i{border-radius:var(--radius-md)}
+.ui-skeleton[data-radius="lg"] i{border-radius:var(--radius-lg)}
+.ui-skeleton[data-radius="pill"] i{border-radius:var(--radius-pill)}

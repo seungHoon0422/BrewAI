@@ -1,0 +1,7 @@
+/* 1회 코드 — 크게 · 고정폭 · 한 줄 (토큰만, ADR-0012) */
+.otc{display:grid;gap:var(--space-2)}
+.otc-row{display:flex;align-items:center;gap:var(--space-2);min-width:0}
+.otc-code{flex:1;min-width:0;padding:var(--space-2-5) var(--space-3);border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface-sunken);
+  font:var(--fw-semibold) var(--fs-lg)/var(--lh-tight) var(--font-mono);letter-spacing:var(--tracking-base);color:var(--text);overflow-wrap:anywhere;user-select:all}
+.otc-note,.otc-fail{margin:0;font-size:var(--fs-xs);color:var(--text-muted)}
+.otc-fail{color:var(--danger-text)}

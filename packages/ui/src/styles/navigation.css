@@ -1,0 +1,50 @@
+/* 길 찾기 — 탭 · 위치 경로 · 화면 머리 · 도구 줄 */
+
+/* 탭: line = 밑줄(화면 안 나눔) · pill = 알약(거르개) */
+.ui-tablist{display:flex;gap:var(--space-1);overflow-x:auto;scrollbar-width:none}
+.ui-tablist::-webkit-scrollbar{display:none}
+.ui-tab{display:inline-flex;align-items:center;gap:var(--space-1-5);flex:none;border:0;background:transparent;color:var(--text-muted);
+  font-size:var(--fs-sm);font-weight:var(--fw-medium);white-space:nowrap;cursor:pointer}
+.ui-tab:hover{color:var(--text)}
+.ui-tab:disabled{opacity:.45;cursor:default}
+.ui-tab[aria-selected="true"]{color:var(--text);font-weight:var(--fw-semibold)}
+.ui-tab:focus-visible{outline-offset:-2px}
+.ui-tab-count{min-width:18px;height:18px;padding:0 5px;border-radius:var(--radius-pill);background:var(--surface-chip);color:var(--text-muted);
+  font-size:var(--fs-2xs);font-weight:var(--fw-semibold);line-height:18px;text-align:center}
+.ui-tabs[data-variant="line"] .ui-tablist{box-shadow:inset 0 -1px var(--border)}
+.ui-tabs[data-variant="line"] .ui-tab{height:36px;padding:0 var(--space-2-5);border-bottom:2px solid transparent;border-radius:var(--radius-sm) var(--radius-sm) 0 0}
+.ui-tabs[data-variant="line"] .ui-tab[aria-selected="true"]{border-bottom-color:var(--text)}
+.ui-tabs[data-variant="pill"] .ui-tab{height:var(--control-md);padding:0 12px;border-radius:var(--radius-pill)}
+.ui-tabs[data-variant="pill"] .ui-tab:hover{background:var(--surface-hover)}
+.ui-tabs[data-variant="pill"] .ui-tab[aria-selected="true"]{background:var(--surface-active)}
+.ui-tabpanel{padding-top:var(--space-4)}
+.ui-tabpanel:focus-visible{outline-offset:4px;border-radius:var(--radius-lg)}
+
+/* 위치 경로 */
+.ui-breadcrumb ol{display:flex;align-items:center;flex-wrap:wrap;gap:2px;margin:0;padding:0;list-style:none;font-size:var(--fs-sm)}
+.ui-breadcrumb li{display:inline-flex;align-items:center;gap:2px;min-width:0;max-width:240px}
+.ui-crumb{display:inline-flex;align-items:center;gap:5px;min-width:0;padding:2px 6px;border:0;border-radius:var(--radius-sm);background:transparent;
+  color:var(--text-muted);font:inherit;text-decoration:none;cursor:pointer}
+.ui-crumb .ui-icon{color:var(--text-faint)}
+a.ui-crumb:hover,button.ui-crumb:hover{background:var(--surface-hover);color:var(--text)}
+span.ui-crumb{cursor:default}
+.ui-crumb[aria-current="page"]{color:var(--text);font-weight:var(--fw-medium)}
+.ui-crumb-sep{color:var(--text-faint)}
+
+/* 화면 머리 — 데스크톱 · 관리자 같은 크기 (20px · 600) */
+.ui-page-head{display:grid;gap:var(--space-2);margin:0 0 var(--space-6)}
+.ui-page-head .ui-breadcrumb{margin-left:-6px}
+.ui-page-head[data-divider]{padding-bottom:var(--space-4);border-bottom:1px solid var(--border-subtle)}
+.ui-page-head-row{display:flex;align-items:flex-start;gap:var(--space-3);flex-wrap:wrap}
+.ui-page-titles{flex:1 1 280px;min-width:0}
+.ui-page-title-row{display:flex;align-items:center;gap:var(--space-2-5);flex-wrap:wrap}
+.ui-page-title{margin:0;font-size:var(--fs-xl);font-weight:var(--fw-semibold);letter-spacing:var(--tracking-title);line-height:var(--lh-tight)}
+.ui-page-title:focus{outline:none}
+.ui-page-desc{margin:var(--space-1) 0 0;color:var(--text-muted)}
+.ui-page-actions{display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap}
+
+/* 도구 줄 */
+.ui-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-2) var(--space-2-5);min-width:0}
+.ui-toolbar[data-sticky]{position:sticky;top:0;z-index:var(--z-sticky);padding:var(--space-2-5) 0;background:var(--surface);border-bottom:1px solid var(--border-subtle)}
+.ui-toolbar-spacer{flex:1}
+.ui-toolbar>.ui-input{flex:0 1 240px}

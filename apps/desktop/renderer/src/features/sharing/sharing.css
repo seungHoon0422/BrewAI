@@ -1,0 +1,4 @@
+/* 대화 공유 팝오버. 토큰만 (ADR-0012). */
+.share{display:flex;flex-direction:column;gap:var(--space-2);padding:var(--space-2)}
+.share-note{margin:0;color:var(--text-muted);font-size:var(--fs-sm);line-height:var(--lh-base)}
+.owner-tag{flex:none;margin-left:auto;color:var(--text-muted);font-size:var(--fs-xs);max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

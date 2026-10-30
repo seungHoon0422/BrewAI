@@ -1,4 +1,4 @@
-import { Icon } from '../icons';
+import { Icon } from '@brewai/ui';
 import { Missing, Rich, Sources, St, type Tone } from './parts';
 import type { DocsData, PhaseState } from './types';
 

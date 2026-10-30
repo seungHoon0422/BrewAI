@@ -1,5 +1,5 @@
 import { useEffect, useRef, useSyncExternalStore, type MouseEvent, type RefObject } from 'react';
-import { Icon } from '../icons';
+import { Icon } from '@brewai/ui';
 import { Rich, Sources, St, type Tone } from './parts';
 import type { Ask, Card, CardState, DocsData, Pc } from './types';
 
@@ -214,7 +214,7 @@ function AskItem({ a, card, here, inDrawer = false }: { a: Ask; card: Card | nul
         {card && !inDrawer && (
           <a href={cardHref(card.key)}>
             {card.label} · {card.title}
-            <Icon name="right" />
+            <Icon name="arrow-right" size="sm" />
           </a>
         )}
         <span className="from">{a.from.join(' · ')}</span>

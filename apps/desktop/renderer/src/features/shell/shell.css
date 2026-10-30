@@ -1,0 +1,89 @@
+/* 앱 틀 — 타이틀바 · 레일 · 사이드바 · 메인 면 + 메뉴 화면 공통(섹션 · 줄 목록 · 안내 줄 · 단계). 토큰만. */
+
+/* 틀: 회색 바탕(surface-app) 위에 흰 면(surface) 두 장 — 사이드바 · 메인 */
+.app{display:grid;grid-template-rows:40px 1fr;height:100vh}
+.titlebar{display:flex;align-items:center;gap:var(--space-0-5);padding:0 var(--space-2-5);-webkit-app-region:drag;user-select:none}
+.titlebar button{-webkit-app-region:no-drag}
+:root[data-frame="mac"] .titlebar{padding-left:84px} /* 신호등 자리 */
+:root[data-frame="win"] .titlebar{padding-right:150px} /* 창 버튼 자리 */
+.body{display:grid;grid-template-columns:48px 256px minmax(0,1fr);min-height:0;transition:grid-template-columns var(--dur-base) var(--ease-standard)}
+.app.sb-hidden .body{grid-template-columns:48px 0 minmax(0,1fr)}
+.main{background:var(--surface);box-shadow:0 -1px 0 var(--border-edge);min-width:0;min-height:0;position:relative}
+.app.sb-hidden .main{border-top-left-radius:var(--radius-sm);box-shadow:-1px 0 0 var(--border-edge),0 -1px 0 var(--border-edge)}
+.view{height:100%}
+
+/* 레일 */
+.rail{display:flex;flex-direction:column;align-items:center;gap:var(--space-3-5);padding:var(--space-2) 0}
+.rail-link{width:var(--control-lg);height:var(--control-lg);display:grid;place-items:center;border-radius:var(--radius-md);color:var(--text-faint);
+  transition:background var(--dur-fast),color var(--dur-fast)}
+.rail-link:hover{background:var(--surface-hover);color:var(--text)}
+.rail-link[aria-current="page"]{background:var(--surface-active);color:var(--text)}
+.rail-link:focus-visible{outline-offset:-2px}
+.rail .sep{width:18px;height:1px;background:var(--border);margin:calc(var(--space-0-5) * -1) 0}
+
+/* 사이드바 */
+.sidebar{display:flex;flex-direction:column;background:var(--surface);border-right:1px solid var(--border-hair);border-top-left-radius:var(--radius-sm);
+  box-shadow:-1px 0 0 var(--border-edge),0 -1px 0 var(--border-edge);padding:var(--space-2) var(--space-2) var(--space-2);min-width:0}
+.app.sb-hidden .sidebar{padding:0;border:0;box-shadow:none}
+.sb-head{display:flex;align-items:center;gap:var(--space-0-5);padding:var(--space-0-5) 0 var(--space-3)}
+.row-btn,.item{display:flex;align-items:center;gap:var(--space-2);width:100%;min-width:0;padding:7px var(--space-2);border:0;border-radius:var(--radius-md);
+  background:transparent;color:var(--text-2);text-align:left;white-space:nowrap}
+.row-btn{cursor:pointer}
+.row-btn:hover,button.item:hover{background:var(--surface-hover)}
+button.item{cursor:pointer}
+.item[aria-current="true"]{background:var(--surface-active);color:var(--text)}
+.row-btn:focus-visible,.item:focus-visible{outline-offset:-2px}
+.item .t{overflow:hidden;text-overflow:ellipsis;min-width:0}
+.item .run{display:inline-grid;margin-left:auto;flex:none}
+.item.more,.item.muted{color:var(--text-muted)}
+.item.muted{font-size:var(--fs-sm);cursor:default}
+.item .retry{margin-left:auto}
+.item .ui-icon{color:var(--text-muted)}
+.label{display:flex;align-items:center;gap:var(--space-1-5);font-size:var(--fs-sm);color:var(--text-muted);margin:var(--space-6) var(--space-2) var(--space-1-5);white-space:nowrap}
+.list{list-style:none;margin:0;padding:0}
+
+/* 메뉴 화면 공통 */
+.page-in{width:min(var(--width-read),calc(100% - 64px));margin:0 auto;padding:var(--space-12) 0 var(--space-16)}
+.page-in>.ui-page-head{margin-inline:var(--space-0-5)}
+.sec{margin-top:var(--space-8)}
+.sec-head{display:flex;align-items:center;gap:var(--space-1-5);margin:0 var(--space-0-5) var(--space-2-5)}
+.sec-head h2{font-size:var(--fs-base);font-weight:var(--fw-semibold);margin:0}
+.sec-head .count{color:var(--text-muted);font-size:var(--fs-sm)}
+.needs{margin:var(--space-3) var(--space-0-5) 0;font-size:var(--fs-sm);color:var(--text-muted)}
+.ui-empty .needs{margin:var(--space-1) 0 0}
+
+/* 줄 목록 — 상자 = 1px --border + radius-lg (관리자 표와 같은 결) */
+.rows{list-style:none;margin:0;padding:0;border:1px solid var(--border);border-radius:var(--radius-lg)}
+.row{display:flex;align-items:center;gap:var(--space-3);padding:var(--space-3) var(--space-4);min-height:var(--row-comfortable)}
+.row+.row{border-top:1px solid var(--border-subtle)}
+.row-main{display:flex;flex-direction:column;flex:1;min-width:0}
+.row-main b{font-weight:var(--fw-medium)}
+.row-sub{color:var(--text-muted);font-size:var(--fs-sm)}
+.state{display:inline-flex;align-items:center;gap:var(--space-1-5);font-size:var(--fs-sm);color:var(--text-muted);white-space:nowrap}
+.val{color:var(--text-2);font-size:var(--fs-sm);white-space:nowrap}
+.mval{display:inline-flex;align-items:center;gap:var(--space-1-5);min-width:0;max-width:240px}
+.rows-state{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-2) var(--space-3);margin:0;padding:var(--space-3-5) var(--space-4);
+  border:1px solid var(--border);border-radius:var(--radius-lg);color:var(--text-muted)}
+
+/* 안내 줄 */
+.notes{list-style:none;margin:var(--space-3-5) var(--space-0-5) 0;padding:0;display:grid;gap:var(--space-1-5);color:var(--text-muted);font-size:var(--fs-sm)}
+.notes li{display:flex;align-items:flex-start;gap:var(--space-2)}
+.notes .ui-icon{margin-top:2px;color:var(--text-faint)}
+.notes b{color:var(--text-2);font-weight:var(--fw-medium)}
+
+/* 단계 카드 (스킬이 쓰이기까지) */
+.steps{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--space-2)}
+.steps li{display:flex;flex-direction:column;gap:var(--space-0-5);padding:var(--space-3) var(--space-3-5) var(--space-3-5);border:1px solid var(--border);border-radius:var(--radius-lg)}
+.steps .num{width:20px;height:20px;margin-bottom:var(--space-1-5);border-radius:var(--radius-pill);display:grid;place-items:center;
+  background:var(--surface-chip);color:var(--text-2);font-size:var(--fs-xs);font-weight:var(--fw-semibold)}
+.steps .gate .num{background:var(--accent);color:var(--on-accent)} /* 내 승인 = 잉크 (색은 상태에만) */
+.steps b{font-weight:var(--fw-semibold)}
+.steps span:last-child{color:var(--text-muted);font-size:var(--fs-sm);text-wrap:pretty}
+
+/* 입력 틀 (대화상자 · 서랍 · 설정 화면 공통) — 칸 사이 간격 · 섹션 · 안내 한 줄 */
+.form{display:flex;flex-direction:column;gap:var(--space-4)}
+.form-sec{display:flex;flex-direction:column;gap:var(--space-1-5);padding-top:var(--space-2)}
+.form-sec-t{display:flex;align-items:center;gap:var(--space-1-5);margin:0;font-size:var(--fs-sm);font-weight:var(--fw-semibold)}
+.form-sec-t .ui-num{color:var(--text-muted);font-weight:var(--fw-regular)}
+.form-note{margin:0;color:var(--text-muted);font-size:var(--fs-sm)}
+.ui-modal-foot .grow{flex:1}

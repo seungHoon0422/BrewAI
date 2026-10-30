@@ -1,0 +1,26 @@
+{
+  "name": "@brewai/ui",
+  "private": true,
+  "version": "0.0.0",
+  "description": "BrewAI 공용 UI — 토큰 · 기본 CSS · 부품 (데스크톱 · 관리자 콘솔이 같이 쓴다, ADR-0012). 빌드 없이 Vite 가 소스를 바로 읽는다",
+  "type": "module",
+  "sideEffects": ["**/*.css"],
+  "exports": {
+    ".": "./src/index.ts",
+    "./gallery": "./src/gallery/Gallery.tsx",
+    "./styles.css": "./src/styles/index.css",
+    "./tokens.css": "./src/styles/tokens.css",
+    "./base.css": "./src/styles/base.css"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "react": "19.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "typescript": "6.0.3",
+    "vite": "8.3.5"
+  }
+}

@@ -1,5 +1,6 @@
-import { test, expect, type Page } from '@playwright/test';
-import { API, GATEWAY, GATEWAY_KEY } from './env';
+import { test, expect, type Page, type Route } from '@playwright/test';
+import { adminApi, userApi, type Client } from './auth';
+import { ADMIN_URL, GATEWAY, GATEWAY_KEY } from './env';
 import { overflowX, shot } from './helpers';
 
 // 관리자 '모델' = conductor /api/admin/models (mock 게이트웨이 /model_group/info 를 동기화한 model_exposure, ADR-0006)
@@ -16,13 +17,23 @@ const drawer = (page: Page) => page.locator('dialog.mdrawer');
 const exposeSwitch = (page: Page, label: string) => page.getByRole('switch', { name: `노출 — ${label}` });
 const filters = (page: Page) => page.getByRole('toolbar', { name: '회사별 보기' });
 
+// 화면 밖 확인 · 되돌리기 = 진짜 로그인한 API (사용자 = Bearer · 관리자 = 쿠키 + CSRF)
+let admin: Client;
+test.beforeAll(async () => {
+  admin = await adminApi();
+});
 async function userModels(): Promise<{ id: string; label: string; provider: string; is_default: boolean }[]> {
-  return (await fetch(`${API}/api/models`)).json();
+  return (await userApi()).get('/api/models');
 }
 async function patch(id: string, body: object) {
-  const res = await fetch(`${API}/api/admin/models/${id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const res = await admin.raw('PATCH', `/api/admin/models/${id}`, body);
   expect(res.ok, `PATCH ${id} ${JSON.stringify(body)}`).toBe(true);
 }
+// 콘솔은 /api 를 같은 출처(preview proxy)로 부른다. conductor 가 꺼지면 proxy 가 502 conductor_unreachable (apps/admin/vite.config.ts).
+// 로그인 확인(/api/admin/auth/*)은 그대로 둔다 — 콘솔을 보는 중에 conductor 가 꺼진 경우
+const MODELS_API = `${ADMIN_URL}/api/admin/models`;
+const conductorCall = (url: URL) => url.pathname.startsWith('/api/') && !url.pathname.startsWith('/api/admin/auth/');
+const conductorDown = (r: Route) => r.fulfill({ status: 502, contentType: 'application/json', body: '{"detail":"conductor_unreachable"}' });
 async function fakeCatalog(body: object) {
   const res = await fetch(`${GATEWAY}/__fake/catalog`, {
     method: 'POST', headers: { authorization: `Bearer ${GATEWAY_KEY}`, 'content-type': 'application/json' }, body: JSON.stringify(body),
@@ -178,30 +189,26 @@ test('"LiteLLM 에서 추가" = LiteLLM Admin UI 새 탭 (등록은 거기서만
   await expect(add).toHaveAttribute('href', `${GATEWAY}/ui`); // LLM_GATEWAY_UI_URL 이 비면 게이트웨이 주소 + /ui
   await expect(add).toHaveAttribute('target', '_blank');
   await expect(add).toHaveAttribute('rel', /noopener/);
-  await expect(page.locator('.note')).toContainText('모델은 게이트웨이(LiteLLM)에서만 등록됩니다');
+  await expect(page.locator('.note')).toContainText('모델은 게이트웨이(LiteLLM)에서만 등록돼요');
   // 서버: 가격 · 회사 같은 칸은 PATCH 로 못 바꾼다 (422) · 임베딩은 노출 못 함 (409)
-  const bad = await fetch(`${API}/api/admin/models/fake-chat-small`, {
-    method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ input_cost_per_token: 0 }),
-  });
+  const bad = await admin.raw('PATCH', '/api/admin/models/fake-chat-small', { input_cost_per_token: 0 });
   expect(bad.status).toBe(422);
-  const embed = await fetch(`${API}/api/admin/models/fake-embed`, {
-    method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ exposed: true }),
-  });
+  const embed = await admin.raw('PATCH', '/api/admin/models/fake-embed', { exposed: true });
   expect(embed.status).toBe(409);
 });
 
 test('conductor 가 꺼져 있으면 안내 → 다시 시도로 회복', async ({ page }) => {
-  await page.route(`${API}/**`, (r) => r.abort('connectionrefused'));
+  await page.route(conductorCall, conductorDown);
   await page.goto('/#/models');
   await expect(page.getByRole('alert')).toContainText('conductor 에 연결할 수 없어요');
   await expect(page.getByRole('button', { name: 'LiteLLM 에서 추가' })).toBeDisabled(); // 주소를 모르면 못 누른다
-  await page.unroute(`${API}/**`);
+  await page.unroute(conductorCall);
   await page.getByRole('button', { name: '다시 시도' }).click();
   await expect(rowsOf(page)).toHaveCount(3);
 });
 
 test('게이트웨이가 꺼져 있으면 (conductor 503) 게이트웨이 안내', async ({ page }) => {
-  await page.route(`${API}/api/admin/models`, (r) =>
+  await page.route(MODELS_API, (r) =>
     r.fulfill({ status: 503, contentType: 'application/json', body: '{"detail":"gateway_unreachable"}' }));
   await page.goto('/#/models');
   await expect(page.getByRole('alert')).toContainText('게이트웨이에 연결할 수 없어요');
@@ -210,7 +217,7 @@ test('게이트웨이가 꺼져 있으면 (conductor 503) 게이트웨이 안내
 });
 
 test('게이트웨이가 떠 있는데 오류를 내면 (conductor 502) "꺼짐" 이 아니라 오류 안내', async ({ page }) => {
-  await page.route(`${API}/api/admin/models`, (r) =>
+  await page.route(MODELS_API, (r) =>
     r.fulfill({ status: 502, contentType: 'application/json', body: '{"detail":"gateway_error"}' }));
   await page.goto('/#/models');
   await expect(page.getByRole('alert')).toContainText('게이트웨이가 오류를 냈어요');
@@ -219,14 +226,14 @@ test('게이트웨이가 떠 있는데 오류를 내면 (conductor 502) "꺼짐"
 });
 
 test('게이트웨이에 모델이 0개면 빈 표 안내', async ({ page }) => {
-  await page.route(`${API}/api/admin/models`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
+  await page.route(MODELS_API, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
   await page.goto('/#/models');
   await expect(table(page)).toContainText('게이트웨이에 모델이 없어요');
 });
 
 test('PATCH 가 실패하면 줄은 그대로 + 이유 한 줄', async ({ page }) => {
   await page.goto('/#/models');
-  await page.route(`${API}/api/admin/models/fake-chat-large`, (r) =>
+  await page.route(`${MODELS_API}/fake-chat-large`, (r) =>
     r.fulfill({ status: 409, contentType: 'application/json', body: '{"detail":"model_missing"}' }));
   await exposeSwitch(page, 'fake-chat-large').click();
   await expect(page.getByRole('alert')).toContainText('게이트웨이에서 사라진 모델이라 노출할 수 없어요');
@@ -251,12 +258,12 @@ test('개요: 게이트웨이 연결됨 · 노출 모델 수', async ({ page }) 
 });
 
 test('개요: conductor · 게이트웨이가 꺼지면 카드가 그렇게 말한다', async ({ page }) => {
-  await page.route(`${API}/**`, (r) => r.abort('connectionrefused'));
+  await page.route(conductorCall, conductorDown);
   await page.goto('/#/overview');
   await expect(gatewayCard(page)).toHaveAttribute('data-state', 'error');
   await expect(gatewayCard(page).locator('.v')).toHaveText('conductor 꺼짐');
-  await page.unroute(`${API}/**`);
-  await page.route(`${API}/api/admin/models`, (r) =>
+  await page.unroute(conductorCall);
+  await page.route(MODELS_API, (r) =>
     r.fulfill({ status: 503, contentType: 'application/json', body: '{"detail":"gateway_unreachable"}' }));
   await page.reload();
   await expect(gatewayCard(page).locator('.v')).toHaveText('꺼짐');
@@ -350,7 +357,7 @@ test('모두 시험 · 고른 줄 시험: 아직 안 써 본 키 없는 모델�
     await expect(mcard(page, 'problem').locator('.sub')).toHaveText('최근 실패 없음');
   } finally {
     await fakeCatalog({ broken: {} });
-    await fetch(`${API}/api/admin/models/fake-chat-small/test`, { method: 'POST' });
+    await admin.raw('POST', '/api/admin/models/fake-chat-small/test');
   }
 });
 

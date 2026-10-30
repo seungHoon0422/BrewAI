@@ -5,10 +5,13 @@
 
 from __future__ import annotations
 
+import ipaddress
+import logging
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlsplit
 
 # 브라우저 출처 허용 목록 (CORS). 데스크톱 = Electron app://brewai (개발 중엔 Vite 5173), 관리자 = Vite dev 5174 · preview 4174
 DESKTOP_ORIGINS = ("app://brewai", "http://localhost:5173")
@@ -17,6 +20,11 @@ ADMIN_ORIGINS = ("http://localhost:5174", "http://localhost:4174")
 BOOTSTRAP_MODELS = ("brewai-mock",)
 DEFAULT_DB_PATH = Path(".data") / "conductor.sqlite3"  # npm run api 는 레포 루트에서 돈다 → <레포>/.data/ (gitignore)
 DEFAULT_SKILLS_DIR = Path("runtime") / "skills"  # 제품 스킬 (AGENTS.md: .claude/skills = 개발 루틴과 섞지 않는다)
+PUBLIC_URL = "http://127.0.0.1:8787"  # 시스템 브라우저가 여는 conductor 주소 (Google 콜백 · 운영 = https 도메인)
+ADMIN_URL = "http://localhost:5174"  # 관리자 콘솔 주소 (Vite proxy 로 /api 가 같은 출처 · 관리자 Google 콜백)
+GOOGLE_ISSUER = "https://accounts.google.com"
+PASSWORD_MIN = 15  # OWASP (MFA 없음) · ADR-0010
+log = logging.getLogger("conductor.settings")
 
 
 @dataclass(frozen=True)
@@ -32,6 +40,38 @@ class Settings:
     gateway_ui_url: str | None = None  # 관리자 '모델 추가' 링크 (LiteLLM Admin UI). 없으면 gateway_url + /ui
     model_sync_interval_s: float = 0.0  # 게이트웨이 모델 자동 동기화 주기. 0 = 끔 (테스트 기본값). load_settings 는 60초
     skills_dir: str | None = None  # 제품 스킬 폴더 (None = 스킬 없음 · 테스트 기본값). load_settings 는 runtime/skills
+    # ↓ 로그인 (ADR-0010). 첫 관리자 = users 가 비어 있을 때만 이 값으로 만든다
+    admin_email: str | None = None
+    admin_password: str | None = field(default=None, repr=False)
+    password_min: int = PASSWORD_MIN
+    public_url: str = PUBLIC_URL
+    admin_url: str = ADMIN_URL
+    google_client_id: str | None = None
+    google_client_secret: str | None = field(default=None, repr=False)
+    google_issuer: str = GOOGLE_ISSUER
+    e2e: bool = False  # BREWAI_E2E=1 — http mock OIDC issuer 를 허용하는 유일한 조건 (public_url 도 loopback 일 때만)
+
+    @property
+    def google_enabled(self) -> bool:
+        """키가 둘 다 있고 issuer 가 https (또는 E2E + loopback 의 http mock) 일 때만. 아니면 버튼을 숨긴다."""
+        if not (self.google_client_id and self.google_client_secret):
+            return False
+        scheme = urlsplit(self.google_issuer).scheme
+        return scheme == "https" or (scheme == "http" and self.e2e and is_loopback(self.public_url))
+
+    @property
+    def secure_cookies(self) -> bool:
+        return urlsplit(self.admin_url).scheme == "https"
+
+
+def is_loopback(url: str) -> bool:
+    host = urlsplit(url).hostname or ""
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 def _csv(raw: str | None, default: tuple[str, ...]) -> tuple[str, ...]:
@@ -58,7 +98,26 @@ def load_settings(env: Mapping[str, str] = os.environ) -> Settings:
         gateway_ui_url=(env.get("LLM_GATEWAY_UI_URL") or "").rstrip("/") or None,
         model_sync_interval_s=_seconds(env.get("MODEL_SYNC_INTERVAL_S"), 60.0),
         skills_dir=env.get("CONDUCTOR_SKILLS_DIR") or str(DEFAULT_SKILLS_DIR),
+        admin_email=(env.get("BREWAI_ADMIN_EMAIL") or "").strip() or None,
+        admin_password=env.get("BREWAI_ADMIN_PASSWORD") or None,
+        password_min=_password_min(env.get("CONDUCTOR_PASSWORD_MIN")),
+        public_url=(env.get("CONDUCTOR_PUBLIC_URL") or PUBLIC_URL).rstrip("/"),
+        admin_url=(env.get("CONDUCTOR_ADMIN_URL") or ADMIN_URL).rstrip("/"),
+        google_client_id=(env.get("GOOGLE_CLIENT_ID") or "").strip() or None,
+        google_client_secret=(env.get("GOOGLE_CLIENT_SECRET") or "").strip() or None,
+        google_issuer=(env.get("GOOGLE_ISSUER") or GOOGLE_ISSUER).rstrip("/"),
+        e2e=env.get("BREWAI_E2E") == "1",
     )
+
+
+def _password_min(raw: str | None) -> int:
+    # 8 아래로는 못 내린다 (NIST 하한). 잘못된 값이면 기본값
+    try:
+        v = int(raw) if raw and raw.strip() else PASSWORD_MIN
+    except ValueError:
+        log.warning("CONDUCTOR_PASSWORD_MIN=%r 를 못 읽어서 %d 을 써요", raw, PASSWORD_MIN)
+        return PASSWORD_MIN
+    return min(max(v, 8), 64)
 
 
 def _seconds(raw: str | None, default: float) -> float:

@@ -1,0 +1,41 @@
+/* 로그인 게이트 — 회색 바탕 위 흰 카드 하나 (사이드바 · 메인과 같은 면 규칙). 토큰만 (ADR-0012). */
+
+.auth-host{height:100%}
+.auth-splash{height:100%;display:grid;place-content:center;justify-items:center;gap:var(--space-5);color:var(--text-muted)}
+
+.auth{position:relative;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:var(--space-4);
+  padding:var(--space-12) var(--space-4);background:var(--surface-app);overflow:auto}
+.auth[data-overlay]{position:fixed;inset:0;z-index:var(--z-popover);background:var(--scrim);animation:ui-fade-in var(--dur-base) var(--ease-out)}
+.auth-drag{position:absolute;inset:0 0 auto;height:40px;-webkit-app-region:drag} /* 타이틀바 자리 = 창 끌기 */
+
+.auth-card{width:min(380px,100%);display:flex;flex-direction:column;gap:var(--space-4);padding:var(--space-8) var(--space-8) var(--space-6);
+  background:var(--surface);border:1px solid var(--border-subtle);border-radius:var(--radius-xl);box-shadow:var(--shadow-md)}
+.auth-mark{align-self:flex-start}
+.auth-head h1{margin:0;font-size:var(--fs-xl);font-weight:var(--fw-semibold);letter-spacing:var(--tracking-title);line-height:var(--lh-tight)}
+.auth-sub{margin:var(--space-1) 0 0;color:var(--text-muted);font-size:var(--fs-sm);line-height:var(--lh-base);text-wrap:pretty}
+.auth-form{display:flex;flex-direction:column;gap:var(--space-3-5)}
+.auth-form .ui-btn{margin-top:var(--space-1)}
+
+.auth-or{display:flex;align-items:center;gap:var(--space-3);color:var(--text-muted);font-size:var(--fs-xs)}
+.auth-or::before,.auth-or::after{content:"";flex:1;height:1px;background:var(--border-subtle)}
+
+.auth-link{border:0;background:transparent;padding:0;color:var(--text-muted);font-size:var(--fs-sm);cursor:pointer;text-decoration:underline;
+  text-decoration-color:var(--border-strong);text-underline-offset:3px}
+.auth-link:hover{color:var(--text)}
+.auth-alt{display:flex;justify-content:center;gap:var(--space-2);margin:0;color:var(--text-muted)}
+
+.auth-code input{font-family:var(--font-mono);letter-spacing:var(--tracking-base);text-transform:uppercase}
+.auth-invite{display:flex;flex-direction:column;gap:var(--space-1)}
+.auth-invite .auth-sub{margin:0}
+.auth-invite-org{display:flex;align-items:center;gap:var(--space-2);margin:0;font-weight:var(--fw-semibold)}
+.auth-invite-org .ui-icon{color:var(--text-muted)}
+.auth-invite-spaces{display:flex;flex-wrap:wrap;gap:var(--space-1);margin:var(--space-1) 0 0}
+
+.auth-body{display:contents}
+.auth-body[hidden]{display:none}
+.auth-wait{display:flex;flex-direction:column;align-items:center;gap:var(--space-2);padding:var(--space-4) 0;text-align:center}
+.auth-wait-t{margin:var(--space-2) 0 0;font-size:var(--fs-md);font-weight:var(--fw-medium)}
+.auth-wait .auth-sub{margin:0 0 var(--space-2)}
+
+.auth-server{display:flex;align-items:center;gap:var(--space-1-5);margin:0;min-height:var(--control-sm);color:var(--text-muted);font-size:var(--fs-xs)}
+.auth[data-overlay] .auth-server{color:var(--text-2)}

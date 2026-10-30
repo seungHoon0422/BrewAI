@@ -1,6 +1,10 @@
 """conductor HTTP API (FastAPI). 실행: npm run api (= uv run --env-file .env uvicorn --factory conductor.app:create_app --host 127.0.0.1 --port 8787)
 
-데스크톱 (CORS = 데스크톱 출처만)
+인증 (ADR-0010 · 라우터 단위로 붙인다 = 경로마다 잊을 수 없다 · tests/test_auth.py 가 경로 표 전체를 두드린다)
+  공개   GET /healthz · /api/auth/*(login · token · state · invite/preview · signup · reset · google/*) · POST /api/admin/auth/login
+  사용자 그 밖의 /api/* = `Authorization: Bearer bwa_…` 만 (api_auth.py · api_spaces.py · 아래)
+  관리자 /api/admin/* = 관리자 쿠키 + X-CSRF-Token + instance admin (api_admin.py · 아래). 오류 = {detail: code}
+데스크톱 (CORS = 데스크톱 출처만 · Bearer)
   GET    /healthz                    살아 있음 (게이트웨이는 안 부른다)
   GET    /api/models                 노출 모델만 · 기본 모델이 첫 항목(is_default) · 나머지는 관리자 순서
                                      + source(config|ui|mixed|null = 등록 출처) · health(ok|error|unknown) · health_code · health_at
@@ -8,16 +12,23 @@
   GET    /api/tools                  conductor 툴 [{name, label, description}] (활동 단계 tool:<name> 의 화면 이름)
   GET    /api/skills                 제품 스킬 (runtime/skills) [{name, label, description, tools, builtin, used}] (단계 skill:<name>)
   POST   /api/chat                   AG-UI RunAgentInput → AG-UI SSE (agent.py 머리말 = 이벤트 순서)
-  GET    /api/threads                최근 대화 (제목 = 첫 질문 첫 줄)
-  GET    /api/threads/{id}           대화 기록 (완료된 턴만)
-  DELETE /api/threads/{id}           대화 지우기 (204)
-  GET    /api/runs                   최근 실행 (진행 상황 화면: 상태 · 모델 · 단계 · 걸린 시간)
-관리자 (CORS = 관리자 출처만, ADR-0006 — 모델 등록은 LiteLLM 에서만)
+                                     forwardedProps.spaceId · projectId = 새 대화만 (없으면 내 스페이스) · 기존 대화는 DB 값
+                                     남의 대화 = 404 thread_not_found · 공유된 남의 대화에 이어 쓰기 = 403 forbidden
+  GET    /api/scopes                 범위 계층 표 [{kind, parent, optional, membership, tenant, item}] (scopes.py)
+  GET    /api/threads?space=&project=<id|none>&limit=   한 스페이스의 내 대화 + 공유된 대화 (space 없으면 내 스페이스)
+                                     + space_id · project_id · visibility · user_id · owner_name · mine
+                                     · path = [{kind, id, name}] 위 → 아래 (조직 · 스페이스 · 프로젝트? · 대화)
+  GET    /api/threads/{id}           대화 기록 (완료된 턴만) + 위 범위 칸 · path · can_edit
+  PATCH  /api/threads/{id}           {title?, visibility?: private|shared, project_id?: id|null} (만든 사람만 · 내 스페이스 공유 = 409
+                                     personal_space · 다른 스페이스 프로젝트 = 409 project_in_other_space)
+  DELETE /api/threads/{id}           대화 지우기 (204 · 만든 사람만)
+  GET    /api/runs?space=            내 최근 실행 (진행 상황 화면: 상태 · 모델 · 단계 · 걸린 시간) + path (그 대화의 경로)
+관리자 (같은 출처 Vite proxy · 쿠키 + CSRF, ADR-0006 — 모델 등록은 LiteLLM 에서만)
   GET    /api/admin/models           모든 모델 (노출 · 후보 · 숨김 · 사라짐) + 게이트웨이 값 (읽기 전용) + source (등록 출처)
   GET    /api/admin/providers        provider 별 개수
   PATCH  /api/admin/models/{id}      exposed · display_name · order · is_default 만
                                      칸 값이 틀리면 422 {detail: bad_<칸>} · 모르는 칸 = 422 (FastAPI 기본 목록)
-  관리자 경로에 관리자 출처가 아닌 Origin 이 붙은 요청 = 403 origin_not_allowed (단순 요청 POST sync 도 막는다)
+  관리자 경로에 관리자 출처가 아닌 Origin 이 붙은 요청 = 403 origin_not_allowed (쿠키 · CSRF 전에)
   POST   /api/admin/models/sync      게이트웨이에서 다시 읽기
   POST   /api/admin/models/{id}/test 연결 시험 = 짧은 호출 한 번 → {ok, code, detail, status, at, duration_ms} (결과는 model_health 에)
   GET    /api/admin/skills           스킬 카탈로그 (읽기 전용: 출처 runtime/skills · 버전 = sha256 앞 12자) + 읽지 못한 스킬
@@ -30,12 +41,14 @@ import asyncio
 import contextlib
 import json
 import logging
+import re
 import time
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
-from fastapi import FastAPI, Query, Request
+from fastapi import APIRouter, Depends, FastAPI, Query, Request
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
@@ -44,11 +57,20 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from .agent import ChatRequest, ChatRequestError, ChatRuntime, render_run
+from . import api_admin, api_auth, api_spaces
+from .agent import ChatRequest, ChatRequestError, ChatRuntime, RunScope, render_run
+from .auth import policy
+from .auth.accounts import Accounts, AuthFailed, Principal
+from .auth.directory import Directory
+from .auth.google import GoogleOIDC
+from .auth.guard import Guard
+from .auth.http import auth_failed_response, require_admin, require_user
+from .auth.policy import Denied
 from .diagnose import MODEL_HEALTH_CODES
 from .gateway import GatewayCatalogPort, GatewayError, LiteLLMCatalog
 from .models import ExposureRow, ModelChoice, ModelPatchError, ModelRegistry
 from .providers import provider_label
+from .scopes import Crumb, Scopes, describe
 from .settings import Settings, load_settings
 from .skills import load_skills
 from .store import Store, StoreConflict
@@ -57,6 +79,23 @@ from .tools import BUILTIN_TOOLS
 ADMIN_PREFIX = "/api/admin/"
 TITLE_CHARS = 80
 log = logging.getLogger("conductor.app")
+# 접근 로그에서 가릴 쿼리 값 (Google 콜백 code · state · handoff · 연결 표)
+_SECRET_QUERY = re.compile(r"([?&](?:code|state|token|access_token|refresh_token|link|invite|ds|cc)=)[^&\s]*", re.IGNORECASE)
+
+
+class RedactQuery(logging.Filter):
+    """uvicorn.access 의 경로 인자에서 비밀 쿼리 값을 '***' 로 (레코드 args = (client, method, path, http, status))."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.args, tuple) and len(record.args) >= 3 and isinstance(record.args[2], str):
+            record.args = (*record.args[:2], _SECRET_QUERY.sub(r"\1***", record.args[2]), *record.args[3:])
+        return True
+
+
+def redact_access_log() -> None:
+    access = logging.getLogger("uvicorn.access")
+    if not any(isinstance(f, RedactQuery) for f in access.filters):
+        access.addFilter(RedactQuery())
 
 
 class ModelOut(BaseModel):
@@ -123,15 +162,27 @@ class ModelPatch(BaseModel):
 PATCH_FIELDS = frozenset(ModelPatch.model_fields)
 
 
+class ThreadPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    title: str | None = Field(default=None, max_length=200)
+    visibility: Literal["private", "shared"] | None = None
+    project_id: str | None = Field(default=None, max_length=64)  # null = 프로젝트 없음
+
+
 class ScopedCORS:
     """CORS 를 경로로 나눈다: /api/admin/* = 관리자 출처만, 나머지 = 데스크톱 출처만 (사용자 앱 ↔ 관리자 분리).
-    CORS 는 응답 읽기만 막고 단순 요청(POST sync · GET 동기화)은 서버에서 돈다 → 관리자 경로는 다른 Origin 을 아예 거절.
-    Origin 없는 요청(curl · 테스트 · 같은 출처)은 통과 — 관리자 인증은 P2-3."""
+    CORS 는 응답 읽기만 막고 단순 요청은 서버에서 돈다 → 관리자 경로는 다른 Origin 을 아예 거절.
+    Origin 없는 요청(curl · 같은 출처 proxy)은 여기선 통과 — 관리자 경로는 쿠키 + CSRF 가 없으면 401/403 (auth/http.py)."""
 
     def __init__(self, app: ASGIApp, *, desktop_origins: Sequence[str], admin_origins: Sequence[str]) -> None:
-        common = {"allow_headers": ["content-type", "accept"], "max_age": 600}
-        self._desktop = CORSMiddleware(app, allow_origins=list(desktop_origins), allow_methods=["GET", "POST", "DELETE"], **common)
-        self._admin = CORSMiddleware(app, allow_origins=list(admin_origins), allow_methods=["GET", "POST", "PATCH"], **common)
+        self._desktop = CORSMiddleware(
+            app, allow_origins=list(desktop_origins), allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE"],
+            allow_headers=["content-type", "accept", "authorization"], max_age=600,
+        )
+        self._admin = CORSMiddleware(
+            app, allow_origins=list(admin_origins), allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE"],
+            allow_headers=["content-type", "accept", "x-csrf-token"], allow_credentials=True, max_age=600,
+        )
         self._admin_origins = frozenset(admin_origins)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
@@ -219,12 +270,22 @@ class _Sink:
             self._store.record_model_result(self._model, error_code=error_detail or error_code, source="chat")
 
 
+def _thread_out(t: Any, user_id: str, path: list[Crumb]) -> dict[str, Any]:
+    return {
+        "id": t["id"], "title": t["title"], "created_at": t["created_at"], "updated_at": t["updated_at"],
+        "turns": t["turns"], "last_model": t["last_model"], "running": bool(t["running"]),
+        "space_id": t["space_id"], "project_id": t["project_id"], "visibility": t["visibility"],
+        "user_id": t["user_id"], "owner_name": t["owner_name"], "mine": t["user_id"] == user_id, "path": path,
+    }
+
+
 def create_app(
     settings: Settings | None = None,
     *,
     catalog: GatewayCatalogPort | None = None,
     runtime: ChatRuntime | None = None,
     store: Store | None = None,
+    google: GoogleOIDC | None = None,
 ) -> FastAPI:
     settings = settings or load_settings()
     catalog = catalog or LiteLLMCatalog(settings.gateway_url, settings.gateway_key, ttl_s=settings.catalog_ttl_s)
@@ -235,6 +296,13 @@ def create_app(
     )
     store = store or Store(settings.db_path)
     registry = ModelRegistry(store, catalog, bootstrap=settings.bootstrap_models, default_model=settings.default_model)
+    accounts = Accounts(store, password_min=settings.password_min)
+    directory = Directory(accounts)
+    scopes = Scopes(store)
+    guard = Guard(directory, scopes)
+    google = google or GoogleOIDC(settings)
+    directory.bootstrap(settings.admin_email, settings.admin_password)  # users 가 비었을 때만 (.env 첫 관리자)
+    redact_access_log()
 
     async def _poll_models() -> None:
         # LiteLLM 관리 화면에서 추가·삭제한 모델을 주기적으로 반영 (새 모델 = 후보 · 숨김, 사라진 모델 = missing)
@@ -268,14 +336,26 @@ def create_app(
                     await poller
         if isinstance(catalog, LiteLLMCatalog):
             await catalog.aclose()
+        await google.aclose()
 
     # /docs·/redoc 끔 (CDN 스크립트를 부른다). /openapi.json 은 둔다.
     app = FastAPI(title="BrewAI conductor", version="0.0.0", lifespan=lifespan, docs_url=None, redoc_url=None)
     app.add_middleware(ScopedCORS, desktop_origins=settings.desktop_origins, admin_origins=settings.admin_origins)
-    # DNS rebinding 막기: Host 가 이 PC 이름일 때만 (conductor 는 게이트웨이 키를 쥔다)
-    app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost"])
+    # DNS rebinding 막기: Host 가 이 PC 이름(또는 운영 도메인)일 때만 (conductor 는 게이트웨이 키를 쥔다)
+    hosts = {"127.0.0.1", "localhost"} | {h for h in (urlsplit(settings.public_url).hostname, urlsplit(settings.admin_url).hostname) if h}
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=sorted(hosts))
     app.state.store = store
     app.state.registry = registry
+    app.state.settings = settings
+    app.state.accounts = accounts
+    app.state.directory = directory
+    app.state.scopes = scopes
+    app.state.guard = guard
+
+    # 라우터 3개 = 인증 3종류. 경로는 반드시 이 중 하나에 (app 에 직접 붙이지 않는다 · /healthz 만 예외)
+    public = APIRouter()
+    user = APIRouter(dependencies=[Depends(require_user)])
+    admin = APIRouter(dependencies=[Depends(require_admin)])
 
     @app.exception_handler(GatewayError)
     async def _gateway_error(_: Request, e: GatewayError) -> JSONResponse:
@@ -287,6 +367,14 @@ def create_app(
 
     @app.exception_handler(ModelPatchError)
     async def _patch_error(_: Request, e: ModelPatchError) -> JSONResponse:
+        return JSONResponse({"detail": e.code}, status_code=e.status)
+
+    @app.exception_handler(AuthFailed)
+    async def _auth_failed(_: Request, e: AuthFailed) -> JSONResponse:
+        return auth_failed_response(e)
+
+    @app.exception_handler(Denied)
+    async def _denied(_: Request, e: Denied) -> JSONResponse:
         return JSONResponse({"detail": e.code}, status_code=e.status)
 
     @app.exception_handler(RequestValidationError)
@@ -316,12 +404,16 @@ def create_app(
         used = store.skill_usage()
         return [s.row() | {"used": used.get(s.name, 0)} for s in runtime.skills.list()]
 
-    # ── 데스크톱 ──
+    def thread_out(row: Any, p: Principal) -> dict[str, Any]:
+        return _thread_out(row, p.user_id, scopes.path("thread", row["id"]))
+
+    # ── 공개 ──
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
         return {"status": "ok"}
 
-    @app.get("/api/models")
+    # ── 데스크톱 (Bearer) ──
+    @user.get("/api/models")
     async def list_models() -> list[ModelOut]:
         await registry.refresh()  # 카탈로그 캐시(30초)가 바뀌었을 때만 DB 동기화
         shown = registry.exposed()
@@ -329,18 +421,32 @@ def create_app(
         health = store.model_health()
         return [_model_out(r, default, health.get(r.gateway_id)) for r in shown]
 
-    @app.get("/api/tools")
+    @user.get("/api/scopes")
+    async def list_scopes() -> dict[str, Any]:
+        return {"levels": describe()}
+
+    @user.get("/api/tools")
     async def list_tools() -> list[dict[str, str]]:
         return [{"name": t.name, "label": t.label, "description": t.description} for t in runtime.tools]
 
-    @app.get("/api/skills")
+    @user.get("/api/skills")
     async def list_skills() -> list[dict[str, Any]]:
         keys = ("name", "label", "description", "tools", "builtin", "used")
         return [{k: r[k] for k in keys} for r in skill_rows()]
 
-    @app.post("/api/chat")
-    async def chat(request: Request) -> Response:
-        async def prepare(req: ChatRequest) -> tuple[ModelChoice, list[str], _Sink]:
+    @user.post("/api/chat")
+    async def chat(request: Request, p: Principal = Depends(require_user)) -> Response:
+        async def prepare(req: ChatRequest) -> tuple[ModelChoice, list[str], _Sink, RunScope]:
+            # 범위 먼저 (모델보다): 남의 대화 = 404 · 공유된 남의 대화에 이어 쓰기 = 403 · 보관된 스페이스 = 409
+            existing = store.thread_row(req.thread_id)
+            if existing is not None:
+                _, tf = guard.thread(p.actor, req.thread_id, "owner")
+                space = tf.space
+                project = directory.project(existing["project_id"])
+            else:
+                space = guard.space(p.actor, req.space_id)
+                project = guard.project_in(p.actor, req.project_id, space) if req.project_id else None
+            policy.require_space_writable(p.actor, space)
             await registry.refresh()
             choice = registry.resolve(req.model)
             if choice is None:
@@ -352,31 +458,39 @@ def create_app(
                 store.start_run(
                     run_id=req.run_id, thread_id=req.thread_id, model=choice.id, model_label=choice.label,
                     provider=choice.provider, reasoning=effective, prompt=req.prompt,  # 실제로 쓴 생각 수준
+                    user_id=p.user_id, space_id=space.id, org_id=space.org_id, project_id=project["id"] if project else None,
                 )
             except StoreConflict as e:
-                raise ChatRequestError(409, e.code) from e
-            return choice, blobs, _Sink(store, req, choice.id)
+                raise ChatRequestError(404 if e.code == "thread_not_found" else 409, e.code) from e
+            instructions = (
+                f"이 대화는 프로젝트 '{project['name']}' 안에 있다. 아래 프로젝트 지침을 따른다 (위 규칙이 우선).\n{project['instructions']}"
+                if project is not None and project["instructions"] else None
+            )
+            scope = RunScope(user_id=p.user_id, space_id=space.id, project_id=project["id"] if project else None, instructions=instructions)
+            return choice, blobs, _Sink(store, req, choice.id), scope
 
         return await runtime.handle(request, prepare)
 
-    @app.get("/api/threads")
-    async def list_threads(limit: int = Query(50, ge=1, le=200)) -> list[dict[str, Any]]:
-        return [
-            {
-                "id": t["id"], "title": t["title"], "created_at": t["created_at"], "updated_at": t["updated_at"],
-                "turns": t["turns"], "last_model": t["last_model"], "running": bool(t["running"]),
-            }
-            for t in store.list_threads(limit)
-        ]
+    @user.get("/api/threads")
+    async def list_threads(
+        space: str | None = Query(None, max_length=64), project: str | None = Query(None, max_length=64),
+        limit: int = Query(50, ge=1, le=200), p: Principal = Depends(require_user),
+    ) -> list[dict[str, Any]]:
+        facts = guard.space(p.actor, space)
+        if project not in (None, "none") and scopes.ancestor("project", project) != facts.id:
+            raise Denied(404, "project_not_found")  # 다른 스페이스의 프로젝트 = 없는 것과 같다
+        rows = store.list_threads(
+            user_id=p.user_id, space_id=facts.id, project_id=None if project in (None, "none") else project,
+            no_project=project == "none", limit=limit,
+        )
+        paths = scopes.paths("thread", [t["id"] for t in rows])
+        return [_thread_out(t, p.user_id, paths.get(t["id"], [])) for t in rows]
 
-    @app.get("/api/threads/{thread_id}")
-    async def get_thread(thread_id: str) -> dict[str, Any]:
-        found = store.get_thread(thread_id)
-        if found is None:
-            raise ChatRequestError(404, "thread_not_found")
-        thread, runs = found
+    @user.get("/api/threads/{thread_id}")
+    async def get_thread(thread_id: str, p: Principal = Depends(require_user)) -> dict[str, Any]:
+        thread, _ = guard.thread(p.actor, thread_id)
         messages: list[dict[str, Any]] = []
-        for r in runs:
+        for r in store.thread_runs(thread_id):
             messages.append({"id": f"{r['id']}:user", "role": "user", "run_id": r["id"], "content": r["prompt"], "created_at": r["started_at"]})
             answer = render_run(r["messages"])
             messages.append(
@@ -387,42 +501,68 @@ def create_app(
                     "duration_ms": r["duration_ms"], "usage": _json(r["usage"]), "created_at": r["finished_at"],
                 }
             )
-        return {
-            "id": thread["id"], "title": thread["title"], "created_at": thread["created_at"],
-            "updated_at": thread["updated_at"], "messages": messages,
-        }
+        out = thread_out(thread, p)
+        keys = ("id", "title", "created_at", "updated_at", "space_id", "project_id", "visibility", "user_id", "owner_name", "mine", "path")
+        return {k: out[k] for k in keys} | {"can_edit": out["mine"], "messages": messages}
 
-    @app.delete("/api/threads/{thread_id}", status_code=204)
-    async def delete_thread(thread_id: str) -> Response:
+    @user.patch("/api/threads/{thread_id}")
+    async def patch_thread(thread_id: str, body: ThreadPatch, p: Principal = Depends(require_user)) -> dict[str, Any]:
+        _, facts = guard.thread(p.actor, thread_id, "owner")
+        changes: dict[str, Any] = {}
+        if body.title is not None:
+            title = " ".join(body.title.split())
+            if not title or len(title) > TITLE_CHARS:
+                raise Denied(422, "bad_title")
+            changes["title"] = title
+        if body.visibility is not None:
+            if body.visibility == "shared" and not policy.can_share(facts):
+                raise Denied(409, "personal_space")  # 내 스페이스엔 멤버가 없다
+            changes["visibility"] = body.visibility
+        if "project_id" in body.model_fields_set:
+            changes["project_id"] = guard.project_in(p.actor, body.project_id, facts.space)["id"] if body.project_id else None
+        if changes:
+            policy.require_space_writable(p.actor, facts.space)
+            store.update_thread(thread_id, changes)
+        return thread_out(store.thread_row(thread_id), p)
+
+    @user.delete("/api/threads/{thread_id}", status_code=204)
+    async def delete_thread(thread_id: str, p: Principal = Depends(require_user)) -> Response:
+        guard.thread(p.actor, thread_id, "owner")
         if not store.delete_thread(thread_id):
-            raise ChatRequestError(404, "thread_not_found")
+            raise Denied(404, "thread_not_found")
         return Response(status_code=204)
 
-    @app.get("/api/runs")
-    async def list_runs(limit: int = Query(50, ge=1, le=200)) -> list[dict[str, Any]]:
+    @user.get("/api/runs")
+    async def list_runs(
+        space: str | None = Query(None, max_length=64), limit: int = Query(50, ge=1, le=200), p: Principal = Depends(require_user),
+    ) -> list[dict[str, Any]]:
+        space_id = guard.space(p.actor, space).id if space else None
+        rows = store.list_runs(user_id=p.user_id, space_id=space_id, limit=limit)
+        paths = scopes.paths("thread", [r["thread_id"] for r in rows])
         return [
             {
                 "id": r["id"], "thread_id": r["thread_id"], "thread_title": r["thread_title"] or _title(r["prompt"]),
+                "space_id": r["space_id"], "project_id": r["project_id"],
                 "status": r["status"], "model": r["model"], "model_label": r["model_label"], "provider": r["provider"],
                 "provider_label": provider_label(r["provider"]), "reasoning": r["reasoning"], "steps": _json(r["steps"]) or [],
                 "started_at": r["started_at"], "finished_at": r["finished_at"], "duration_ms": r["duration_ms"],
-                "error_code": r["error_code"], "usage": _json(r["usage"]),
+                "error_code": r["error_code"], "usage": _json(r["usage"]), "path": paths.get(r["thread_id"], []),
             }
-            for r in store.list_runs(limit)
+            for r in rows
         ]
 
-    # ── 관리자 ──
-    @app.get("/api/admin/models")
+    # ── 관리자 (쿠키 + CSRF + instance admin) ──
+    @admin.get("/api/admin/models")
     async def admin_models() -> list[AdminModelRow]:
         # 캐시 없이: 게이트웨이가 방금 꺼졌으면 관리자 표 · 개요 카드가 바로 그렇게 말한다
         await registry.refresh(fresh=True)
         return admin_rows()
 
-    @app.get("/api/admin/providers")
+    @admin.get("/api/admin/providers")
     async def admin_providers() -> list[dict[str, Any]]:
         return registry.providers()
 
-    @app.patch("/api/admin/models/{gateway_id:path}")
+    @admin.patch("/api/admin/models/{gateway_id:path}")
     async def patch_model(gateway_id: str, body: ModelPatch) -> AdminModelRow:
         changes = body.model_dump(include=body.model_fields_set)
         if not changes:
@@ -433,7 +573,7 @@ def create_app(
         registry.patch(gateway_id, changes)
         return next(r for r in admin_rows() if r.id == gateway_id)
 
-    @app.post("/api/admin/models/sync")
+    @admin.post("/api/admin/models/sync")
     async def sync_models() -> dict[str, Any]:
         result = await registry.refresh(fresh=True)
         assert result is not None  # fresh = 언제나 동기화
@@ -442,7 +582,7 @@ def create_app(
             "first_sync": result.first_sync, "synced_at": result.synced_at, "models": admin_rows(),
         }
 
-    @app.post("/api/admin/models/{gateway_id:path}/test")
+    @admin.post("/api/admin/models/{gateway_id:path}/test")
     async def test_model(gateway_id: str) -> dict[str, Any]:
         row = next((r for r in registry.rows() if r.gateway_id == gateway_id), None)
         if row is None:
@@ -461,11 +601,11 @@ def create_app(
             "at": at, "duration_ms": int((time.monotonic() - started) * 1000),
         }
 
-    @app.get("/api/admin/skills")
+    @admin.get("/api/admin/skills")
     async def admin_skills() -> dict[str, Any]:
         return {"source": runtime.skills.source, "skills": skill_rows(), "errors": runtime.skills.errors}
 
-    @app.get("/api/admin/gateway")
+    @admin.get("/api/admin/gateway")
     async def admin_gateway() -> dict[str, Any]:
         return {
             "kind": "litellm",
@@ -474,4 +614,9 @@ def create_app(
             "last_sync_at": registry.last_sync_at(),
         }
 
+    api_auth.register(public, user, admin, settings=settings, google=google)
+    api_spaces.register(user)
+    api_admin.register(admin)
+    for router in (public, user, admin):
+        app.include_router(router)
     return app

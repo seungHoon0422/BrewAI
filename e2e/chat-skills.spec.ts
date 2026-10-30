@@ -1,13 +1,9 @@
-import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-import { API } from './env';
+import { test, expect, type ElectronApplication, type Page } from '@playwright/test';
+import { launchDesktop, userApi, type Client } from './auth';
 import { expectHeading, openMenu, shot } from './helpers';
 
 // 스킬 (제품 스킬 = runtime/skills · conductor 가 읽는다): 스킬 메뉴 목록 → 대화에서 스킬 + 도구 카드 → 사용 횟수.
 // mock 표시: [fake:skill <이름>] → use_skill · [fake:convert <값> <단위> <단위>] → unit_convert (적은 순서대로)
-const APP = path.join(__dirname, '..', 'apps', 'desktop');
 const NAV = '메뉴';
 const SKILLS = { id: 'skills', label: '스킬' };
 const CHAT = { id: 'chat', label: '대화', h1: '무엇을 맡길까요?' };
@@ -16,12 +12,12 @@ const STARTERS = ['비교표 만들기', '메일 답장 초안', '회의 준비'
 test.describe.configure({ mode: 'serial' });
 let app: ElectronApplication;
 let win: Page;
+let api: Client; // 같은 사람(첫 관리자)의 사용자 API
 
 test.beforeAll(async () => {
   test.setTimeout(120_000);
-  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'brewai-e2e-'));
-  app = await electron.launch({ args: [APP], env: { ...process.env, BREWAI_API_URL: API, BREWAI_USER_DATA: userData } });
-  win = await app.firstWindow();
+  ({ app, win } = await launchDesktop());
+  api = await userApi();
   await expectHeading(win, CHAT.h1);
 });
 test.afterAll(async () => app?.close());
@@ -29,7 +25,7 @@ test.afterAll(async () => app?.close());
 const skillList = (p: Page) => p.getByRole('list', { name: '스킬 목록' });
 const skillRow = (p: Page, name: string) => skillList(p).locator(`li[data-skill="${name}"]`);
 const usedOf = async (name: string) =>
-  ((await (await fetch(`${API}/api/skills`)).json()) as { name: string; used: number }[]).find((s) => s.name === name)?.used ?? -1;
+  (await api.get<{ name: string; used: number }[]>('/api/skills')).find((s) => s.name === name)?.used ?? -1;
 
 test('스킬 메뉴: 스타터 스킬 5개 (이름 · 설명 · 내장 · 쓰는 도구 · 사용 횟수)', async () => {
   await openMenu(win, NAV, SKILLS);
@@ -90,9 +86,9 @@ test('대화: 스킬 사용 카드 → 단위 변환 카드 → 답 · 단계 = 
   expect(await usedOf('compare-table')).toBe(before + 1);
 
   // 다시 열어도 (서버 기록) 같은 카드 — 지침 본문 없이
-  const runs = (await (await fetch(`${API}/api/runs`)).json()) as { thread_id: string; steps: { name: string; label: string }[] }[];
+  const runs = await api.get<{ thread_id: string; steps: { name: string; label: string }[] }[]>('/api/runs');
   expect(runs[0].steps.map((s) => s.label)).toEqual(['스킬 · 비교표 만들기', '단위 변환', '답 쓰기']);
-  const thread = (await (await fetch(`${API}/api/threads/${runs[0].thread_id}`)).json()) as { messages: { parts?: { name?: string; result?: Record<string, unknown> }[] }[] };
+  const thread = await api.get<{ messages: { parts?: { name?: string; result?: Record<string, unknown> }[] }[] }>(`/api/threads/${runs[0].thread_id}`);
   const card = thread.messages[1].parts?.[0];
   expect(card?.name).toBe('use_skill');
   expect(card?.result).not.toHaveProperty('instructions');

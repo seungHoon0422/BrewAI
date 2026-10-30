@@ -1,0 +1,39 @@
+/* 관리자 콘솔 틀 = 회색 틀(사이드바) 위에 흰 본문 면 — 데스크톱 앱과 같은 면 구성 (ADR-0012). 토큰 · 기본 · 부품 CSS 는 @brewai/ui/styles.css.
+   여기엔 틀 배치만. 화면 안 모양은 features/<이름>/<이름>.css (토큰만). */
+
+/* 본문 안 코드 조각 (id · 경로 · 키 이름) — 부품 밖 글에만 (:where = 부품 규칙보다 약하게) */
+:where(.main) code{padding:1px 5px;border-radius:var(--radius-xs);background:var(--surface-chip);color:var(--text-2);font-size:var(--fs-xs);overflow-wrap:anywhere}
+
+.shell{display:grid;grid-template-columns:232px minmax(0,1fr);min-height:100vh}
+
+/* 사이드바 */
+.side{position:sticky;top:0;align-self:start;height:100vh;display:flex;flex-direction:column;gap:var(--space-3-5);padding:var(--space-3-5) var(--space-3) var(--space-4);overflow-y:auto}
+.brand{display:flex;align-items:center;gap:var(--space-2);padding:var(--space-1) var(--space-2);font-size:var(--fs-lg);font-weight:var(--fw-semibold);letter-spacing:var(--tracking-title)}
+.nav ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:var(--space-0-5)}
+.nav a{display:flex;align-items:center;gap:var(--space-2-5);padding:var(--space-1-5) var(--space-2);border-radius:var(--radius-md);color:var(--text-2);text-decoration:none;white-space:nowrap;
+  transition:background var(--dur-fast)}
+.nav a .ui-icon{color:var(--text-muted)}
+.nav a:hover{background:var(--surface-active);color:var(--text)}
+.nav a[aria-current="page"]{background:var(--surface-active);color:var(--text);font-weight:var(--fw-medium)}
+.nav a[aria-current="page"] .ui-icon{color:var(--text)}
+.nav a:focus-visible{outline-offset:-2px}
+.nav li[data-sep]{margin-top:var(--space-1-5);padding-top:var(--space-2);border-top:1px solid var(--border)}
+.side-foot{margin:auto 0 0;padding:0 var(--space-2);font-size:var(--fs-xs);color:var(--text-muted)}
+
+/* 본문 면 */
+.main{min-width:0;margin-top:var(--space-2);background:var(--surface);border-top-left-radius:var(--radius-lg);
+  box-shadow:-1px 0 0 var(--border-hair),0 -1px 0 var(--border-hair),-1px -1px 0 var(--border-edge)}
+.wrap{width:min(var(--width-page),100% - 64px);margin:0 auto;padding:var(--space-6) 0 var(--space-12)}
+
+/* 좁은 화면: 사이드바 → 위쪽 가로 메뉴 (페이지 가로 스크롤 없음) */
+@media (max-width:760px){
+  .shell{grid-template-columns:minmax(0,1fr);grid-template-rows:auto 1fr}
+  .side{position:static;height:auto;gap:var(--space-1-5);padding:var(--space-2-5) 0 0;overflow:visible}
+  .brand{padding:var(--space-1) var(--space-4)}
+  .nav ul{flex-direction:row;gap:var(--space-0-5);padding:var(--space-1) var(--space-3) var(--space-2-5);overflow-x:auto;scrollbar-width:thin}
+  .nav a{padding:var(--space-1-5) var(--space-2-5)}
+  .nav li[data-sep]{margin:0 0 0 var(--space-1-5);padding:0 0 0 var(--space-2);border-top:0;border-left:1px solid var(--border)}
+  .side-foot{display:none}
+  .main{margin-top:0;border-radius:0;box-shadow:0 -1px 0 var(--border-hair)}
+  .wrap{width:min(var(--width-page),100% - 32px);padding:var(--space-5) 0 var(--space-10)}
+}

@@ -1,0 +1,15 @@
+/* 진행 상황 — 지금 하는 일 · 최근 실행 (줄 목록은 shell.css .rows). 상태 = StatusDot 하나 (색 띠 · 색 면 없음). 토큰만. */
+.rows.live,.rows.runs{overflow:hidden}
+.rows.live .row,.rows.runs .row{align-items:flex-start}
+.rows.live .row>.ui-dot,.rows.runs .row>.ui-dot{margin-top:7px}
+.run-live{background:var(--surface-sunken)}
+.row-link{display:flex;max-width:100%;border:0;background:transparent;padding:0;color:inherit;text-align:left;cursor:pointer;min-width:0}
+.row-link:hover b{text-decoration:underline;text-underline-offset:2px}
+.row-link b{display:block}
+.row-sub .doing{color:var(--text-2)}
+
+/* 단계 줄: 생각 → 도구 → 답 쓰기 */
+.chain{list-style:none;margin:var(--space-1-5) 0 0;padding:0;display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-1-5);font-size:var(--fs-sm);color:var(--text-2)}
+.chain li{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.chain .tm{color:var(--text-muted)}
+.chain .arr{color:var(--text-faint);display:inline-grid}

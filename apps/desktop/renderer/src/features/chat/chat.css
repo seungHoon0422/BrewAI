@@ -1,0 +1,149 @@
+/* 대화 — 홈 · 입력창 · 대화 화면 · 메시지 · 실패 · 답 아래 줄 · 생각/도구 상태 줄(유리) · 도구 카드. 토큰만 (ADR-0012). */
+
+/* 홈 */
+.home{display:grid;grid-template-rows:1fr auto}
+.hero{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:var(--space-5);padding:var(--space-16) var(--space-6) 0}
+.hero h1{font-size:var(--fs-2xl);font-weight:var(--fw-medium);margin:0;letter-spacing:var(--tracking-display);line-height:var(--lh-tight)}
+.dock{width:min(var(--width-read),calc(100% - 64px));margin:0 auto var(--space-4)}
+.suggest{list-style:none;margin:0 0 var(--space-3);padding:0 var(--space-1)}
+.sg{display:flex;align-items:center;gap:var(--space-3);width:100%;border:0;background:transparent;text-align:left;color:var(--text-muted);
+  padding:var(--space-2-5) var(--space-2);border-radius:var(--radius-md);cursor:pointer}
+.sg:hover{color:var(--text);background:var(--surface-hover)}
+.sg .ui-icon{color:var(--text-faint)}
+.sg:hover .ui-icon{color:var(--text-2)}
+.sg .need{margin-left:auto;font-size:var(--fs-xs);color:var(--text-muted)}
+
+/* 입력창 = 회색 받침(위 줄) + 흰 상자 */
+.composer{position:relative;background:var(--surface-sunken);border-radius:var(--radius-2xl)}
+.composer-ctx{display:flex;gap:var(--space-4);padding:var(--space-2) var(--space-3-5) var(--space-2);color:var(--text-muted);font-size:var(--fs-sm)}
+.composer-ctx button,.composer-ctx a{display:inline-flex;align-items:center;gap:var(--space-1-5);border:0;background:transparent;cursor:pointer;padding:0;color:inherit}
+.composer-ctx button:hover,.composer-ctx a:hover{color:var(--text)}
+.composer-ctx button:disabled{color:inherit;opacity:.6;cursor:default}
+.box{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-xl) var(--radius-xl) var(--radius-2xl) var(--radius-2xl);
+  padding:var(--space-3) var(--space-2-5) var(--space-2) var(--space-4);box-shadow:var(--shadow-sm);transition:border-color var(--dur-fast)}
+.box:focus-within{border-color:var(--focus);box-shadow:0 0 0 1px var(--focus),var(--shadow-sm)} /* 포커스 = Input 과 같은 고리 (textarea 고리는 끈다) */
+.box textarea{display:block;width:100%;border:0;outline:0;resize:none;background:transparent;color:var(--text);
+  font-size:var(--fs-md);line-height:var(--lh-base);min-height:42px;max-height:180px;padding:0;field-sizing:content}
+.box textarea:focus-visible{outline:0}
+.box textarea::placeholder{color:var(--text-muted)}
+.ctrl{display:flex;align-items:center;gap:var(--space-1);margin-top:var(--space-1)}
+.ctrl .grow{flex:1}
+.send-stop .ui-icon{width:var(--icon-sm);height:var(--icon-sm);fill:currentColor;stroke-width:0} /* 멈추기 = 꽉 찬 네모 */
+
+/* 대화 화면 */
+.thread{display:grid;grid-template-columns:minmax(0,1fr);min-height:0}
+.conv{display:grid;grid-template-rows:auto 1fr auto;min-height:0;min-width:0}
+.conv-head{display:flex;align-items:center;gap:var(--space-2);padding:var(--space-2) var(--space-3) var(--space-2) var(--space-6);min-height:45px;min-width:0}
+.conv-head .t{font-size:inherit;font-weight:var(--fw-medium);line-height:inherit;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.conv-head .conv-scope{flex:none;margin-left:-6px} /* 범위 경로 (조직 › 스페이스 › 프로젝트) + 제목 */
+.conv-head .conv-scope ol::after{content:"›";margin:0 var(--space-0-5);color:var(--text-faint)}
+.msgs{padding:var(--space-3-5) 0 var(--space-2)}
+.col{width:min(var(--width-read),calc(100% - 64px));margin:0 auto}
+.dock2{padding:var(--space-2) 0 var(--space-4)}
+.enter{animation:ui-fade var(--dur-slow) var(--ease-out)}
+
+/* 메시지 */
+.msg{margin:0 0 var(--space-4)}
+.msg.user{display:flex;justify-content:flex-end}
+.msg.user .bubble{background:var(--surface-chip);padding:var(--space-2) var(--space-3);border-radius:var(--radius-xl);max-width:75%;white-space:pre-wrap;overflow-wrap:anywhere}
+.msg.agent{font-size:var(--fs-md);line-height:var(--lh-read);overflow-wrap:anywhere}
+.msg.agent .txt{white-space:pre-wrap}
+.msg.agent .txt+.txt{margin-top:var(--space-2)}
+.msg.note{display:flex;align-items:center;gap:var(--space-2);margin:calc(var(--space-2) * -1) 0 var(--space-4);color:var(--text-muted);font-size:var(--fs-sm)}
+
+/* 실패 = 빨간 점(StatusDot) + 이유 · 고치는 곳 · 모델 + 다시 시도 */
+.msg.fail{display:flex;align-items:center;gap:var(--space-3);color:var(--text-2);font-size:var(--fs-base);line-height:var(--lh-base)}
+.msg.fail[data-detail]{align-items:flex-start}
+.msg.fail[data-detail] .fdot{margin-top:var(--space-2)}
+.msg.fail .fmain{display:flex;flex-direction:column;gap:var(--space-0-5);min-width:0;flex:1}
+.msg.fail .ftxt{color:var(--text)}
+.msg.fail .fhint{font-size:var(--fs-sm);color:var(--text-muted);overflow-wrap:anywhere}
+.msg.fail .fmodel{font-size:var(--fs-xs);color:var(--text-muted);font-family:var(--font-mono);overflow-wrap:anywhere}
+.msg.fail .facts{display:flex;gap:var(--space-2);flex:none;flex-wrap:wrap}
+
+/* 답 아래 한 줄 — 답한 모델 · 생각 깊이 · 걸린 시간 (+ 멈췄으면 다시 시도) */
+.afoot{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-1-5) var(--space-2-5);margin-top:var(--space-2-5);white-space:normal}
+.by{display:inline-flex;align-items:center;gap:var(--space-1-5);min-width:0;max-width:100%;color:var(--text-muted);font-size:var(--fs-sm);line-height:var(--lh-base)}
+.by .ui-provider-icon{color:var(--text-muted)}
+.by .x{white-space:nowrap}
+
+/* 생각 · 도구 = 유리 상태 줄 하나 (+ 누르면 펼치는 유리 패널). 유리 면 · 1px 그라데이션 테두리 = ui-glass. 색 점 없음 — 글 · 아이콘 · 움직임으로만 */
+.chev{display:inline-grid;place-items:center;transition:transform var(--dur-fast)}
+[aria-expanded="true"]>.chev{transform:rotate(180deg)}
+.trace{margin:0 0 var(--space-2);max-width:640px}
+.trace-line{overflow:hidden;display:inline-flex;align-items:center;gap:var(--space-2);max-width:min(560px,100%);
+  padding:var(--space-2) var(--space-3) var(--space-2) var(--space-2-5);border:0;border-radius:var(--radius-pill);font-size:var(--fs-sm);line-height:var(--lh-tight);color:var(--text-2);cursor:pointer;
+  background:var(--glass-fill),var(--glass-bg);box-shadow:var(--glass-hi),var(--glass-lift);transition:box-shadow var(--dur-base) var(--ease-standard)}
+.trace-line:hover,.trace-line[aria-expanded="true"]{background:var(--glass-fill),var(--glass-bg-strong)}
+/* 흐르는 동안: 옅은 파란 기운 + 가장자리 빛 + 알약 위로 천천히 지나가는 빛 (글 반짝임과 따로) */
+.trace-line[data-phase="live"]{background:var(--glass-fill-live),var(--glass-bg);box-shadow:var(--glass-hi),var(--glass-lift),var(--glow-live)}
+.trace-line[data-phase="live"]::before{content:"";position:absolute;inset:0;z-index:-1;border-radius:inherit;pointer-events:none;
+  background:linear-gradient(100deg,transparent 35%,var(--glass-sheen) 50%,transparent 65%) no-repeat;background-size:250% 100%;
+  animation:ui-sheen 3.2s ease-in-out infinite}
+.trace-line .glyph{width:var(--icon-sm);height:var(--icon-sm);display:inline-grid;place-items:center;flex:none;color:var(--text-muted)}
+.breath{display:inline-flex!important;align-items:center;justify-content:center;gap:var(--space-0-5)}
+.breath i{display:block;width:2.5px;height:9px;border-radius:var(--radius-pill);background:var(--text-2);animation:breath 1.2s ease-in-out infinite}
+.breath i:nth-child(2){height:12px;animation-delay:.15s}
+.breath i:nth-child(3){animation-delay:.3s}
+.trace-txt{display:inline-block;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;transition:width var(--dur-base) ease;color:var(--text-2)}
+.trace-txt .ph{display:inline;animation:ui-fade-in .16s ease-out}
+.trace-txt.run .ph{background:linear-gradient(90deg,var(--shimmer-a) 0%,var(--shimmer-a) 40%,var(--shimmer-b) 50%,var(--shimmer-a) 60%,var(--shimmer-a) 100%);
+  background-size:250% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:ui-fade-in .16s ease-out,ui-shimmer 1.8s linear infinite}
+.trace-line .tm,.trace-line .chev{color:var(--text-muted);flex:none}
+.trace-line[data-phase="stopped"] .trace-txt{color:var(--text-muted)}
+.trace-panel{margin:var(--space-1-5) 0 var(--space-2-5);padding:var(--space-2-5) var(--space-3-5);border:0;border-radius:var(--radius-lg);max-width:640px;display:grid;gap:var(--space-1-5);
+  box-shadow:var(--glass-hi),var(--glass-lift);animation:ui-fade var(--dur-base) var(--ease-out)}
+.trace-panel[hidden]{display:none}
+.trace-panel>*+*{padding-top:var(--space-1-5);border-top:1px solid var(--border-subtle)}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.trace-line,.trace-panel{background:var(--glass-fill),var(--surface-sunken)}}
+.tp-h{display:flex;align-items:center;gap:var(--space-1-5);margin:0 0 var(--space-1);font-size:var(--fs-xs);font-weight:var(--fw-semibold);color:var(--text-muted)}
+.tp-h .tm{font-weight:var(--fw-regular)}
+/* 끝을 흐리게 — 마스크는 알파만 본다 (색 아님) */
+.tp-body{font-size:var(--fs-base);line-height:var(--lh-read);color:var(--text-2);white-space:pre-wrap;max-height:280px;padding:var(--space-0-5) 0 var(--space-1);
+  -webkit-mask-image:linear-gradient(black,black calc(100% - 14px),transparent);mask-image:linear-gradient(black,black calc(100% - 14px),transparent)}
+.tp-body[data-scrolled="true"]{-webkit-mask-image:linear-gradient(transparent,black 14px,black calc(100% - 14px),transparent);mask-image:linear-gradient(transparent,black 14px,black calc(100% - 14px),transparent)}
+.tp-body:focus-visible{outline-offset:2px;border-radius:var(--radius-sm)}
+.tp-empty{color:var(--text-muted)}
+.caret{margin-left:1px;color:var(--text-muted);animation:blink 1s steps(1) infinite}
+.tp-none{margin:0;color:var(--text-muted);font-size:var(--fs-sm)}
+.tp-foot{margin:0;font-size:var(--fs-xs);color:var(--text-muted)}
+
+/* 도구 카드 */
+.tp-tool{font-size:var(--fs-sm);line-height:var(--lh-base);padding-bottom:var(--space-0-5)}
+.tp-tool .th{display:flex;align-items:center;gap:var(--space-2);min-width:0}
+.tp-tool .th b{font-weight:var(--fw-semibold);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ttile{width:22px;height:22px;border-radius:var(--radius-sm);background:var(--surface-chip);color:var(--text-2);display:grid;place-items:center;flex:none}
+.tp-tool .tst{margin-left:auto;display:inline-flex;align-items:center;gap:var(--space-1-5);color:var(--text-muted);font-size:var(--fs-xs);white-space:nowrap}
+.tp-tool[data-state="done"] .tst{color:var(--ok-text)}
+.tp-tool[data-state="error"] .tst{color:var(--danger-text)}
+.tp-tool dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:var(--space-0-5) var(--space-3-5);margin:var(--space-1-5) 0 0 30px}
+.tp-tool dl div{display:contents}
+.tp-tool dt{color:var(--text-muted)}
+.tp-tool dd{margin:0;color:var(--text);overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.tp-tool dd.mono{font-family:var(--font-mono);font-size:var(--fs-xs)}
+.tp-tool .err dd{color:var(--danger-text)}
+
+@keyframes breath{0%,100%{opacity:.3}50%{opacity:1}}
+@keyframes blink{50%{opacity:0}}
+@media (prefers-reduced-motion: reduce){
+  /* 멈춘 그라데이션은 한 낱말만 밝아 강조처럼 보인다 → 그냥 글. 살아 있는지는 숨 쉬는 막대(고정)가 알린다 */
+  .trace-txt.run .ph{background:none;color:var(--text-2)}
+  .trace-line[data-phase="live"]::before{display:none}
+  .breath i{animation:none;opacity:.7}
+  .caret{display:none}
+}
+
+/* 프로젝트 화면 대화 목록 — 줄 하나 = 버튼 하나 (rows 상자 안) */
+.thread-row+.thread-row{border-top:1px solid var(--border-subtle)}
+.thread-open{width:100%;border:0;background:transparent;color:inherit;text-align:left;cursor:pointer;border-radius:0}
+.thread-row:first-child .thread-open{border-top-left-radius:var(--radius-lg);border-top-right-radius:var(--radius-lg)}
+.thread-row:last-child .thread-open{border-bottom-left-radius:var(--radius-lg);border-bottom-right-radius:var(--radius-lg)}
+.thread-open:hover{background:var(--surface-hover)}
+.thread-open:focus-visible{outline-offset:-2px}
+.thread-open>.ui-icon{color:var(--text-muted)}
+
+/* 대화 머리 오른쪽 (공유 · 닉네임) · 남의 공유 대화 = 입력창 대신 한 줄 */
+.conv-head .conv-acts{display:flex;align-items:center;gap:var(--space-1-5);margin-left:auto;flex:none}
+.conv-head .conv-owner{color:var(--text-muted);font-size:var(--fs-sm);white-space:nowrap}
+.readonly{display:flex;align-items:center;justify-content:center;gap:var(--space-2);padding:var(--space-3-5);border-radius:var(--radius-xl);
+  background:var(--surface-sunken);color:var(--text-muted);font-size:var(--fs-sm)}

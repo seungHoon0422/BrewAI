@@ -321,7 +321,12 @@ const exists = (...p) => fs.existsSync(path.join(root, ...p));
 // scripts/stack.mjs up auto 종료 코드: 0 = 모두 healthy · 3 = Docker 없음/꺼짐 → 예전 venv 게이트웨이로 · 그 밖 = 스택 실패
 // spawn(비동기) → 기다리는 중 Ctrl+C 가 위 SIGINT 처리로 간다. 스택은 Ctrl+C 뒤에도 남는다 (끄기 = npm run stack:down)
 async function startStack() {
-  if (NO_STACK || !exists('infra', 'compose.yaml')) return 3;
+  if (NO_STACK || !exists('infra', 'compose.yaml')) {
+    // Docker 를 안 써도 첫 관리자 계정(.env BREWAI_ADMIN_EMAIL · BREWAI_ADMIN_PASSWORD)은 만들고 알린다 (= 로그인 화면에 넣을 값)
+    if (fs.existsSync(ENV_FILE))
+      spawnSync(process.execPath, [path.join(root, 'scripts', 'stack.mjs'), 'secrets'], { cwd: root, env, stdio: 'inherit', windowsHide: true });
+    return 3;
+  }
   stackTried = true;
   say('로컬 스택(Docker LiteLLM)을 올려요… (처음엔 이미지를 받아요 · PC 마다 한 번)');
   const child = spawn(process.execPath, [path.join(root, 'scripts', 'stack.mjs'), 'up', 'auto'], { cwd: root, env, stdio: 'inherit', windowsHide: true });

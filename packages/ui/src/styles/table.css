@@ -1,0 +1,32 @@
+/* 표 — 바깥 1px 상자 · 머리 = 옅은 글(회색 띠 없음) · 줄 사이 = subtle 선 · 고른 줄 = 중립 바탕(파랑 아님) */
+.ui-table-frame{min-width:0;border:1px solid var(--border);border-radius:var(--radius-lg);overflow-x:auto;background:var(--surface)}
+.ui-table{width:100%;border-collapse:collapse;font-size:var(--fs-sm)}
+/* 앱 전역 th/td 규칙이 새지 않게 바탕 · 굵기를 직접 정한다 */
+.ui-table th,.ui-table td{padding:0 var(--space-3-5);text-align:left;vertical-align:middle;background:transparent;font-weight:var(--fw-regular);color:inherit}
+.ui-table thead th{background:var(--surface);height:36px;font-size:var(--fs-xs);font-weight:var(--fw-semibold);color:var(--text-muted);white-space:nowrap;border-bottom:1px solid var(--border)}
+.ui-table[data-sticky] thead th{position:sticky;top:0;z-index:var(--z-sticky);background:var(--surface)}
+.ui-table tbody td,.ui-table tbody th{height:var(--row-comfortable);border-bottom:1px solid var(--border-subtle)}
+.ui-table[data-density="compact"] tbody td,.ui-table[data-density="compact"] tbody th{height:var(--row-compact)}
+.ui-table tbody th{font-weight:var(--fw-medium);color:var(--text)}
+.ui-table tbody tr:last-child>*{border-bottom:0}
+.ui-table [data-align="center"]{text-align:center}
+.ui-table [data-align="end"]{text-align:right}
+.ui-table tbody tr[data-clickable]{cursor:pointer}
+.ui-table tbody tr[data-clickable]:hover{background:var(--surface-hover)}
+.ui-table tbody tr[data-selected],.ui-table tbody tr[data-active]{background:var(--surface-active)}
+.ui-table-sel{width:36px;padding-right:0!important}
+.ui-table-sort{display:inline-flex;align-items:center;gap:4px;margin:0 -4px;padding:3px 4px;border:0;border-radius:var(--radius-sm);
+  background:transparent;color:inherit;font:inherit;cursor:pointer}
+.ui-table-sort:hover{background:var(--surface-hover);color:var(--text)}
+.ui-table-sort .ui-icon{opacity:0;transition:opacity var(--dur-fast)}
+.ui-table-sort:hover .ui-icon,.ui-table-sort[data-dir] .ui-icon{opacity:1}
+.ui-table-sort[data-dir]{color:var(--text)}
+.ui-table-rowbtn{display:inline-flex;align-items:center;gap:var(--space-1-5);max-width:100%;padding:0;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.ui-table-rowbtn:hover{text-decoration:underline;text-underline-offset:2px}
+.ui-table-empty td{padding:0;height:auto}
+.ui-table-skel td{height:var(--row-compact)}
+@media (max-width:1100px){.ui-table [data-hide-below="lg"]{display:none}}
+@media (max-width:760px){
+  .ui-table [data-hide-below="md"]{display:none}
+  .ui-table th,.ui-table td{padding:0 var(--space-2-5)}
+}

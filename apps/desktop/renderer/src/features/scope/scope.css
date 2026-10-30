@@ -1,0 +1,21 @@
+/* 범위 — 사이드바 스페이스 전환기 · 사람 목록(멤버 · 찾기). 토큰만 (ADR-0012). */
+
+/* 전환기 = 사이드바 머리의 이름 자리 (줄 버튼과 같은 결) */
+.space-switch{display:flex;align-items:center;gap:var(--space-1-5);min-width:0;max-width:100%;padding:var(--space-1) var(--space-2);border:0;border-radius:var(--radius-md);
+  background:transparent;color:var(--text);font-size:var(--fs-base);font-weight:var(--fw-semibold);cursor:pointer}
+.space-switch:hover,.space-switch[aria-expanded="true"]{background:var(--surface-hover)}
+.space-switch:focus-visible{outline-offset:-2px}
+.space-switch .ui-icon{color:var(--text-muted);flex:none}
+.space-switch-t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.sb-head .ui-popover-anchor{flex:1;min-width:0}
+
+/* 사람 목록 */
+.people{list-style:none;margin:var(--space-1-5) 0 0;padding:0;display:grid;gap:var(--space-0-5)}
+.person{display:flex;align-items:center;gap:var(--space-2-5);min-height:var(--row-compact);padding:var(--space-1) var(--space-1-5);border-radius:var(--radius-md)}
+.person:hover{background:var(--surface-hover)}
+.person.muted{color:var(--text-muted);font-size:var(--fs-sm)}
+.person.muted:hover{background:transparent}
+.person-main{display:flex;flex-direction:column;flex:1;min-width:0}
+.person-main b{display:flex;align-items:center;gap:var(--space-1-5);font-weight:var(--fw-medium)}
+.person-main span{color:var(--text-muted);font-size:var(--fs-xs)}
+.person-role{color:var(--text-muted);font-size:var(--fs-sm);white-space:nowrap}

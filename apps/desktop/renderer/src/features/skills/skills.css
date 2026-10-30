@@ -1,0 +1,8 @@
+/* 스킬 — 줄마다 이름 · 내장 배지 · 이름표(코드) · 설명 · 쓰는 도구 배지 · 사용 수. 토큰만. */
+.row.skill{align-items:flex-start}
+.row.skill .ui-tile{margin-top:2px}
+.row.skill .row-main{gap:3px}
+.row.skill .used{margin-top:2px}
+.sk-head{display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap;min-width:0}
+.sk-name{font-size:var(--fs-xs);color:var(--text-muted);font-family:var(--font-mono)}
+.sk-tools{display:flex;gap:var(--space-1-5);flex-wrap:wrap;margin-top:3px}

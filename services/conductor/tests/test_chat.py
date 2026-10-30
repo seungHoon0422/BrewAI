@@ -102,7 +102,11 @@ def test_new_thread_does_not_see_other_threads(make_api) -> None:
 
 def test_thread_busy_duplicate_run_and_delete(make_api, h) -> None:
     api = make_api(lambda _: FunctionModel(stream_function=_ok))
-    api.store.start_run(run_id="r-live", thread_id="thread-1", model="m", model_label="m", provider="openai", reasoning="off", prompt="p")
+    space = api.me["personal_space_id"]
+    api.store.start_run(
+        run_id="r-live", thread_id="thread-1", model="m", model_label="m", provider="openai", reasoning="off", prompt="p",
+        user_id=api.me["id"], space_id=space,
+    )
     res = api.client.post("/api/chat", json=h.chat_body(run="r-2"))
     assert (res.status_code, res.json()) == (409, {"detail": "thread_busy"})
     assert api.client.delete("/api/threads/thread-1").json() == {"detail": "thread_busy"}
@@ -163,7 +167,8 @@ def test_reasoning_streams_as_ag_ui_reasoning_events(make_api, h) -> None:
     assert start["role"] == "reasoning"
     assert events[1]["value"] | {"reasoning": "high", "reasoning_requested": "high", "provider": "anthropic"} == events[1]["value"]
     # LiteLLM 으로 가는 설정: reasoning_effort + Anthropic thinking 이 들어갈 max_tokens
-    assert seen["settings"][0] == {"openai_reasoning_effort": "high", "max_tokens": 16000, **DROP}
+    # + LiteLLM 요청 user = users.id (ADR-0011)
+    assert seen["settings"][0] == {"openai_reasoning_effort": "high", "max_tokens": 16000, **DROP, "openai_user": api.me["id"]}
     thread = api.client.get("/api/threads/thread-1").json()
     assert thread["messages"][1]["reasoning"] == f"{THOUGHT} 두 단계예요."
     assert [p["type"] for p in thread["messages"][1]["parts"]] == ["reasoning", "text"]
@@ -172,7 +177,7 @@ def test_reasoning_streams_as_ag_ui_reasoning_events(make_api, h) -> None:
     second = seen["messages"][1]
     assert not any(isinstance(p, ThinkingPart) for m in second if isinstance(m, ModelResponse) for p in m.parts)
     assert answer_texts(second) == ["결론입니다."]
-    assert seen["settings"][1] is None  # reasoning 기본 = off
+    assert seen["settings"][1] == {"openai_user": api.me["id"]}  # reasoning 기본 = off → user 만
 
 
 def test_reasoning_ignored_for_models_without_it(make_api) -> None:
@@ -184,7 +189,7 @@ def test_reasoning_ignored_for_models_without_it(make_api) -> None:
 
     api = make_api(lambda _: FunctionModel(stream_function=stream))
     events = api.chat("질문", reasoning="low")  # fake-chat-small 은 supports_reasoning false
-    assert seen["settings"] is None  # LiteLLM UnsupportedParams 400 을 피한다
+    assert seen["settings"] == {"openai_user": api.me["id"]}  # reasoning_effort 없음 = LiteLLM UnsupportedParams 400 을 피한다
     assert events[1]["value"] | {"reasoning": "off", "reasoning_requested": "low", "reasoning_supported": False} == events[1]["value"]
     assert ChatRuntime.model_settings(
         ModelChoice("m", "m", "openai", "OpenAI", supports_reasoning=True, supports_tools=True, max_output_tokens=100000), "low"
@@ -260,16 +265,19 @@ def test_claude_thinking_is_only_sent_before_the_tool_call(make_api, h) -> None:
     api = make_api(lambda _: FunctionModel(stream_function=stream), [*h.fixture_items(), claude], bootstrap_models=("claude-think",))
     events = api.chat("3*3 은?", reasoning="low")
     assert events[-1]["type"] == "RUN_FINISHED" and events[1]["value"]["reasoning"] == "low"
-    assert calls == [{"openai_reasoning_effort": "medium", "max_tokens": 16000, **DROP}, {"max_tokens": 16000, **DROP}]
+    user = {"openai_user": api.me["id"]}
+    assert calls == [{"openai_reasoning_effort": "medium", "max_tokens": 16000, **DROP, **user}, {"max_tokens": 16000, **DROP, **user}]
     api.chat("한 번 더", reasoning="low")  # 새 턴의 첫 호출 = 다시 생각 (지난 턴의 tool_use 는 서명이 없어도 된다)
-    assert calls[2] == {"openai_reasoning_effort": "medium", "max_tokens": 16000, **DROP} and calls[3] == {"max_tokens": 16000, **DROP}
+    assert calls[2] == {"openai_reasoning_effort": "medium", "max_tokens": 16000, **DROP, **user}
+    assert calls[3] == {"max_tokens": 16000, **DROP, **user}
 
     # OpenAI 계열은 그대로 (reasoning 을 툴 왕복 내내 보낸다)
     calls.clear()
     gpt = h.group("gpt-think", ["openai"], supports_reasoning=True, supports_function_calling=True)
     api2 = make_api(lambda _: FunctionModel(stream_function=stream), [*h.fixture_items(), gpt], bootstrap_models=("gpt-think",))
     api2.chat("3*3 은?", reasoning="high")
-    assert calls == [{"openai_reasoning_effort": "high", **DROP}, {"openai_reasoning_effort": "high", **DROP}]
+    user = {"openai_user": api2.me["id"]}
+    assert calls == [{"openai_reasoning_effort": "high", **DROP, **user}, {"openai_reasoning_effort": "high", **DROP, **user}]
 
 
 def test_tools_are_not_offered_to_models_without_function_calling(make_api) -> None:
@@ -338,7 +346,7 @@ def test_running_runs_are_closed_on_restart(tmp_path) -> None:
     s.start_run(run_id="r1", thread_id="t1", model="m", model_label="m", provider="openai", reasoning="off", prompt="p")
     s.close()
     s2 = Store(path)
-    run = s2.list_runs(10)[0]
+    run = s2.query("SELECT status, error_code FROM runs WHERE id = 'r1'")[0]
     assert (run["status"], run["error_code"]) == ("cancelled", "interrupted")
     assert path.exists()
     s2.close()

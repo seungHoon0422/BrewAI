@@ -1,11 +1,13 @@
 // BrewAI 데스크톱 셸 (사용자 앱). 화면 = renderer/ 를 vite build 한 dist/ 를 app://brewai 로 띄운다.
-// 보안 기본값: contextIsolation·sandbox 켬, nodeIntegration 끔, preload 없음, 앱 밖 요청·이동·권한은 전부 막는다.
+// 보안 기본값: contextIsolation·sandbox 켬, nodeIntegration 끔, 앱 밖 요청·이동·권한은 전부 막는다.
+// preload = 로그인 전용 (preload.cjs) · 토큰은 main 에만 (auth.cjs · ADR-0010). renderer 는 토큰을 못 본다.
 // 게이트웨이·Langfuse 키는 넣지 않는다. 데스크톱은 우리 API 만 부른다 (AGENTS.md · ADR-0004).
 const { app, BrowserWindow, nativeTheme, net, protocol, session, shell } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const { fileURLToPath, pathToFileURL } = require('node:url');
 const { apiOrigin } = require('./api-url.cjs');
+const { createAuth } = require('./auth.cjs');
 
 const isMac = process.platform === 'darwin';
 const DIST = path.join(__dirname, 'dist');
@@ -39,7 +41,7 @@ const DEV = (() => {
   return null;
 })();
 
-// design/prototype.html 의 --side · --fg 와 같은 색 (창 배경 · 윈도우 창 버튼 overlay)
+// 첫 그림 전 창 배경 · 윈도우 창 버튼 overlay. packages/ui tokens.css 의 --surface-app · --text 와 같은 값 (토큰을 바꾸면 여기도)
 const frame = () => nativeTheme.shouldUseDarkColors
   ? { color: '#161618', symbolColor: '#ececee', height: 40 }
   : { color: '#f7f7f8', symbolColor: '#1d1d1f', height: 40 };
@@ -114,8 +116,38 @@ function inApp(raw) {
   }
 }
 
+// IPC 는 우리 화면(app:// · 개발 중 Vite)에서 온 것만 받는다
+const fromApp = (event) => inApp(event.senderFrame?.url ?? '');
+
+// 로그인이 끝나면 (Google = 브라우저에서 돌아옴) 창을 앞으로
+function focus() {
+  const win = BrowserWindow.getAllWindows()[0];
+  if (!win) return;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+  if (isMac) app.focus({ steal: true });
+}
+
+const auth = API ? createAuth({ api: API, packaged: app.isPackaged, fromApp, focus }) : null;
+
+// 한 번에 하나만 (바로가기를 두 번 눌러도). 두 개가 같은 refresh 를 회전하면 재사용 감지로 세션이 통째 폐기돼 둘 다 로그아웃된다.
+// E2E · 개발의 여러 사용자 launch (BREWAI_USER_DATA 따로 · 배포본 아님) 만 예외
+const single = !(process.env.BREWAI_USER_DATA && !app.isPackaged);
+const first = !single || app.requestSingleInstanceLock();
+if (!first) app.quit();
+else if (single) app.on('second-instance', focus);
+
 function lockDown(ses) {
   ses.webRequest.onBeforeRequest((details, callback) => callback({ cancel: !allowed(details.url) }));
+  // conductor 요청에만 Bearer (main 이 쥔 access · 만료 직전이면 먼저 바꾼다)
+  ses.webRequest.onBeforeSendHeaders((details, callback) => {
+    if (!auth) return callback({ requestHeaders: details.requestHeaders });
+    auth.authorize(details).then(
+      (requestHeaders) => callback({ requestHeaders }),
+      () => callback({ requestHeaders: details.requestHeaders }),
+    );
+  });
   ses.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
   ses.setPermissionCheckHandler(() => false);
 }
@@ -130,7 +162,10 @@ function createWindow() {
     backgroundColor: frame().color,
     titleBarStyle: 'hidden',
     ...(isMac ? { trafficLightPosition: { x: 16, y: 13 } } : { titleBarOverlay: frame() }),
-    webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true },
+    webPreferences: {
+      contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true,
+      preload: path.join(__dirname, 'preload.cjs'),
+    },
   });
   win.once('ready-to-show', () => win.show());
   win.webContents.on('will-navigate', (event) => {
@@ -146,8 +181,13 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  if (!first) return; // 두 번째 실행 = 첫 창을 앞으로 (second-instance) 하고 끝
   lockDown(session.defaultSession);
   protocol.handle('app', serve);
+  if (auth) {
+    auth.register();
+    void auth.start(); // 저장된 refresh → access (화면은 'checking' 으로 먼저 뜬다)
+  }
   if (!DEV && !fs.existsSync(path.join(DIST, 'index.html'))) {
     console.error('[brewai] dist/ 가 없어요 → npm run build -w apps/desktop (개발은 npm run desktop)');
   }

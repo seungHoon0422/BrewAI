@@ -9,7 +9,8 @@ dependencies = [
     "openai==3.36.0",                         # 2026-10-21 · LiteLLMProvider 가 쓰는 OpenAI SDK ([openai] extra 의 tiktoken 은 채팅에 안 씀)
     "fastapi==0.159.1",                       # 2026-10-21
     "uvicorn==0.54.0",                        # 2026-09-25 · [standard] 아님 (uvloop 은 윈도우 미지원)
-    "httpx2==2.16.0",                         # 2026-10-21 · pydantic-ai·openai 가 이미 쓰는 HTTP 클라이언트 (게이트웨이 카탈로그 호출)
+    "httpx2==2.16.0",                         # 2026-10-21 · pydantic-ai·openai 가 이미 쓰는 HTTP 클라이언트 (게이트웨이 카탈로그 · Google code 교환)
+    "argon2-cffi==25.1.0",                    # 2025-06-03 · 비밀번호 argon2id (ADR-0010) · 전이 bindings 26.1.0 · cffi 2.1.1 · pycparser 3.11 (모두 exclude-newer 안)
 ]
 
 [build-system]
