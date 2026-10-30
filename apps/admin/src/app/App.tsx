@@ -8,6 +8,8 @@ import { SessionProvider } from '../features/auth/session';
 import CatalogScreen from '../features/catalog/components/CatalogScreen';
 import DocsScreen from '../features/docs/components/DocsScreen';
 import ModelsScreen from '../features/models/components/ModelsScreen';
+import { MODEL_TABS } from '../features/models/copy';
+import { isModelDetail, tabHref } from '../features/models/route';
 import OverviewScreen from '../features/overview/components/OverviewScreen';
 import { ScopeBreadcrumb } from '../features/scope/components/ScopeBreadcrumb';
 import { ScopeProvider } from '../features/scope/context';
@@ -17,7 +19,7 @@ import UsersScreen from '../features/users/components/UsersScreen';
 import { ToastProvider } from '../shared/toast';
 import { SHELL_COPY as C } from './copy';
 import { useHash } from './hash';
-import { MENU, hrefOf, routeFromHash, type RouteId } from './routes';
+import { MENU, hrefOf, restOf, routeFromHash, type RouteId } from './routes';
 
 // 화면 = 기능 폴더의 *Screen (features/<이름>/components). 틀은 사이드바 + 화면 머리(h1 하나)만 그린다
 const SCREENS: Record<RouteId, ComponentType> = {
@@ -29,6 +31,12 @@ const SCREENS: Record<RouteId, ComponentType> = {
   users: UsersScreen,
   docs: DocsScreen,
   settings: SettingsScreen,
+};
+
+// 자세히 페이지 (예: '#/models/<id>') = 그 화면이 머리(h1 = 그 대상 이름)를 그린다. 틀은 위 줄(← 목록 · 환경 · 세션)만
+// is = 해시 두 번째 칸부터(restOf)가 자세히인지 (길 표는 그 기능 폴더의 route.ts) · back = 돌아갈 목록 (링크 글 · 주소)
+const DETAILS: Partial<Record<RouteId, { is: (sub: string) => boolean; back: string; href: string }>> = {
+  models: { is: isModelDetail, back: MODEL_TABS[0].label, href: tabHref(MODEL_TABS[0].id) },
 };
 
 // UI 부품 모음 (#/ui, ADR-0012) = 개발 서버에서만. 빌드에선 import.meta.env.DEV 가 false → 통째로 빠진다 (메뉴 · E2E 계약 밖)
@@ -67,9 +75,13 @@ function Console() {
   const hash = useHash();
   const route = routeFromHash(hash);
   const Screen = SCREENS[route.id];
+  const sub = restOf(hash); // 자세히 id 에 '/' 가 들어도 통째로
+  const detail = DETAILS[route.id];
+  const isDetail = !!detail?.is(sub);
+  const page = isDetail ? `${route.id}/${sub}` : route.id; // 화면이 바뀌었는지 = 메뉴 + (자세히면) 그 대상
   const listRef = useRef<HTMLUListElement>(null);
   const h1Ref = useRef<HTMLHeadingElement>(null);
-  const shown = useRef(route.id);
+  const shown = useRef(page);
 
   useEffect(() => {
     // 좁은 화면(가로 메뉴)에서 현재 메뉴가 잘려 있으면 보이게 민다
@@ -81,12 +93,19 @@ function Console() {
       if (r.left < l.left) list.scrollLeft -= l.left - r.left + 16;
       else if (r.right > l.right) list.scrollLeft += r.right - l.right + 16;
     }
-    // 화면이 바뀌면 맨 위에서 제목에 포커스 (첫 로드는 그대로 둔다)
-    if (shown.current === route.id) return;
-    shown.current = route.id;
+    // 화면이 바뀌면 맨 위에서 제목에 포커스 (첫 로드는 그대로 둔다). 자세히 페이지의 h1 은 그 화면이 그린다
+    if (shown.current === page) return;
+    shown.current = page;
     window.scrollTo(0, 0);
-    h1Ref.current?.focus({ preventScroll: true });
-  }, [route.id]);
+    (h1Ref.current ?? document.querySelector<HTMLElement>('.main h1'))?.focus({ preventScroll: true });
+  }, [page]);
+
+  const actions = (
+    <>
+      <Badge dot tone="info" title={C.envTitle}>{C.env}</Badge>
+      <SessionMenu />
+    </>
+  );
 
   return (
     <ScopeProvider>
@@ -121,19 +140,24 @@ function Console() {
 
         <main className="main">
           <div className="wrap">
-            <PageHeader
-              divider
-              titleRef={h1Ref}
-              title={route.label}
-              description={route.desc}
-              breadcrumb={<ScopeBreadcrumb />}
-              actions={
-                <>
-                  <Badge dot tone="info" title={C.envTitle}>{C.env}</Badge>
-                  <SessionMenu />
-                </>
-              }
-            />
+            {detail && isDetail ? (
+              <div className="topbar">
+                <a className="back" href={detail.href}>
+                  <Icon name="chevron-left" size="sm" />
+                  {detail.back}
+                </a>
+                <div className="ui-page-actions">{actions}</div>
+              </div>
+            ) : (
+              <PageHeader
+                divider
+                titleRef={h1Ref}
+                title={route.label}
+                description={route.desc}
+                breadcrumb={<ScopeBreadcrumb />}
+                actions={actions}
+              />
+            )}
             <Screen />
           </div>
         </main>

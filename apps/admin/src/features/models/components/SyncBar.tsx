@@ -34,7 +34,7 @@ export function AddInLitellm({ gateway }: { gateway: GatewayInfo | null }) {
   );
 }
 
-// 모델 목록 탭 줄 오른쪽: 마지막 동기화 · 동기화 · 모두 시험
+// 모델 목록 탭 줄 오른쪽: 마지막 동기화 · 동기화 · 모두 테스트
 export function SyncBar({ gateway, now, syncing, loading, canProbeAll, probing, onSync, onProbeAll }: {
   gateway: GatewayInfo | null;
   now: number;

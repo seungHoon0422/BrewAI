@@ -30,7 +30,7 @@
                                      칸 값이 틀리면 422 {detail: bad_<칸>} · 모르는 칸 = 422 (FastAPI 기본 목록)
   관리자 경로에 관리자 출처가 아닌 Origin 이 붙은 요청 = 403 origin_not_allowed (쿠키 · CSRF 전에)
   POST   /api/admin/models/sync      게이트웨이에서 다시 읽기
-  POST   /api/admin/models/{id}/test 연결 시험 = 짧은 호출 한 번 → {ok, code, detail, status, at, duration_ms} (결과는 model_health 에)
+  POST   /api/admin/models/{id}/test 연결 테스트 = 짧은 호출 한 번 → {ok, code, detail, status, at, duration_ms = 응답 시간} (결과는 model_health 에)
   GET    /api/admin/skills           스킬 카탈로그 (읽기 전용: 출처 runtime/skills · 버전 = sha256 앞 12자) + 읽지 못한 스킬
   GET    /api/admin/gateway          게이트웨이 주소 · LiteLLM Admin UI 링크 ('LiteLLM 에서 추가')
 """
@@ -603,12 +603,13 @@ def create_app(
             raise ModelPatchError(409, "not_chat_model")
         started = time.monotonic()
         result = await runtime.probe(gateway_id)  # 숨긴 모델·후보도 시험할 수 있다 (노출 전에 확인)
+        duration_ms = int((time.monotonic() - started) * 1000)  # 응답 시간 = 게이트웨이 왕복만 (기록 쓰기 전)
         code = None if result is None else (result.detail or result.code)
         at = store.record_model_result(gateway_id, error_code=code, source="probe")
         return {
             "model": gateway_id, "ok": result is None, "code": None if result is None else result.code,
             "detail": None if result is None else result.detail, "status": None if result is None else result.status,
-            "at": at, "duration_ms": int((time.monotonic() - started) * 1000),
+            "at": at, "duration_ms": duration_ms,
         }
 
     @admin.get("/api/admin/skills")

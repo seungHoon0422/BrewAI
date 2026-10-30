@@ -483,7 +483,7 @@ test.describe('P2-1 관리자가 숨기면 사용자 모델 메뉴에서 빠진�
     await expect(exposeSwitch()).toHaveAttribute('aria-checked', 'true');
     await exposeSwitch().click();
     await expect(exposeSwitch()).toHaveAttribute('aria-checked', 'false');
-    await expect(admin.locator('tr[data-model="fake-chat-large"] .chip')).toHaveText('숨김');
+    await expect(admin.locator('tr[data-model="fake-chat-large"]')).toHaveAttribute('data-state', 'hidden');
 
     // 메뉴를 열면 다시 읽는다 → 숨긴 모델 없음 · 고른 모델은 기본으로 + 안내
     menu = await openPicker(win);

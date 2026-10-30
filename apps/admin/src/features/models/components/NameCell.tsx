@@ -1,9 +1,16 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Badge, Button, IconButton, Input } from '@brewai/ui';
-import type { AdminModel } from '../api';
-import { COPY, SOURCE } from '../copy';
+import type { AdminModel, ModelState } from '../api';
+import { COPY, SOURCE, STATE_TEXT } from '../copy';
 import type { Dup } from '../derive';
 import type { Change } from '../hooks';
+import { modelHref } from '../route';
+
+// 상태 딱지 = 할 일이 있는 둘만 (후보 = 확인 · 사라짐 = 게이트웨이에 없음). 노출 · 숨김은 노출 스위치가 말한다. E2E: .chip
+export const StateBadge = ({ state }: { state: ModelState }) =>
+  state === 'candidate' || state === 'missing' ? (
+    <Badge dot size="sm" tone={state === 'candidate' ? 'info' : 'warn'} className="chip">{STATE_TEXT[state]}</Badge>
+  ) : null;
 
 // 같은 표시 이름 표시 (E2E: .dupb · 옅은 쪽 = .soft)
 export function DupBadge({ dup }: { dup: Dup }) {
@@ -20,8 +27,17 @@ export const SourceBadge = ({ source, title }: { source: NonNullable<AdminModel[
 );
 
 // 모델 칸 = 데스크톱 모델 메뉴처럼 두 줄: 위 = 보이는 이름(굵게) · 아래 = 실제 모델 이름(고정폭 · 옅게).
-// 표시 이름 = 연필로 바꾼다 (Enter 저장 · Esc 취소 · 비우면 기본 이름으로). 이름을 누르면 서랍
-export function NameCell({ m, busy, onChange, dup, onOpen }: { m: AdminModel; busy: boolean; onChange: Change; dup: Dup; onOpen: () => void }) {
+// 표시 이름 = 연필로 바꾼다 (Enter 저장 · Esc 취소 · 비우면 기본 이름으로). 이름 = 자세히 페이지 링크.
+// 이름 옆 딱지 = 기본 · 후보 · 사라짐 · 이름 겹침 (상태 칸 없음)
+export function ModelLink({ m }: { m: AdminModel }) {
+  return (
+    <a className="nbtn" href={modelHref(m.id)} title={COPY.detailsTitle} aria-label={COPY.details(m.label)}>
+      <b className="ui-ell">{m.label}</b>
+    </a>
+  );
+}
+
+export function NameCell({ m, busy, onChange, dup }: { m: AdminModel; busy: boolean; onChange: Change; dup: Dup }) {
   const [editing, setEditing] = useState(false);
   const editBtn = useRef<HTMLButtonElement>(null);
   if (editing) {
@@ -36,10 +52,9 @@ export function NameCell({ m, busy, onChange, dup, onOpen }: { m: AdminModel; bu
   return (
     <div className="ncell">
       <span className="nline">
-        <button className="nbtn" type="button" onClick={onOpen} title={COPY.detailsTitle} aria-label={COPY.details(m.label)}>
-          <b className="ui-ell">{m.label}</b>
-        </button>
+        <ModelLink m={m} />
         {m.is_default && <DefaultBadge />}
+        <StateBadge state={m.state} />
         <DupBadge dup={dup} />
         <IconButton ref={editBtn} className="nedit-btn" size="sm" icon="pen" label={COPY.rename(m.label)} disabled={busy} onClick={() => setEditing(true)} />
       </span>
@@ -78,7 +93,7 @@ export function NameEditor({ m, busy, onChange, onDone, label }: { m: AdminModel
       void finish(true);
     } else if (e.key === 'Escape') {
       e.preventDefault();
-      e.stopPropagation(); // 서랍 안이면 서랍은 닫지 않는다
+      e.stopPropagation();
       void finish(false);
     }
   };

@@ -4,7 +4,8 @@ import type { LoadError } from '../../shared/http';
 import type { ModelState, SyncResult } from './api';
 import type { ColId } from './derive';
 
-// 화면 안 탭 (E2E: 탭 이름 · 해시). 순서 = 탭 줄 순서 · 첫 탭 = '#/models' · 나머지 = '#/models/<id>'. 탭을 더하려면 여기 한 줄 + ModelsScreen PANELS 한 줄
+// 화면 안 탭 (E2E: 탭 이름 · 해시). 순서 = 탭 줄 순서 · 첫 탭 = '#/models' · 나머지 = '#/models/<탭 id>'. 탭을 더하려면 여기 한 줄 + ModelsScreen PANELS 한 줄.
+// 탭이 아닌 두 번째 칸 = 그 모델 자세히 페이지 ('#/models/<gateway_id>' · route.ts)
 export type ModelTab = 'list' | 'add';
 export const MODEL_TABS: readonly { id: ModelTab; label: string; icon: IconName }[] = [
   { id: 'list', label: '모델 목록', icon: 'cube' },
@@ -13,8 +14,8 @@ export const MODEL_TABS: readonly { id: ModelTab; label: string; icon: IconName 
 
 // 표 머리 글 (E2E: 글). 칸 id · 순서 = derive.ts COL_IDS (배치는 id 로 정한다 — 글을 바꿔도 배치는 그대로)
 export const COL_LABEL: Record<ColId, string> = {
-  select: '선택', order: '순서', provider: '제공사', model: '모델', state: '상태', exposed: '노출', default: '기본', health: '연결',
-  context: '컨텍스트', input: '입력 비용', output: '출력 비용', caps: '기능',
+  select: '선택', order: '순서', provider: '제공사', model: '모델', context: '컨텍스트', input: '입력 비용', output: '출력 비용', caps: '기능',
+  exposed: '노출', default: '기본', health: '연결',
 };
 // 머리 글 툴팁 (단위 · 출처)
 export const COL_TITLE: Partial<Record<ColId, string>> = {
@@ -22,6 +23,9 @@ export const COL_TITLE: Partial<Record<ColId, string>> = {
   input: '입력 100만 토큰당 달러 · 게이트웨이 가격표',
   output: '출력 100만 토큰당 달러 · 게이트웨이 가격표',
   caps: '게이트웨이가 알려 준 기능 · 아이콘에 마우스를 올리면 이름',
+  exposed: '사용자 앱 모델 메뉴에 보이기',
+  default: '새 대화가 시작하는 모델',
+  health: '마지막 결과 (대화 · 연결 테스트 중 나중 것) · 테스트 = 짧은 호출 한 번',
 };
 
 // 기능 아이콘 (E2E: aria-label). 모양 = @brewai/ui 아이콘 · 한 색. label = 짧은 이름 · long = 툴팁
@@ -60,7 +64,7 @@ export const FIX_HINT = {
   configKey: (envKey: string) => `config.yaml 모델 — .env 의 ${envKey} 확인 뒤 게이트웨이 다시 켜기 (npm run gateway)`, // E2E
   uiKey: 'LiteLLM 관리 화면 › Models › 이 모델의 Credential 키 확인',
   configModel: 'config.yaml 모델 — infra/litellm/config.yaml 의 litellm_params.model 이름 확인',
-  litellmMarker: 'LiteLLM 관리 화면', // 이 말이 든 힌트 = 서랍에 'LiteLLM 에서 고치기' 링크
+  litellmMarker: 'LiteLLM 관리 화면', // 이 말이 든 힌트 = 자세히 페이지에 'LiteLLM 에서 고치기' 링크
 };
 
 const conductorDown = 'conductor 에 연결할 수 없어요';
@@ -84,7 +88,7 @@ export const PATCH_ERROR: Record<string, string> = {
   bad_order: '순서 값이 올바르지 않아요',
 };
 
-// 상태 배지 (E2E)
+// 상태 (E2E: 거르개 · 이름 옆 딱지는 후보 · 사라짐만 .chip)
 export const STATE_TEXT: Record<ModelState, string> = { exposed: '노출', hidden: '숨김', candidate: '후보', missing: '게이트웨이에서 사라짐' };
 // 등록한 곳 (E2E: tag)
 export const SOURCE: Record<string, { tag: string; long: string }> = {
@@ -111,7 +115,7 @@ export const COPY = {
   sync: '동기화', // E2E
   syncing: '동기화 중…',
   syncTitle: '새 모델은 LiteLLM 에 등록한 뒤 동기화하면 후보(숨김)로 들어와요',
-  probeAll: '모두 시험', // E2E
+  probeAll: '모두 테스트', // E2E
   probeAllTitle: '노출한 대화 모델을 하나씩 짧게 불러 봐요 (키 · 모델 이름 확인)',
   addInLitellm: 'LiteLLM 에서 추가', // E2E (링크 · 꺼져 있으면 버튼)
   addTitle: (url: string) => `LiteLLM Admin UI 열기 (${url})`,
@@ -127,7 +131,7 @@ export const COPY = {
     steps: '모델을 추가하는 순서',
     s1: { title: 'LiteLLM 에 등록', body: ['LiteLLM 관리 화면 › Models 에서 제공사 · 모델 이름 · 키(Credential)를 넣어요. 코드로 관리하려면 ', 'infra/litellm/config.yaml', ' 의 ', 'model_list', '.'] as const },
     s2: { title: '동기화', body: '60초마다 저절로 가져와요. 바로 보려면 동기화를 눌러요.' },
-    s3: { title: '확인하고 노출', body: '새 모델은 후보(숨김)로 들어와요. 연결 시험으로 키 · 이름을 확인한 뒤 노출하면 사용자 앱 모델 메뉴에 보여요.' },
+    s3: { title: '확인하고 노출', body: '새 모델은 후보(숨김)로 들어와요. 연결 테스트로 키 · 이름을 확인한 뒤 노출하면 사용자 앱 모델 메뉴에 보여요.' },
     candTitle: '확인할 후보', // E2E: 목록 이름
     candEmpty: '확인할 후보가 없어요', // E2E
     candEmptyHow: 'LiteLLM 에 새 모델을 등록하고 동기화하면 여기에 나와요.',
@@ -148,7 +152,7 @@ export const COPY = {
   picked: (n: number) => `${n}개 선택됨`,
   expose: '노출',
   hide: '숨기기',
-  probe: '연결 시험',
+  probe: '연결 테스트', // E2E (고른 줄 · 자세히 페이지)
   clearSel: '선택 해제',
   providerFilter: '제공사 필터', // E2E: combobox 이름 (값을 바꾸는 칸이 아니라 표를 거른다)
   allProviders: (n: number) => `전체 제공사 · ${n}개`, // E2E
@@ -163,7 +167,7 @@ export const COPY = {
   howToAdd: '추가하는 법 보기',
   noMatch: '조건에 맞는 모델이 없어요', // E2E
   clearFilters: '필터 지우기', // E2E
-  foot: '사용자 앱 모델 메뉴는 기본 모델을 맨 위에, 나머지는 이 순서대로 제공사별로 모아 보여요. 순서 = 제공사 안 자리. 줄을 누르면 자세히 · 고치기.',
+  foot: '사용자 앱 모델 메뉴는 기본 모델을 맨 위에, 나머지는 이 순서대로 제공사별로 모아 보여요. 순서 = 제공사 안 자리. 줄을 누르면 자세히 페이지.',
   footGateway: ['게이트웨이 값(제공사 · 컨텍스트 · 비용 · 기능 · 출처)은 LiteLLM ', '/model_group/info', ' · ', '/v1/model/info', ' 의 읽기 전용 스냅샷이에요. 비용 = 100만 토큰당 달러.'] as const,
 
   // 줄
@@ -187,8 +191,8 @@ export const COPY = {
   capOther: (mode: string) => `대화 모델 아님${mode ? ` (${mode})` : ''} · 대화에 안 씀`,
 
   // 이름 칸
-  details: (label: string) => `자세히 — ${label}`, // E2E
-  detailsTitle: '자세히',
+  details: (label: string) => `자세히 — ${label}`, // E2E (자세히 페이지 링크)
+  detailsTitle: '자세히 페이지',
   default: '기본', // E2E
   rename: (label: string) => `표시 이름 바꾸기 — ${label}`, // E2E
   gatewayId: '실제 모델 이름 (게이트웨이 ID · 사용자 앱 요청 값)',
@@ -201,37 +205,57 @@ export const COPY = {
   dupHidden: '이름 같음', // E2E
   dupHiddenTitle: '같은 표시 이름의 모델이 있지만 한쪽이 숨김이라 사용자 앱에선 겹치지 않아요',
 
-  // 연결 칸
-  probeLabel: (label: string) => `연결 시험 — ${label}`, // E2E
+  // 연결 칸 (결과는 그 자리에: 돌림표 → 정상 · 응답 시간 | 이유 + 고치는 곳)
+  probeShort: '테스트', // E2E: 줄의 보이는 글
+  probeLabel: (label: string) => `연결 테스트 — ${label}`, // E2E: 줄 버튼 이름
   probeTitle: '짧은 호출 한 번으로 키 · 모델 이름을 확인해요',
+  testing: '테스트 중…', // E2E
+  testError: (down: boolean) => (down ? 'conductor 꺼짐' : '테스트 못 함'),
+  okAt: (t: string) => `마지막 정상 · ${t}`,
   healthBad: '오류',
-  healthOk: '정상',
+  healthOk: '정상', // E2E
   healthUnknown: '확인 전',
   fixInLitellm: 'LiteLLM 에서 고치기', // E2E
 
-  // 서랍
-  sheetTitle: '모델 자세히',
+  // 자세히 페이지 ('#/models/<id>'): 머리 = 제공사 · 보이는 이름(h1) / 실제 모델 이름 · 딱지 · [노출] [기본] [연결 테스트]
+  // 몸 = 왼쪽 (사용자 앱 · 연결) · 오른쪽 (게이트웨이 값 · 읽기 전용). E2E: section 이름 = 카드 제목
+  page: {
+    notFound: '모델을 찾을 수 없어요', // E2E
+    notFoundWhy: '이 주소의 모델이 목록에 없어요',
+    notFoundHow: '게이트웨이에서 지웠거나 주소가 틀렸어요. 모델 목록에서 다시 골라 주세요.',
+    toList: '모델 목록으로', // E2E
+    expose: '노출', // E2E: 머리 스위치 이름
+    exposeTitle: '사용자 앱 모델 메뉴에 보이기',
+    openInLitellm: 'LiteLLM 에서 보기',
+  },
   familyOf: (f: string) => ` · ${f} 계열`,
   renameBtn: '이름 바꾸기', // E2E
-  nameFieldInSheet: '표시 이름', // E2E
+  nameFieldInPage: '표시 이름', // E2E
   backToDefault: (name: string) => `기본 이름(${name})으로`,
   dupUserLong: '같은 표시 이름의 모델이 둘 다 노출돼 있어요. 사용자 앱은 ID 를 함께 보여 주지만, 이름을 다르게 바꾸면 더 헷갈리지 않아요.',
   dupHiddenLong: '같은 표시 이름의 모델이 있지만 한쪽이 숨김이라 지금은 사용자 앱에서 겹치지 않아요. 둘 다 노출하려면 이름을 다르게 바꿔 주세요.', // E2E
-  partApp: '사용자 앱',
-  appHint: '여기서 정해요',
-  exposeInSheet: '사용자 앱에 노출', // E2E
-  shown: '사용자 앱에 보여요',
-  hidden: '숨김',
+  partApp: '사용자 앱', // E2E
+  appHint: '여기서 정해요 · 사용자 앱 모델 메뉴에 이렇게 보여요',
+  shown: '사용자 앱 모델 메뉴에 보여요', // E2E
+  hidden: '숨김 · 사용자 앱에 안 보여요', // E2E
+  candidateHidden: '후보 · 확인하고 노출을 켜면 사용자 앱에 보여요',
   isDefault: '기본 모델이에요', // E2E
+  isDefaultLong: '기본 모델 · 새 대화가 이 모델로 시작해요', // E2E
+  notDefault: '아니에요 · 위에서 기본 모델로 정할 수 있어요',
   makeDefault: '기본 모델로 정하기', // E2E
   orderIn: (provider: string) => `${provider} 안 자리 (사용자 앱 모델 메뉴 순서)`,
   order: '순서',
-  app: { name: '표시 이름', expose: '노출', default: '기본', order: '순서' },
+  app: { name: '표시 이름', expose: '노출', default: '기본', order: '순서' }, // E2E
   moveUp: '위로 옮기기', // E2E
   moveDown: '아래로 옮기기', // E2E
-  partHealth: '연결',
-  partGateway: '게이트웨이 값',
-  readOnly: '읽기 전용 · LiteLLM 에서 바꿔요',
+  partHealth: '연결', // E2E
+  healthHint: '짧은 호출 한 번으로 키 · 모델 이름을 확인해요',
+  health: { last: '마지막 결과', latency: '응답 시간', lastOk: '마지막 정상', lastError: '마지막 오류', none: '없음', notTested: '이 페이지에서 테스트하면 보여요' }, // E2E
+  fixTitle: '고치는 곳', // E2E
+  noProbeChat: '대화 모델이 아니라서 연결 테스트를 하지 않아요',
+  noProbeMissing: '게이트웨이에서 사라진 모델이라 테스트할 수 없어요',
+  partGateway: '게이트웨이 값', // E2E
+  readOnly: '읽기 전용 · 값은 LiteLLM 에서 바꿔요', // E2E
   kv: {
     provider: '제공사', model: '모델 이름', context: '컨텍스트', maxOut: '출력 한도', input: '입력 비용', output: '출력 비용', features: '기능',
     source: '등록한 곳', unknownSource: '알 수 없음', firstSeen: '처음 본 때', lastSeen: '마지막 본 때',
@@ -244,15 +268,13 @@ export const COPY = {
 
   // 결과 한 줄 (E2E: status · alert 글)
   done: {
-    probeOk: (label: string, sec: string) => `${label} · 연결 정상 (${sec}초)`,
-    probeFail: (label: string, short: string, hint: string) => `${label} · 연결 실패: ${short} — ${hint}`,
-    probeError: (label: string, down: boolean) => `${label} · ${down ? conductorDown : '연결 시험을 하지 못했어요'}`,
-    nothingToProbe: '시험할 대화 모델이 없어요',
-    probeUntested: (label: string) => `${label} (시험 못 함)`,
+    probeError: (label: string, down: boolean) => `${label} · ${down ? conductorDown : '연결 테스트를 하지 못했어요'}`,
+    nothingToProbe: '테스트할 대화 모델이 없어요',
+    probeUntested: (label: string) => `${label} (테스트 못 함)`,
     probeBad: (label: string, short: string) => `${label} (${short})`,
-    probeLost: (n: number) => `${conductorDown} · ${n}개까지 시험함`,
-    probeSome: (total: number, ok: number, bad: string[]) => `${total}개 시험 · 정상 ${ok} · 실패 ${bad.length}: ${bad.join(', ')} — 줄을 누르면 고치는 곳`,
-    probeAllOk: (total: number) => `${total}개 시험 · 모두 정상`,
+    probeLost: (n: number) => `${conductorDown} · ${n}개까지 테스트함`,
+    probeSome: (total: number, ok: number, bad: string[]) => `${total}개 테스트 · 정상 ${ok} · 실패 ${bad.length}: ${bad.join(', ')} — 고치는 곳은 그 줄 연결 칸에`, // E2E
+    probeAllOk: (total: number) => `${total}개 테스트 · 모두 정상`, // E2E
     patchFail: (label: string, why: string) => `${label} · ${why}`,
     patchDown: conductorDown,
     patchUnknown: '바꾸지 못했어요. 잠시 뒤 다시 해 주세요',

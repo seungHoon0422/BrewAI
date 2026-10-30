@@ -1,8 +1,8 @@
-/* 모델 화면 — 배치만 (모양은 @brewai/ui 부품). 토큰만 쓴다 (ADR-0012). E2E 고리 클래스(.chip .dflt .src .dupb .hl .mcap …)는 이름을 바꾸지 않는다. */
+/* 모델 화면 — 배치만 (모양은 @brewai/ui 부품). 토큰만 쓴다 (ADR-0012). E2E 고리 클래스(.chip .dflt .src .dupb .hl .hfix .mcap …)는 이름을 바꾸지 않는다. */
 .models{display:flex;flex-direction:column;gap:var(--space-3);min-width:0}
 .mtabs>.ui-tabpanel>.flash{margin-bottom:var(--space-3)}
 
-/* 탭 줄 오른쪽 = 마지막 동기화 · 동기화 · 모두 시험 */
+/* 탭 줄 오른쪽 = 마지막 동기화 · 동기화 · 모두 테스트 */
 .msync{display:inline-flex;align-items:center;flex-wrap:wrap;justify-content:flex-end;gap:var(--space-1-5) var(--space-2)}
 .msync-at{font-size:var(--fs-xs);color:var(--text-muted);white-space:nowrap}
 
@@ -44,7 +44,8 @@
 .ncell{display:grid;gap:1px;min-width:0;padding:var(--space-1-5) 0}
 .nline{display:flex;align-items:center;gap:var(--space-1-5);min-width:0}
 .nline b{font-weight:var(--fw-semibold);color:var(--text)}
-.nbtn{display:inline-flex;min-width:0;max-width:100%;padding:0;border:0;background:transparent;color:inherit;text-align:left;cursor:pointer}
+.nbtn{display:inline-flex;min-width:0;max-width:100%;padding:0;border:0;background:transparent;color:inherit;text-align:left;text-decoration:none;cursor:pointer}
+.nline .chip{flex:none}
 .nbtn:hover b{text-decoration:underline;text-underline-offset:2px}
 .nedit-btn{opacity:.45}
 .mtable tr:hover .nedit-btn,.nedit-btn:focus-visible{opacity:1}
@@ -59,16 +60,24 @@
 .nedit .nin{max-width:300px}
 .nedit-hint{font-size:var(--fs-2xs);color:var(--text-muted)}
 
-/* 연결 칸 */
-.conn{min-width:110px;max-width:200px}
-.hcell{display:flex;flex-direction:column;align-items:flex-start;gap:var(--space-1-5)}
-.mtable .hcell,.mcand .hcell{flex-direction:row;align-items:center;flex-wrap:nowrap;gap:var(--space-1)}
-.hl{display:inline-flex;align-items:center;gap:var(--space-1-5);font-size:var(--fs-xs);color:var(--text-2);white-space:nowrap}
+/* 연결 칸 = 점 + 결과 한 줄 [테스트] · 실패면 고치는 곳 둘째 줄 (두 줄까지 · 전체는 툴팁) */
+.mtable .conn{width:1%;min-width:176px}
+.mtable .hcell{justify-items:stretch}
+.mtable .hrow{justify-content:space-between} /* [테스트] = 칸 오른쪽 끝에 줄 맞춤 */
+.mtable td.set{width:1%;white-space:nowrap}
+.hcell{display:grid;gap:2px;min-width:0;justify-items:start}
+.hrow{display:flex;align-items:center;gap:var(--space-2);min-width:0}
+.hl{display:inline-flex;align-items:center;gap:var(--space-1-5);min-width:0;font-size:var(--fs-xs);color:var(--text-2);white-space:nowrap}
 .hl[data-health="error"]{color:var(--warn-text)}
-.hl[data-health="unknown"]{color:var(--text-muted)}
-.hl .tm{color:var(--text-muted)}
-.hhint{font-size:var(--fs-xs);line-height:var(--lh-base);color:var(--text-muted);overflow-wrap:anywhere}
-.hbtns{display:flex;flex-wrap:wrap;gap:var(--space-1-5)}
+.hl[data-health="unknown"],.hl[data-health="running"]{color:var(--text-muted)}
+.hl .tm{color:var(--text-muted);font-variant-numeric:tabular-nums}
+.hl .ui-spinner,.hl .ui-dot{flex:none}
+.hprobe.ui-btn{flex:none}
+.hfix{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;max-width:240px;font-size:var(--fs-2xs);line-height:var(--lh-tight);color:var(--text-muted)}
+.hhint{font-size:var(--fs-sm);line-height:var(--lh-base);color:var(--text-2);overflow-wrap:anywhere}
+/* 표: 글 버튼은 줄에 마우스 · 포커스가 있거나 테스트 중일 때 진하게 (평소엔 옅게 — 줄마다 버튼이 튀지 않게) */
+.mtable .hprobe{opacity:.7}
+.mtable tr:hover .hprobe,.mtable .hprobe:focus-visible{opacity:1}
 
 /* 게이트웨이 값 칸 (숫자 = 오른쪽 맞춤 · 고정폭) */
 .mtable td.gnum{font-family:var(--font-mono);font-size:var(--fs-xs);color:var(--text-2);white-space:nowrap}
@@ -81,7 +90,7 @@
 .mcap:hover{background:var(--surface-hover);color:var(--text)}
 .mcap[data-cap="embedding"],.mcap[data-cap="other"]{color:var(--text-muted)}
 .mcaps[data-labeled]{gap:var(--space-1-5) var(--space-3)}
-/* 서랍(이름 붙은 줄): 기준선 = 글자 (아이콘 밑변이 아니라) → 왼쪽 '기능' 칸 이름과 한 줄에 맞는다 */
+/* 이름 붙은 줄 (자세히 페이지): 기준선 = 글자 (아이콘 밑변이 아니라) → 왼쪽 '기능' 칸 이름과 한 줄에 맞는다 */
 .mcaps[data-labeled] .mcap{display:inline-flex;align-items:baseline;gap:var(--space-1);width:auto;height:auto;font-size:var(--fs-sm);color:var(--text)}
 .mcaps[data-labeled] .mcap:hover{background:none}
 .mcaps[data-labeled] .mcap .ui-icon{align-self:center;color:var(--text-2)}
@@ -111,30 +120,57 @@
 .mcand-meta{display:flex;align-items:center;gap:var(--space-2-5);font-family:var(--font-mono);font-size:var(--fs-xs);color:var(--text-2);white-space:nowrap}
 .mcand-act{display:flex;align-items:center;gap:var(--space-1-5)}
 
-/* 서랍 */
-.mdrawer .ui-modal-title{display:flex;align-items:center;gap:var(--space-2)}
-.dtags{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-1-5);margin:0 0 var(--space-4)}
-.dpart{margin:0 0 var(--space-4);padding:0 0 var(--space-4);border-bottom:1px solid var(--border-subtle)}
-.dpart:last-child{margin-bottom:0;padding-bottom:0;border-bottom:0}
-.dpart>h3{display:flex;align-items:baseline;gap:var(--space-2);margin:0 0 var(--space-2-5);font-size:var(--fs-sm);font-weight:var(--fw-semibold);color:var(--text-2)}
+/* 자세히 페이지 ('#/models/<id>'): 머리 = 아이콘 · 이름(h1) / 실제 모델 이름 · 딱지 · 오른쪽 할 일 → 몸 = 두 칸 카드 */
+.mpage{display:flex;flex-direction:column;gap:var(--space-4);min-width:0}
+.mpage>.ui-page-head{margin:0}
+.mhead .ui-tile{width:40px;height:40px;border-radius:var(--radius-lg);color:var(--text)}
+.mhead .ui-page-title{overflow-wrap:anywhere}
+.mhead .ui-page-desc{margin-top:2px}
+.mhead .ui-page-desc .mid{font-size:var(--fs-sm)}
+.mtags{display:inline-flex;align-items:center;flex-wrap:wrap;gap:var(--space-1-5)}
+.mhead .ui-page-actions{align-self:center}
+.mhead-act{display:flex;align-items:center;flex-wrap:wrap;justify-content:flex-end;gap:var(--space-2) var(--space-3)}
+.mhead-sw{font-size:var(--fs-sm);color:var(--text-2)}
+.mhead-sep{width:1px;height:20px;background:var(--border)}
+.hcell.head .hrow{gap:var(--space-2-5)}
+.hcell.head .hl{font-size:var(--fs-sm)}
+
+.mgrid{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--space-4);align-items:start}
+.mcol{display:grid;gap:var(--space-4);min-width:0}
+.mcard{display:grid;gap:var(--space-4)}
+.mcard .ui-card-head{align-items:center}
+.mcard .ui-card-title{font-size:var(--fs-base)}
+.mcard-body{display:grid;gap:var(--space-3);min-width:0}
+
 .dhint{font-size:var(--fs-xs);font-weight:var(--fw-regular);color:var(--text-muted)}
-.dset{display:grid;grid-template-columns:96px minmax(0,1fr);align-items:start;gap:var(--space-2-5) var(--space-4)}
+.dmuted{color:var(--text-muted)}
+.dnote{margin:0;font-size:var(--fs-sm);color:var(--text-muted)}
+.dset{display:grid;grid-template-columns:112px minmax(0,1fr);align-items:start;gap:var(--space-3) var(--space-4)}
 .dlab{font-size:var(--fs-sm);line-height:var(--control-sm);color:var(--text-muted)}
-.drow{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-2) var(--space-3);min-height:var(--control-sm);color:var(--text-2)}
-.drow b{font-weight:var(--fw-semibold);color:var(--text)}
+.drow{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-2) var(--space-3);min-height:var(--control-sm);font-size:var(--fs-sm);color:var(--text-2)}
+.drow[data-on]{color:var(--text)}
+.dname{min-width:0;font-size:var(--fs-base);font-weight:var(--fw-semibold);color:var(--text);overflow-wrap:anywhere}
+.dbtns{display:inline-flex;flex-wrap:wrap;gap:var(--space-1-5)}
 .dord{gap:var(--space-1)}
 .dord>span{margin-right:var(--space-1);color:var(--text-muted)}
 .dord b{font:var(--fw-semibold) var(--fs-xs)/1 var(--font-mono);color:var(--text-2)}
-.dwarn{margin-top:var(--space-2-5)}
-.dkv .ui-kv-row{grid-template-columns:96px minmax(0,1fr)}
+.dwarn{margin:0}
+.dkv{gap:var(--space-2-5)}
+.dkv .ui-kv-row{grid-template-columns:112px minmax(0,1fr)}
 .dprov{display:inline-flex;align-items:center;flex-wrap:wrap;gap:var(--space-1-5)}
+.dfix .ui-btn{flex:none}
+
+/* 넓은 창 (≥1100): 왼쪽 = 사용자 앱 · 연결 / 오른쪽 = 게이트웨이 값 */
+@media (min-width:1100px){
+  .mgrid{grid-template-columns:minmax(0,7fr) minmax(0,5fr)}
+}
 
 @media (hover:none){
   .grip{display:none}
   .nedit-btn,.mtable .nrevert{opacity:1}
 }
 
-/* 좁아지면 덜 중요한 칸부터 숨긴다 (모두 서랍에 있다): 기능 → 제공사 이름(아이콘만) → 출력 · 입력 비용 → 컨텍스트 → 제공사 */
+/* 좁아지면 덜 중요한 칸부터 숨긴다 (모두 자세히 페이지에 있다): 기능 → 제공사 이름(아이콘만) → 출력 · 입력 비용 → 컨텍스트 → 제공사 */
 @media (max-width:1240px){
   .mtable [data-col="caps"]{display:none}
 }
@@ -156,9 +192,20 @@
 @media (max-width:960px){
   .mtable [data-col="context"]{display:none}
 }
-/* 폰 (≤760): 제공사 칸도 숨김 · 검색 한 줄 가득 · 상태 거르개는 넘치면 옆으로 민다 · 단계 버튼은 아래 줄 */
+/* 폰 (≤760): 제공사 · 순서 칸도 숨김 (순서는 자세히 페이지에서) → 이름 · 노출 · 기본 · 연결이 한 화면에. 연결 칸 = 점 + 이유 + [테스트]
+   검색 한 줄 가득 · 상태 거르개는 넘치면 옆으로 민다 · 단계 버튼은 아래 줄 */
 @media (max-width:760px){
-  .mtable [data-col="provider"]{display:none}
+  .mtable [data-col="provider"],.mtable [data-col="order"],.mtable [data-col="select"]{display:none}
+  /* 고정 배치: 노출 · 기본 · 연결 = 정한 폭 · 이름 = 남는 폭 (넘치면 말줄임) */
+  .mtable .ui-table{table-layout:fixed}
+  .mtable th[data-col="exposed"]{width:52px}
+  .mtable th[data-col="default"]{width:44px}
+  .mtable th[data-col="health"]{width:128px}
+  .mtable [data-col="model"]{padding-left:var(--space-3)}
+  .mtable .mcell{min-width:0;max-width:none}
+  .mtable .hl .tm,.mtable .hfix{display:none}
+  .mtable .hl .ht{min-width:0}
+  .mtable .nedit-btn,.mtable .nrevert{display:none} /* 이름 바꾸기 = 자세히 페이지에서 */
   .mbar .msearch{flex:1 1 100%}
   .mfilters{flex:1 1 100%}
   .mprov-pick{flex:1 1 100%}
@@ -170,6 +217,10 @@
   .mcand .hcell,.mcand-act{justify-self:start}
   .mcand-prov{align-self:start}
   .mcand-meta{flex-wrap:wrap}
-  .dset{grid-template-columns:minmax(0,1fr);gap:var(--space-1) 0}
-  .dset .drow{margin-bottom:var(--space-1-5)}
+  .dset{grid-template-columns:88px minmax(0,1fr);gap:var(--space-2-5) var(--space-3)}
+  .dkv .ui-kv-row{grid-template-columns:88px minmax(0,1fr);column-gap:var(--space-3)}
+  .mhead .ui-page-actions{flex:1 1 100%}
+  .mhead-act{justify-content:flex-start}
+  .mhead-sep{display:none}
+  .mtable .conn{min-width:0}
 }

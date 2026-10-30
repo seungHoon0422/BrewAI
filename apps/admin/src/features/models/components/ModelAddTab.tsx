@@ -1,15 +1,17 @@
 import { Badge, Button, Callout, EmptyState, ProviderIcon, Skeleton } from '@brewai/ui';
 import type { AdminModel } from '../api';
+import type { Probe, TestState } from '../hooks';
 import { COL_LABEL, COPY, LOAD_ERROR } from '../copy';
 import { candidatesOf, perM, providerName, tokens } from '../derive';
 import { Caps } from './Caps';
 import { Health } from './Health';
 import type { ModelPanelProps } from './ModelListTab';
+import { ModelLink } from './NameCell';
 import { AddInLitellm, LastSync, SyncButton } from './SyncBar';
 
 // 모델 추가 탭 = 등록은 LiteLLM 에서만 (ADR-0006). 여기는 ① LiteLLM 에서 등록 ② 동기화 ③ 후보 확인 → 노출 순서 안내 + 후보 목록.
 // 입력칸 없음 (제공사 · 가격 · 컨텍스트는 게이트웨이 값 — e2e admin.spec 이 본다)
-export function ModelAddTab({ api, view }: ModelPanelProps) {
+export function ModelAddTab({ api }: ModelPanelProps) {
   const { state } = api;
   const cands = candidatesOf(api.rows);
   const a = COPY.add;
@@ -66,8 +68,7 @@ export function ModelAddTab({ api, view }: ModelPanelProps) {
         {cands.length > 0 && (
           <ul className="mcands" aria-label={a.candTitle}>
             {cands.map((m) => (
-              <Candidate key={m.id} m={m} busy={api.isBusy(m.id)} now={api.now} onOpen={() => view.setOpenId(m.id)}
-                onProbe={api.probe}
+              <Candidate key={m.id} m={m} busy={api.isBusy(m.id)} test={api.testOf(m.id)} now={api.now} onProbe={api.probe}
                 onExpose={() => void api.change(m, { exposed: true }, a.exposed(m.label))}
                 onKeep={() => void api.change(m, { exposed: false }, a.kept(m.label))} />
             ))}
@@ -78,9 +79,9 @@ export function ModelAddTab({ api, view }: ModelPanelProps) {
   );
 }
 
-// 후보 한 줄: 제공사 · 이름(두 줄) · 기능 · 컨텍스트 · 비용 · 연결 · [숨김으로 두기] [노출하기]
-function Candidate({ m, busy, now, onOpen, onProbe, onExpose, onKeep }: {
-  m: AdminModel; busy: boolean; now: number; onOpen: () => void; onProbe: (m: AdminModel) => Promise<void>; onExpose: () => void; onKeep: () => void;
+// 후보 한 줄: 제공사 · 이름(두 줄 · 이름 = 자세히 페이지) · 기능 · 컨텍스트 · 비용 · 연결 [테스트] · [숨김으로 두기] [노출하기]
+function Candidate({ m, busy, test, now, onProbe, onExpose, onKeep }: {
+  m: AdminModel; busy: boolean; test: TestState | undefined; now: number; onProbe: Probe; onExpose: () => void; onKeep: () => void;
 }) {
   const a = COPY.add;
   const ctx = tokens(m.max_input_tokens);
@@ -89,9 +90,7 @@ function Candidate({ m, busy, now, onOpen, onProbe, onExpose, onKeep }: {
     <li className="mcand" data-model={m.id} aria-busy={busy}>
       <span className="mcand-prov" title={providerName(m)}><ProviderIcon provider={m.provider} size="lg" label={providerName(m)} /></span>
       <div className="ncell mcand-name">
-        <button className="nbtn" type="button" onClick={onOpen} title={COPY.detailsTitle} aria-label={COPY.details(m.label)}>
-          <b className="ui-ell">{m.label}</b>
-        </button>
+        <ModelLink m={m} />
         <span className="sub"><code className="mid ui-ell" title={COPY.gatewayId}>{m.id}</code></span>
       </div>
       <div className="mcand-meta">
@@ -101,7 +100,7 @@ function Candidate({ m, busy, now, onOpen, onProbe, onExpose, onKeep }: {
           <span className="ui-num" title={COPY.costPair}>{cost[0] ?? '—'} / {cost[1] ?? '—'}</span>
         )}
       </div>
-      <Health m={m} busy={busy} onProbe={onProbe} now={now} />
+      <Health m={m} test={test} onProbe={onProbe} now={now} />
       <div className="mcand-act">
         <Button size="sm" variant="ghost" disabled={busy} aria-label={a.keepHiddenLabel(m.label)} title={a.keepHiddenTitle} onClick={onKeep}>{a.keepHidden}</Button>
         <Button size="sm" variant="primary" disabled={busy} aria-label={a.exposeLabel(m.label)} onClick={onExpose}>{a.expose}</Button>

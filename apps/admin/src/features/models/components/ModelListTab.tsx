@@ -1,8 +1,8 @@
 import { Button, Callout, LinkButton } from '@brewai/ui';
-import { hrefOf } from '../../../app/routes';
 import { EmptyTable } from '../../../shared/components/EmptyTable';
 import type { AdminModel } from '../api';
 import { COPY, LOAD_ERROR } from '../copy';
+import { tabHref } from '../route';
 import { COL_LABELS, providerName } from '../derive';
 import type { ModelsApi, ModelView } from '../hooks';
 import { ModelTable } from './ModelTable';
@@ -10,7 +10,7 @@ import { ModelToolbar } from './ModelToolbar';
 
 export type ModelPanelProps = { api: ModelsApi; view: ModelView };
 
-// 모델 목록 탭 = (후보 알림) → 도구 줄(검색 · 제공사 · 상태 · 여러 개 고르기) → 표 한 장 → 줄을 누르면 서랍
+// 모델 목록 탭 = (후보 알림) → 도구 줄(검색 · 제공사 · 상태 · 여러 개 고르기) → 표 한 장 → 줄을 누르면 자세히 페이지 ('#/models/<id>')
 export function ModelListTab({ api, view }: ModelPanelProps) {
   const { state, rows } = api;
   const ready = state.kind === 'ok';
@@ -25,7 +25,7 @@ export function ModelListTab({ api, view }: ModelPanelProps) {
     <div className="models">
       {ready && view.counts.candidate > 0 && (
         <Callout tone="info" icon="plus" className="cand"
-          action={<LinkButton size="sm" variant="ghost" href={hrefOf('models', 'add')}>{COPY.toCandidates}</LinkButton>}>
+          action={<LinkButton size="sm" variant="ghost" href={tabHref('add')}>{COPY.toCandidates}</LinkButton>}>
           {COPY.candidates(view.counts.candidate).map((t, i) => (i === 1 ? <b key={i}>{t}</b> : t))}
         </Callout>
       )}
@@ -33,7 +33,7 @@ export function ModelListTab({ api, view }: ModelPanelProps) {
       {ready && rows.length > 0 && (
         <ModelToolbar query={view.query} onQuery={view.setQuery} total={rows.length} counts={view.counts} providers={view.providers}
           provider={view.provider} onProvider={view.setProvider} stateFilter={view.stateFilter} onStateFilter={view.setStateFilter}
-          picked={view.picked.length} busy={api.bulkBusy}
+          picked={view.picked.length} busy={api.bulkBusy || api.probingAll}
           onBulk={(expose) => void api.bulk(view.picked, expose, view.clearSel)}
           onProbePicked={() => void api.probeMany(view.picked, view.clearSel)} onClearSel={view.clearSel} />
       )}
@@ -45,13 +45,13 @@ export function ModelListTab({ api, view }: ModelPanelProps) {
       )}
       {ready && rows.length === 0 && (
         <EmptyTable label={COPY.table} cols={COL_LABELS.slice(1)} icon="plug" title={COPY.empty}
-          action={<LinkButton size="sm" href={hrefOf('models', 'add')}>{COPY.howToAdd}</LinkButton>}>
+          action={<LinkButton size="sm" href={tabHref('add')}>{COPY.howToAdd}</LinkButton>}>
           {COPY.emptyHow.map((t, i) => (i % 2 ? <code key={i}>{t}</code> : t))}
         </EmptyTable>
       )}
       {ready && rows.length > 0 && (
         <>
-          <ModelTable view={view} isBusy={api.isBusy} now={api.now} onChange={api.change} onProbe={api.probe} onReorder={reorder} />
+          <ModelTable view={view} isBusy={api.isBusy} testOf={api.testOf} now={api.now} onChange={api.change} onProbe={api.probe} onReorder={reorder} />
           <p className="mfoot">
             {COPY.foot}{' '}
             {COPY.footGateway.map((t, i) => (i % 2 ? <code key={i}>{t}</code> : t))}

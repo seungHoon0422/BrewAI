@@ -37,3 +37,5 @@ export function routeFromHash(hash: string): MenuItem {
 
 // 화면 안 탭 = 해시의 두 번째 칸 ('#/users/orgs' → 'orgs'). 없으면 ''
 export const subOf = (hash: string): string => segments(hash)[1] ?? '';
+// 두 번째 칸부터 끝까지 ('#/models/openai/gpt-4o' → 'openai/gpt-4o'). 자세히 페이지 id 에 '/' 가 그대로 들어와도 한 대상으로
+export const restOf = (hash: string): string => segments(hash).slice(1).join('/');

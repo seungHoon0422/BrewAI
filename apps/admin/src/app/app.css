@@ -24,6 +24,13 @@
   box-shadow:-1px 0 0 var(--border-hair),0 -1px 0 var(--border-hair),-1px -1px 0 var(--border-edge)}
 .wrap{width:min(var(--width-page),100% - 64px);margin:0 auto;padding:var(--space-6) 0 var(--space-12)}
 
+/* 자세히 페이지 위 줄 = ← 목록 링크 · 환경 · 세션 (화면 머리 h1 은 그 화면이 그린다) */
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:var(--space-2) var(--space-3);flex-wrap:wrap;margin:0 0 var(--space-4)}
+.back{display:inline-flex;align-items:center;gap:var(--space-1);margin-left:calc(-1 * var(--space-1-5));padding:var(--space-1) var(--space-1-5);border-radius:var(--radius-md);
+  font-size:var(--fs-sm);color:var(--text-2);text-decoration:none}
+.back:hover{background:var(--surface-hover);color:var(--text)}
+.back .ui-icon{color:var(--text-muted)}
+
 /* 좁은 화면: 사이드바 → 위쪽 가로 메뉴 (페이지 가로 스크롤 없음) */
 @media (max-width:760px){
   .shell{grid-template-columns:minmax(0,1fr);grid-template-rows:auto 1fr}

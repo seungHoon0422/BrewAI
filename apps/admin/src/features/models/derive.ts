@@ -5,8 +5,9 @@ import { providerLabel, type IconName } from '@brewai/ui';
 import type { AdminModel } from './api';
 import { CAP, COL_LABEL, COPY, ERROR_DETAIL, FIX_HINT, UNKNOWN_ERROR_HINT, type CapId, type StateFilter } from './copy';
 
-// 표 칸 (E2E: 순서). 글 = copy.ts COL_LABEL · 좁은 창에서 숨는 칸 = models.css (data-col)
-export const COL_IDS = ['select', 'order', 'provider', 'model', 'state', 'exposed', 'default', 'health', 'context', 'input', 'output', 'caps'] as const;
+// 표 칸 (E2E: 순서). 글 = copy.ts COL_LABEL · 좁은 창에서 숨는 칸 = models.css (data-col).
+// 왼쪽 = 무엇인지(제공사 · 이름 · 게이트웨이 값) · 맨 오른쪽 = 여기서 정하는 것(노출 · 기본)과 연결. 상태 칸 없음 (후보 · 사라짐만 이름 옆 딱지)
+export const COL_IDS = ['select', 'order', 'provider', 'model', 'context', 'input', 'output', 'caps', 'exposed', 'default', 'health'] as const;
 export type ColId = (typeof COL_IDS)[number];
 export const COL_LABELS = COL_IDS.map((id) => COL_LABEL[id]);
 
@@ -26,7 +27,7 @@ export const perM = (c: number | null) => {
   return `$${n > 0 && n < 1 ? n.toFixed(2) : +n.toFixed(2)}`; // $0.15 · $0.60 · $3 · $15
 };
 
-// 게이트웨이 값 → 기능 아이콘 (표 '기능' 칸 · 서랍). 대화 모델 = 텍스트 + 아는 기능 · 임베딩 · 그 밖의 mode = 대화에 안 씀
+// 게이트웨이 값 → 기능 아이콘 (표 '기능' 칸 · 자세히 페이지). 대화 모델 = 텍스트 + 아는 기능 · 임베딩 · 그 밖의 mode = 대화에 안 씀
 export type Cap = { id: CapId; icon: IconName; label: string; long: string };
 const cap = (id: CapId, long?: string): Cap => ({ id, ...CAP[id], long: long ?? CAP[id].long });
 export function capsOf(m: AdminModel): Cap[] {
@@ -39,6 +40,9 @@ export function capsOf(m: AdminModel): Cap[] {
     ...(m.supports_reasoning ? [cap('reasoning')] : []),
   ];
 }
+
+// 연결 테스트 응답 시간 (conductor 가 잰 왕복): 412ms · 1.2초
+export const latency = (ms: number) => (ms < 1000 ? `${Math.max(0, Math.round(ms))}ms` : `${(ms / 1000).toFixed(1)}초`);
 
 export function ago(iso: string | null, now: number) {
   const t = iso ? Date.parse(iso) : NaN;

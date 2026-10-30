@@ -1,15 +1,17 @@
-// 모델 화면 상태. useModels = 서버 데이터 · 바꾸기 · 연결 시험 · 동기화 · 알림 줄 / useModelView = 거르개 · 고르기 · 서랍 · 끌기.
+// 모델 화면 상태. useModels = 서버 데이터 · 바꾸기 · 연결 테스트 · 동기화 · 알림 줄 / useModelView = 거르개 · 고르기 · 끌기.
 // 컴포넌트는 이 둘이 주는 값과 함수만 쓴다 (fetch 없음).
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AdminApiError, isConductorDown, loadErrorOf, type LoadError } from '../../shared/http';
 import { getGateway, listAdminModels, patchModel, syncModels, testModel, type AdminModel, type GatewayInfo, type ModelPatch, type ProbeResult } from './api';
 import { COPY, LOAD_ERROR, PATCH_ERROR, syncText, type StateFilter } from './copy';
-import { canProbe, countsOf, dupIndex, errorOf, filterRows, fixFor, orderRows, positions, providerSummary } from './derive';
+import { canProbe, countsOf, dupIndex, errorOf, filterRows, orderRows, positions, providerSummary } from './derive';
 
 type Load = { kind: 'loading' } | { kind: 'ok'; rows: AdminModel[] } | { kind: 'error'; error: LoadError };
 export type Flash = { kind: 'ok' | 'error'; text: string } | null;
 export type Change = (m: AdminModel, patch: ModelPatch, done?: string) => Promise<boolean>;
 export type Probe = (m: AdminModel) => Promise<void>;
+// 이 화면에서 한 연결 테스트 (그 자리에 보인다): 도는 중 · 끝남(지연 ms) · 못 함(conductor 꺼짐 등). 다시 읽어도 결과(정상 · 오류)는 서버 model_health 에 남는다
+export type TestState = { phase: 'running' } | { phase: 'done'; ok: boolean; ms: number; at: string } | { phase: 'error'; down: boolean };
 
 const POLL_MS = 30_000; // conductor 가 60초마다 LiteLLM 과 동기화 → 열어 둔 화면도 조용히 다시 읽는다
 const CLOCK_MS = 30_000; // '3분 전' 이 흐르게
@@ -25,16 +27,25 @@ export function useModels() {
   const [tick, setTick] = useState(0);
   const [busy, setBusy] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [tests, setTests] = useState<Record<string, TestState>>({});
+  const [probingAll, setProbingAll] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [flash, setFlash] = useState<Flash>(null);
   const [now, setNow] = useState(() => Date.now());
   const reload = useCallback(() => setTick((t) => t + 1), []);
+  // 서버에서 새 줄이 왔다 = conductor 가 살아 있다 → '테스트 못 함 · conductor 꺼짐' 은 지운다 (결과는 서버 줄이 말한다). 도는 중 · 끝난 테스트는 둔다
+  const fromServer = (list: AdminModel[]) => {
+    setState({ kind: 'ok', rows: list });
+    setTests((all) => (Object.values(all).some((t) => t.phase === 'error')
+      ? Object.fromEntries(Object.entries(all).filter(([, t]) => t.phase !== 'error'))
+      : all));
+  };
 
   useEffect(() => {
     const ctrl = new AbortController();
     setState({ kind: 'loading' });
     listAdminModels(ctrl.signal).then(
-      (rows) => setState({ kind: 'ok', rows }),
+      (rows) => fromServer(rows),
       (e) => {
         const error = loadErrorOf(e);
         if (error) setState({ kind: 'error', error });
@@ -44,14 +55,19 @@ export function useModels() {
     return () => ctrl.abort();
   }, [tick]);
 
-  // 고치는 중 · 동기화 중 · 숨은 탭이면 건너뛴다
+  // 고치는 중 · 연결 테스트 중 · 동기화 중 · 숨은 탭이면 건너뛴다.
+  // gen = 이 화면이 줄을 바꾼 횟수 → 읽는 동안 바뀌었으면(테스트 결과 · 바꾸기) 그 응답은 버린다 (옛 값으로 덮지 않게)
   const idle = useRef(true);
-  idle.current = busy.size === 0 && !syncing && !bulkBusy && state.kind === 'ok';
+  idle.current = busy.size === 0 && !syncing && !bulkBusy && !probingAll && state.kind === 'ok';
+  const running = useRef(new Set<string>());
+  const gen = useRef(0);
+  const quiet = () => idle.current && running.current.size === 0;
   useEffect(() => {
     const t = setInterval(() => {
-      if (!idle.current || document.visibilityState !== 'visible') return;
+      if (!quiet() || document.visibilityState !== 'visible') return;
+      const g = gen.current;
       listAdminModels().then(
-        (rows) => { if (idle.current) setState({ kind: 'ok', rows }); },
+        (rows) => { if (quiet() && g === gen.current) fromServer(rows); },
         () => {}, // 일시 오류는 다음 주기에. 표는 그대로 둔다
       );
       getGateway().then(setGateway, () => {});
@@ -65,10 +81,13 @@ export function useModels() {
   }, []);
 
   const rows = state.kind === 'ok' ? state.rows : [];
-  const setRows = (f: (rows: AdminModel[]) => AdminModel[]) => setState((s) => (s.kind === 'ok' ? { kind: 'ok', rows: f(s.rows) } : s));
+  const setRows = (f: (rows: AdminModel[]) => AdminModel[]) => {
+    gen.current++;
+    setState((s) => (s.kind === 'ok' ? { kind: 'ok', rows: f(s.rows) } : s));
+  };
   const refresh = async () => {
     const fresh = await listAdminModels().catch(() => null);
-    if (fresh) setState({ kind: 'ok', rows: fresh });
+    if (fresh) fromServer(fresh);
   };
   const start = (id: string) => setBusy((b) => new Set(b).add(id));
   const done = (id: string) =>
@@ -85,55 +104,56 @@ export function useModels() {
     return code;
   };
 
-  // 연결 시험 = 짧은 호출 한 번 → 그 줄의 '연결' 칸 + 한 줄 안내
-  const probe: Probe = async (m) => {
-    start(m.id);
-    setFlash(null);
+  const setTest = (id: string, t: TestState) => setTests((all) => ({ ...all, [id]: t }));
+  // 연결 테스트 하나 = 짧은 호출 한 번 → 결과는 그 자리(줄의 '연결' 칸 · 자세히 페이지)에. 줄은 잠그지 않는다 (노출 · 이름은 그대로 바꿀 수 있다)
+  const runTest = async (m: AdminModel): Promise<{ code: string | null } | { lost: boolean }> => {
+    running.current.add(m.id);
+    setTest(m.id, { phase: 'running' });
     try {
       const r = await testModel(m.id);
       const code = applyProbe(m, r);
-      setNow(Date.now());
-      if (r.ok) setFlash({ kind: 'ok', text: COPY.done.probeOk(m.label, (r.duration_ms / 1000).toFixed(1)) });
-      else {
-        const e = fixFor(m, code!);
-        setFlash({ kind: 'error', text: COPY.done.probeFail(m.label, e.short, e.hint) });
-      }
+      setTest(m.id, { phase: 'done', ok: r.ok, ms: r.duration_ms, at: r.at });
+      return { code };
     } catch (e) {
-      setFlash({ kind: 'error', text: COPY.done.probeError(m.label, isConductorDown(e)) });
+      const down = isConductorDown(e);
+      setTest(m.id, { phase: 'error', down });
+      return { lost: down };
     } finally {
-      done(m.id);
+      running.current.delete(m.id);
     }
   };
+  // 이미 도는 줄 · 여러 개 테스트 중이면 건너뛴다 (같은 모델에 두 번 · 게이트웨이에 한꺼번에 몰리지 않게)
+  const probe: Probe = async (m) => {
+    if (running.current.has(m.id) || probingAll) return;
+    setFlash(null);
+    await runTest(m);
+    setNow(Date.now());
+  };
 
-  // 여러 개 연결 시험 = 하나씩 차례로 (게이트웨이 · provider 에 한꺼번에 몰리지 않게) → 끝에 한 줄 요약
-  // '모두 시험' = 노출한 대화 모델 · 고른 줄 시험 = 고른 대화 모델. 아직 안 써 본 키 없는 모델도 여기서 '문제 있음'에 잡힌다
+  // 여러 개 연결 테스트 = 하나씩 차례로 (게이트웨이 · provider 에 한꺼번에 몰리지 않게) → 줄마다 그 자리에 + 끝에 한 줄 요약
+  // '모두 테스트' = 노출한 대화 모델 · 고른 줄 테스트 = 고른 대화 모델. 아직 안 써 본 키 없는 모델도 여기서 '문제 있음'에 잡힌다
   const probeMany = async (list: AdminModel[], after?: () => void) => {
-    const todo = list.filter(canProbe);
+    const todo = list.filter((m) => canProbe(m) && !running.current.has(m.id)); // 혼자 도는 중인 줄은 그 결과로
     setFlash(null);
     if (!todo.length) {
       setFlash({ kind: 'error', text: COPY.done.nothingToProbe });
       return;
     }
-    setBulkBusy(true);
+    setProbingAll(true);
     let ok = 0;
     const bad: string[] = [];
     let lost = false;
     for (const m of todo) {
-      start(m.id);
-      try {
-        const code = applyProbe(m, await testModel(m.id));
-        if (code) bad.push(COPY.done.probeBad(m.label, errorOf(code).short));
-        else ok++;
-      } catch (e) {
-        if (isConductorDown(e)) lost = true;
-        else bad.push(COPY.done.probeUntested(m.label));
-      } finally {
-        done(m.id);
-      }
+      const r = await runTest(m);
+      if ('lost' in r) {
+        lost = r.lost;
+        if (!lost) bad.push(COPY.done.probeUntested(m.label));
+      } else if (r.code) bad.push(COPY.done.probeBad(m.label, errorOf(r.code).short));
+      else ok++;
       if (lost) break;
     }
     setNow(Date.now());
-    setBulkBusy(false);
+    setProbingAll(false);
     after?.();
     if (lost) setFlash({ kind: 'error', text: COPY.done.probeLost(ok + bad.length) });
     else if (bad.length) setFlash({ kind: 'error', text: COPY.done.probeSome(todo.length, ok, bad) });
@@ -195,7 +215,7 @@ export function useModels() {
     setFlash(null);
     try {
       const r = await syncModels();
-      setState({ kind: 'ok', rows: r.models });
+      fromServer(r.models);
       setGateway((g) => (g ? { ...g, last_sync_at: r.synced_at } : g));
       setNow(Date.now());
       setFlash({ kind: 'ok', text: syncText(r) });
@@ -207,8 +227,9 @@ export function useModels() {
   };
 
   return {
-    state, rows, gateway, now, flash, bulkBusy, syncing,
+    state, rows, gateway, now, flash, bulkBusy, syncing, probingAll,
     isBusy: (id: string) => busy.has(id) || bulkBusy,
+    testOf: (id: string): TestState | undefined => tests[id],
     dismissFlash: () => setFlash(null),
     reload, probe, probeMany, change, bulk, sync,
   };
@@ -226,7 +247,6 @@ export function useModelView(rows: AdminModel[]) {
   const [stateFilter, setStateFilter] = useState<StateFilter>('all');
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [openId, setOpenId] = useState<string | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
 
   const providers = useMemo(() => providerSummary(rows), [rows]);
@@ -248,8 +268,6 @@ export function useModelView(rows: AdminModel[]) {
     picked: rows.filter((r) => selected.has(r.id)),
     toggleSel: (id: string) => setSelected((s) => toggled(s, id)),
     clearSel: () => setSelected(new Set()),
-    open: openId ? rows.find((r) => r.id === openId) ?? null : null,
-    setOpenId,
     dragId, setDragId,
     dragSrc: dragId ? rows.find((r) => r.id === dragId) ?? null : null,
   };

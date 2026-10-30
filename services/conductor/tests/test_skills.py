@@ -256,6 +256,7 @@ def test_model_probe_ok_and_failure_are_recorded(make_api, h) -> None:
     c = api.client
     ok = c.post("/api/admin/models/fake-chat-small/test").json()
     assert ok | {"model": "fake-chat-small", "ok": True, "code": None, "detail": None} == ok and ok["at"]
+    assert isinstance(ok["duration_ms"], int) and ok["duration_ms"] >= 0  # 응답 시간 (관리자 연결 칸 · 자세히 페이지)
     assert sent[0]["max_tokens"] == 16 and sent[0]["drop_params"] is True and sent[0]["messages"][0]["content"] == "ping"
     assert "tools" not in sent[0] and "reasoning_effort" not in sent[0]
     row = next(r for r in c.get("/api/admin/models").json() if r["id"] == "fake-chat-small")
@@ -264,6 +265,7 @@ def test_model_probe_ok_and_failure_are_recorded(make_api, h) -> None:
     fail["on"] = True
     bad = c.post("/api/admin/models/fake-chat-large/test").json()  # 숨긴 모델·후보도 시험할 수 있다
     assert (bad["ok"], bad["code"], bad["detail"], bad["status"]) == (False, "provider_auth_failed", "provider_key_missing", 401)
+    assert isinstance(bad["duration_ms"], int) and bad["duration_ms"] >= 0
     assert "sk-test" not in json.dumps(bad) and "Missing" not in json.dumps(bad)
     row = next(r for r in c.get("/api/admin/models").json() if r["id"] == "fake-chat-large")
     assert row["last_error_code"] == "provider_key_missing" and row["last_error_at"] == bad["at"]

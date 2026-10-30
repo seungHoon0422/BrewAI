@@ -74,6 +74,14 @@ test('모델 화면에 가격·컨텍스트·provider 입력칸이 없다', asyn
   }
   // 모델을 직접 등록하는 버튼·링크도 없다
   await expect(page.getByRole('button', { name: REGISTER }).or(page.getByRole('link', { name: REGISTER }))).toHaveCount(0);
+  // 모델 자세히 페이지 (#/models/<id>) = 게이트웨이 값은 읽기 전용 (입력칸 · 고르기 상자 · 등록 버튼 없음)
+  await goHash(page, '#/models/fake-chat-small');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(['fake-chat-small']);
+  await expect(page.getByRole('region', { name: '게이트웨이 값' })).toContainText('읽기 전용');
+  for (const role of ['textbox', 'searchbox', 'spinbutton', 'combobox', 'slider'] as const) {
+    await expect(page.getByRole(role)).toHaveCount(0);
+  }
+  await expect(page.getByRole('button', { name: REGISTER }).or(page.getByRole('link', { name: REGISTER }))).toHaveCount(0);
 });
 
 test('카탈로그 › Skill: runtime/skills 스타터 5개 (읽기 전용 · 버전 = sha256 앞 12자) · MCP 는 비어 있다', async ({ page }) => {

@@ -6,9 +6,9 @@
 |---|---|
 | 마지막 갱신 | 2026-10-30 · baegseunghun-ui-MacBookPro-2.local (회사) |
 | 활성 브랜치 | `develop` (모든 작업을 여기로 · slice 브랜치 안 씀) → origin `github.com/seungHoon0422/BrewAI` |
-| Phase | P0 셋업 2/3 (남은 것: P0-1 두 PC 확인) · P1 진행 중 — 메뉴 골격 · 문서 · 모델 연동 · 대화(멀티턴 · 추론 · 도구 5개 · 스킬 5개 · 진행 표시 · 모델 선택) · 모델 관리(LiteLLM 동기화 60초 + 수동 · 노출 · 이름 · 순서 · 기본 · 연결 시험) · 생각 표시 글라스 상태 줄 + 모델 메뉴·관리자 모델 화면 개편 · 로그인 · 조직 · 스페이스 · 프로젝트(slice 03 · 04 구현) · 공용 UI `packages/ui`(ADR-0012) — 맥 E2E 135/135 · pytest 342 · 다음 = MCP 툴 + Langfuse trace (slice 05) |
+| Phase | P0 셋업 2/3 (남은 것: P0-1 두 PC 확인) · P1 진행 중 — 메뉴 골격 · 문서 · 모델 연동 · 대화(멀티턴 · 추론 · 도구 5개 · 스킬 5개 · 진행 표시 · 모델 선택) · 모델 관리(LiteLLM 동기화 60초 + 수동 · 노출 · 이름 · 순서 · 기본 · 연결 시험) · 생각 표시 글라스 상태 줄 + 모델 메뉴·관리자 모델 화면 개편 · 로그인 · 조직 · 스페이스 · 프로젝트(slice 03 · 04 구현) · 공용 UI `packages/ui`(ADR-0012) — 맥 E2E 137/137 · pytest 342 · 다음 = MCP 툴 + Langfuse trace (slice 05) |
 | 다음 할 일 | 1) 회사 맥: `~/Desktop/git/BrewAI` 에서 `bash scripts/setup-pc.sh` → `/start`(→ slice/01) → README 4단계(`npm ci` …) → `/wrap` · 2) 집 윈도우: README 1·4단계 → `/start` 3줄 확인(P0-1) → `npm run e2e` → `npm run desktop` 으로 창 버튼·다크 눈 확인 → `/wrap` · 3) 금: P0 판정(증거) + slice 01 데모 → squash-merge → `/report` → 월 `/slice` = 02 대화 관통 |
-| 👤 내가 할 일 | ① 아무 PC: `./run.sh`(맥 · = pull → npm ci(필요할 때만) → uv sync → dev) 또는 `start.cmd`(윈도우) → 로그인 `admin` / `admin`(테스트 단계 · 내 PC 에서만) ② 데스크톱: 스페이스 전환 · 새 프로젝트(지침) · 프로젝트 안 대화 · 설정 › 계정 닉네임 ③ 관리자 콘솔(같은 계정) › 사용자·조직: 초대 코드 만들기 → 데스크톱 '초대 코드가 있어요' 로 두 번째 계정 가입 ④ 관리자 › 모델: 제공사 칸 · 드롭다운 필터 · 비용·기능 아이콘 칸 · 모델 목록/모델 추가 탭 · 상세 서랍 확인 ⑤ Google 로그인은 Google Cloud OAuth 클라이언트(Web, redirect 2개 — `docs/slices/03-login.md`)를 만들어 `.env` `GOOGLE_CLIENT_ID/SECRET` 에 넣을 때 버튼이 생김 ⑥ 피드백은 📥 사용자 메모에 |
+| 👤 내가 할 일 | ① 아무 PC: `./run.sh`(맥 · = pull → npm ci(필요할 때만) → uv sync → dev) 또는 `start.cmd`(윈도우) → 로그인 `admin` / `admin`(테스트 단계 · 내 PC 에서만) ② 데스크톱: 스페이스 전환 · 새 프로젝트(지침) · 프로젝트 안 대화 · 설정 › 계정 닉네임 ③ 관리자 콘솔(같은 계정) › 사용자·조직: 초대 코드 만들기 → 데스크톱 '초대 코드가 있어요' 로 두 번째 계정 가입 ④ 관리자 › 모델: 표(노출·기본·연결 맨 오른쪽 · 줄마다 [테스트]) · 줄 누르면 상세 페이지 `#/models/<모델>` 확인 ⑤ Google 로그인은 Google Cloud OAuth 클라이언트(Web, redirect 2개 — `docs/slices/03-login.md`)를 만들어 `.env` `GOOGLE_CLIENT_ID/SECRET` 에 넣을 때 버튼이 생김 ⑥ 피드백은 📥 사용자 메모에 |
 | 막힘 | 없음 |
 | 결정 대기 | 없음 |
 | 확정 | 로그인 · 조직 (2026-10-30): 조직 > 스페이스 > 프로젝트 > 대화 · 가입 = 초대 코드 + 조직별 Google 도메인 · 로그인 ID = 이메일 + 닉네임 · 비밀번호 15자 · 로그인(slice 03·04) 먼저 (ADR-0010 · 0011) · 이름 **BrewAI** (SaaS 아님, 잘되면 오픈소스) · **데스크톱(Electron) 먼저 — 웹은 당분간 랜딩 + 다운로드만** · 메뉴 골격 → 하나씩 구현 · 관리자 콘솔 '문서' 메뉴 · 다음 = 모델 연동, 모델은 LiteLLM 에서만 등록(config.yaml · 관리 화면) → 우리는 가져와서 노출 · 이름 · 순서 · provider 관리 (ADR-0008 · 0009) · 관리자 콘솔 골격 같이 (ADR-0007) · P0 은 증거로 판정 · 사용자 앱/관리자 콘솔 분리 · LLM GW = LiteLLM(모델은 게이트웨이에서만 등록) · trace = Langfuse (로컬 Docker self-host, Cloud 안 씀 · Compose: 기본 LiteLLM, trace 때 Langfuse 묶음) · E2E = Playwright, **기능 개발이 끝난 시점에** 실행 · 집 = 윈도우, 회사 = 맥 · uv 0.13.5 · Node 24.22.1 · UI 스펙 = `design/prototype.html` · 생각 깊이 보통 = LiteLLM effort medium (low 면 Claude 가 생각을 자주 건너뜀) · 깊게 = high |
@@ -17,6 +17,7 @@
 - (아이디어·요청을 한 줄씩. 다음 `/start` 때 처리하고 지운다)
 
 ## 🕘 최근 기록
+- 2026-10-31 · 회사 맥 · 관리자 모델: 상태 칸 삭제 · 노출/기본/연결 오른쪽 · 줄마다 연결 [테스트](응답 시간 · 실패 원인) · 모델 상세 = 전용 페이지(서랍 삭제) · E2E 137
 - 2026-10-30 · 회사 맥 · 테스트 관리자 admin/admin · `./run.sh` 한 번에 실행 · 관리자 모델 표 개편(제공사 칸 · 드롭다운 · 입력/출력 비용 · 기능 아이콘 · 목록/추가 탭) · 사용자 표 '로그인 방법' · 사이드바 문구 삭제
 - 2026-10-30 · 회사 맥 · 구현: 로그인(이메일+비밀번호 · Google · 세션 회전) · 조직 · 스페이스 · 프로젝트 · 초대 · 닉네임 · 관리자 사용자·조직 + 공용 UI `packages/ui`(토큰 · 부품 · UI 키트 `#/ui`) · 계층은 `scopes.py` 한 곳 (ADR-0012) · E2E 134 · pytest 336
 - 2026-10-30 · 회사 맥 · 설계: 로그인(이메일+비밀번호 · Google) · 조직 · 스페이스 — ADR-0010 · ADR-0011 · `docs/slices/03-login.md` · `04-orgs-spaces.md` · roadmap P1-6 · P1-7 (옛 slice 03·04 → 05·06)
