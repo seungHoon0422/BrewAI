@@ -23,3 +23,8 @@
 - 모델 메뉴를 `Popover`(surface=glass) 부품으로 · 복사 알림 `.copied` → `Tooltip` · 사이드바 줄 `NavItem` · 입력창 `Composer` 부품 (packages/ui)
 - 대화상자 · 서랍의 바쁨/오류 반복을 공용 `useAction()` {busy, error, run} 하나로 (ProjectDialog · SpaceDialog · SpaceSheet · NicknameDialog · PasswordDialog · AccountSection)
 - 기능 CSS 짧은 전역 이름(`.nm` `.sub` `.v` …)을 기능 접두사로 · 또는 CSS Modules (E2E 고리 클래스 같이)
+- MCP 미리 공개(pre-reveal): 사용자 말에 연결된 앱 이름 · 별칭이 있으면 그 앱 상위 4개 도구를 처음부터 실어 use_app 왕복 0 (ADR-0013)
+- MCP 앱 목록이 900토큰을 넘으면 임베딩 검색 · 서버별 자동 인증 알림 설정 · 창이 가려졌을 때 OS 알림
+- MCP CIMD(공개 https `CONDUCTOR_PUBLIC_URL` 생긴 뒤) · scope step-up(403 insufficient_scope) · listChanged 구독 · 연결 끊기 때 RFC 7009 revoke
+- 관리자 MCP 서버를 조직 · 스페이스로 한정 = `mcp_server_shares` 줄만 추가 (지금은 install = 전체 공통)
+- stdio 로컬 MCP 서버(데스크톱 안 실행) · elicitation(MRTR input_required) 카드

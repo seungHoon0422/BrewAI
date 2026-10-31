@@ -1,5 +1,5 @@
 {
-  "updated": "2026-10-30",
+  "updated": "2026-11-01",
   "rule": "passes 는 기능 개발이 끝난 시점의 Playwright E2E(= 금요일 데모 스펙)가 exit_criteria 를 모두 통과했을 때만 true 로 바꾼다. 기능이 없는 P0 은 증거 링크(CI run · 두 PC /start 3줄)로 판정한다. 항목을 지우거나 고쳐 쓰지 않는다 — 사용자가 방향을 바꿀 때만 ADR 을 먼저 남기고 고친다(ADR-0007 · ADR-0008).",
   "phases": [
     {
@@ -26,15 +26,18 @@
         "P1-4 위 데모가 Playwright desktop 스펙(게이트웨이 mock)으로 CI green + eval 3건(골든 1 · 제약 2)",
         "P1-5 데스크톱 앱 6개 메뉴와 관리자 콘솔 8개 메뉴(문서 = 레포 파일에서 진행 현황 · 아키텍처 · 구성)가 각자 화면을 열고, 랜딩에 OS별 다운로드 버튼이 있다 (Playwright desktop · admin · web)",
         "P1-6 데스크톱·관리자 콘솔은 로그인해야 쓸 수 있다 — 이메일+비밀번호와 Google(시스템 브라우저), 재시작해도 유지, 로그인 없이 /api 는 401 (Playwright desktop · admin)",
-        "P1-7 초대 코드로 들어온 사용자가 공유 스페이스에서 함께 일하고, 남의 '나만 보기' 대화는 404 · [공유] 하면 스페이스 멤버에게 보인다 (Playwright desktop · admin)"
+        "P1-7 초대 코드로 들어온 사용자가 공유 스페이스에서 함께 일하고, 남의 '나만 보기' 대화는 404 · [공유] 하면 스페이스 멤버에게 보인다 (Playwright desktop · admin)",
+        "P1-8 관리자가 추가한 MCP 서버는 모두에게, 사용자가 추가한 서버는 본인에게만 보이고 스페이스에 공유하면 멤버가 가져와 자기 계정으로 로그인한다 · 로그인은 사용자마다 한 번이면 계속 자동 · 첫 요청엔 MCP 도구 0개, 앱을 쓸 때만 4개 이하가 실린다 (Playwright desktop · admin, ADR-0013)"
       ],
       "slice_hint": [
         "01 메뉴 골격: Electron 창에 prototype 프레임 + 메뉴별 빈 화면 · 관리자 콘솔 메뉴별 빈 화면 + 문서 메뉴 · 랜딩 · Playwright desktop·admin·web (P1-5)",
         "02 모델 연동: LiteLLM 게이트웨이(config.yaml 에만 모델 등록, 키 없는 mock) → conductor(Pydantic AI) → 관리자 '모델' 목록 · 데스크톱 대화 답 — E2E 는 게이트웨이 mock (P1-1 앞부분)",
         "03 로그인: 이메일+비밀번호 · Google(시스템 브라우저 → loopback) · 세션(access 15분 + refresh 회전) · 내 스페이스 · 데스크톱 로그인 게이트 · 관리자 콘솔 쿠키 로그인 (P1-6)",
         "04 조직 · 스페이스: 공유 스페이스(작업공간) · 대화 [공유] · 초대 코드 · 재설정 코드 · 관리자 '사용자·조직' 탭 (P1-7)",
-        "05 툴 · trace: MCP 툴 1개 → 결과 카드 + Langfuse trace (P1-1, P1-3)",
-        "06 승인 필요 툴(deferred tool) + 승인 카드 + Playwright desktop 스펙 CI + eval 3건 — CI는 키 없이 TestModel·mock (P1-2, P1-4)"
+        "05 MCP 연결: 관리자 공통 서버 + 사용자 추가 서버(공유 · 가져오기) · 사용자별 OAuth 인증 재사용 · 자동 인증 알림 플래그(기본 꺼짐) · 앱 목록 + use_app 으로 도구는 필요할 때만 → 결과 카드 (P1-1, P1-8, ADR-0013)",
+        "06 에이전트 팀(P4 를 앞당김 · 사용자: \"도구쪽 먼저, 그 이후에 에이전트\"): 복합 요청 → 서브에이전트 자동 편성 → 병렬 도구 · 팀 활동 표시 (P4-1, P4-2)",
+        "07 승인 필요 툴(deferred tool) + 승인 카드 + Playwright desktop 스펙 CI + eval 3건 — CI는 키 없이 TestModel·mock (P1-2, P1-4)",
+        "08 trace: Langfuse 에 agent · LLM · MCP tool · 서브에이전트 span 이 user · session 과 한 trace tree 로 (P1-3, P4-3) — 05~07 은 OTel span 만 남긴다"
       ],
       "passes": false
     },
@@ -65,7 +68,7 @@
     },
     {
       "id": "P4",
-      "name": "서브에이전트 자동 구성 + 팀 시각화",
+      "name": "서브에이전트 자동 구성 + 팀 시각화 (slice 06 으로 앞당김)",
       "weeks": 2,
       "goal": "작업에 맞춰 conductor가 서브에이전트와 툴셋을 스스로 편성하고, 그 구성과 활동을 UI로 보여준다",
       "exit_criteria": [
