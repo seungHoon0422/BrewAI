@@ -980,10 +980,14 @@ class ChatRuntime:
             # 생각 토큰: OpenAI 형식 completion_tokens_details.reasoning_tokens (LiteLLM 이 Anthropic thinking 글자로 센다).
             # 글 없이 토큰만 있으면 = 생각은 했는데 내용을 안 보냄 (display omitted · redacted) → 화면이 그렇게 말한다
             reasoning_tokens = u.output_reasoning_tokens or int((u.details or {}).get("reasoning_tokens") or 0)
+            # 캐시 토큰 (입력 토큰 안에 들어 있다): 읽기 = prompt_tokens_details.cached_tokens · 쓰기 = LiteLLM 의 cache_creation_input_tokens (details)
+            details = u.details or {}
             activity.usage = {
                 "input_tokens": u.input_tokens, "output_tokens": u.output_tokens,
                 "requests": u.requests, "tool_calls": u.tool_calls + (apps.resumed if apps else 0),  # 이어서 하기로 서버가 돌린 호출도 센다
                 "reasoning_tokens": reasoning_tokens,
+                "cache_read_tokens": u.cache_read_tokens or int(details.get("cache_read_input_tokens") or 0),
+                "cache_write_tokens": u.cache_write_tokens or int(details.get("cache_creation_input_tokens") or 0),
             }
             out = result.output
             if apps is not None and isinstance(out, DeferredToolRequests):  # 연결 대기로 멈춤 → runs.pending_json · run_summary.pending

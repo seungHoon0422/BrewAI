@@ -4,6 +4,11 @@ import { call, expectObj, isObj, num, objs, str, strOrNull } from '../../shared/
 
 export type UsageGroup = 'day' | 'org' | 'space' | 'user' | 'model';
 export type UsageFilter = { org?: string; space?: string; user?: string; model?: string };
+export type UsageSort = 'runs' | 'tokens' | 'cost';
+// 토큰 종류 = 겹치지 않게 나눈 묶음 (입력 = 캐시 아닌 입력 · 출력 = 생각 뺀 출력). 순서 = 막대 왼쪽부터 · 색 칸 고정
+export const TOKEN_KINDS = ['input', 'output', 'reasoning', 'cache_read', 'cache_write'] as const;
+export type TokenKind = (typeof TOKEN_KINDS)[number];
+export type ByKind = Record<TokenKind, number>;
 export type UsageTotals = {
   runs: number;
   ok: number;
@@ -14,10 +19,16 @@ export type UsageTotals = {
   output_tokens: number;
   tokens: number;
   reasoning_tokens: number;
+  cache_read_tokens: number; // 입력 안에 든 캐시 읽기
+  cache_write_tokens: number; // 입력 안에 든 캐시 쓰기
+  cache_hit_rate: number; // 캐시 읽기 / 입력 (0~1)
+  tokens_by_kind: ByKind; // 합 = tokens
   requests: number;
   tool_calls: number;
   cost_usd: number | null; // 가격을 아는 실행만 더한 값 (하나도 모르면 null)
+  cost_by_kind: ByKind | null; // 종류별 비용 (비용을 모르면 null)
   cost_runs: number;
+  cost_estimated_runs: number; // 캐시 가격을 몰라 입력 가격으로 어림한 호출 수
   active_users: number;
   avg_duration_ms: number | null;
 };
@@ -31,14 +42,14 @@ export type UsageRow = UsageTotals & {
   provider: string | null; // 모델
   org_id: string | null; // 스페이스가 속한 조직
 };
-export type UsageOthers = { count: number; runs: number; errors: number; tokens: number; share: number };
+export type UsageOthers = { count: number; runs: number; errors: number; tokens: number; cost_usd: number | null; share: number };
 export type UsageSummary = {
   from: string;
   to: string;
   days: number;
   group: UsageGroup;
   totals: UsageTotals;
-  previous: UsageTotals; // 바로 앞 같은 길이 기간
+  previous: UsageTotals; // 바로 앞 같은 길이 기간 (series=false 면 0)
   series: UsageDay[];
   groups: UsageRow[];
   others: UsageOthers | null;
@@ -82,12 +93,21 @@ export function windowOf(days: number, now = new Date()) {
 
 const n0 = (v: unknown) => num(v) ?? 0;
 
+function byKind(v: unknown): ByKind {
+  const o = isObj(v) ? v : {};
+  return Object.fromEntries(TOKEN_KINDS.map((k) => [k, n0(o[k])])) as ByKind;
+}
+
 function toTotals(t: unknown): UsageTotals {
   const o = isObj(t) ? t : {};
   return {
     runs: n0(o.runs), ok: n0(o.ok), errors: n0(o.errors), cancelled: n0(o.cancelled), error_rate: n0(o.error_rate),
     input_tokens: n0(o.input_tokens), output_tokens: n0(o.output_tokens), tokens: n0(o.tokens), reasoning_tokens: n0(o.reasoning_tokens),
-    requests: n0(o.requests), tool_calls: n0(o.tool_calls), cost_usd: num(o.cost_usd), cost_runs: n0(o.cost_runs),
+    cache_read_tokens: n0(o.cache_read_tokens), cache_write_tokens: n0(o.cache_write_tokens), cache_hit_rate: n0(o.cache_hit_rate),
+    tokens_by_kind: byKind(o.tokens_by_kind),
+    requests: n0(o.requests), tool_calls: n0(o.tool_calls), cost_usd: num(o.cost_usd),
+    cost_by_kind: isObj(o.cost_by_kind) && num(o.cost_usd) !== null ? byKind(o.cost_by_kind) : null,
+    cost_runs: n0(o.cost_runs), cost_estimated_runs: n0(o.cost_estimated_runs),
     active_users: n0(o.active_users), avg_duration_ms: num(o.avg_duration_ms),
   };
 }
@@ -95,8 +115,14 @@ function toTotals(t: unknown): UsageTotals {
 const GROUPS: readonly UsageGroup[] = ['day', 'org', 'space', 'user', 'model'];
 
 // series=false = 묶음 줄만 (지난 기간 · 하루별 흐름을 서버가 건너뛴다 → previous 0 · series [])
-export async function getUsage(days: number, group: UsageGroup, filter: UsageFilter = {}, signal?: AbortSignal, limit = 50, series = true): Promise<UsageSummary> {
-  const q = new URLSearchParams({ ...windowOf(days), group, limit: String(limit), ...(series ? {} : { series: 'false' }) });
+// sort = 묶음 줄 순서 (큰 것부터) · limit 으로 자른 나머지는 others
+export type UsageQuery = { limit?: number; series?: boolean; sort?: UsageSort };
+
+export async function getUsage(days: number, group: UsageGroup, filter: UsageFilter = {}, opts: UsageQuery = {}, signal?: AbortSignal): Promise<UsageSummary> {
+  const { limit = 50, series = true, sort = 'runs' } = opts;
+  const q = new URLSearchParams({
+    ...windowOf(days), group, limit: String(limit), ...(series ? {} : { series: 'false' }), ...(sort === 'runs' ? {} : { sort }),
+  });
   (Object.entries(filter) as [string, string | undefined][]).forEach(([k, v]) => v && q.set(k, v));
   const d = expectObj(await call(`/api/admin/usage?${q}`, { signal }));
   return {
@@ -107,7 +133,9 @@ export async function getUsage(days: number, group: UsageGroup, filter: UsageFil
       ...toTotals(g), key: strOrNull(g.key), label: strOrNull(g.label), sub: strOrNull(g.sub), share: n0(g.share),
       kind: strOrNull(g.kind), provider: strOrNull(g.provider), org_id: strOrNull(g.org_id),
     })),
-    others: isObj(d.others) ? { count: n0(d.others.count), runs: n0(d.others.runs), errors: n0(d.others.errors), tokens: n0(d.others.tokens), share: n0(d.others.share) } : null,
+    others: isObj(d.others) ? {
+      count: n0(d.others.count), runs: n0(d.others.runs), errors: n0(d.others.errors), tokens: n0(d.others.tokens), cost_usd: num(d.others.cost_usd), share: n0(d.others.share),
+    } : null,
   };
 }
 
