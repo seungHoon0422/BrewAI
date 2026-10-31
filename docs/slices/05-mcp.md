@@ -87,7 +87,7 @@ AG-UI: `CUSTOM brewai.app_auth` {call_id, server, mode, reason not_connected\|ex
 
 | 스펙 | 확인 |
 |---|---|
-| admin-mcp | 공통 서버 추가 · 연결 테스트 · 도구 수 · 예상 토큰 · 읽기 도구만 |
+| admin-mcp | 공통 서버 추가 · 연결 테스트 · 도구 수 · 예상 토큰 · 쓰기 도구는 쓰기 표시 |
 | mcp-connect | 설정 '연결 필요' → 가짜 로그인 → 연결됨 · 재시작 유지 · 끊기 |
 | mcp-tokens | 요청 1 의 tools = 기본 + use_app + search_tools, `tracker__*` 0개 → use_app 뒤 4개 이하 → 다음 턴도 고정(새 use_app 없음) · MCP 바이트 예산 |
 | mcp-auth-flag | unset = 카드 A → 승인 → 브라우저 → 같은 대화에서 답 · revoke 뒤 다음 요청은 카드 없이 바로 브라우저 · off = 카드 C + 설정 링크 |
