@@ -1,5 +1,6 @@
-// 로그인 전용 preload (sandbox · contextIsolation). renderer 에 여는 것 = window.brewai.auth 하나.
-// 토큰은 오가지 않는다: 결과는 {ok, code?, retryAfter?, linked?} · 상태는 {status, reason, user} 뿐 (auth.cjs).
+// 로그인 · 앱 연결 preload (sandbox · contextIsolation). renderer 에 여는 것 = window.brewai.auth · window.brewai.mcp.
+// 토큰은 오가지 않는다: 결과는 {ok, code?, retryAfter?, linked?} · 상태는 {status, reason, user} 뿐 (auth.cjs)
+// · 앱 연결 결과는 {ok, code?, connection?, tool_count?} 뿐 (mcp-connect.cjs).
 // 모양은 renderer/src/lib/bridge.ts 의 DesktopBridge 와 같다 — 하나를 바꾸면 둘 다.
 const { contextBridge, ipcRenderer } = require('electron');
 
@@ -18,5 +19,9 @@ contextBridge.exposeInMainWorld('brewai', {
       ipcRenderer.on('auth:changed', listener);
       return () => ipcRenderer.removeListener('auth:changed', listener);
     },
+  },
+  mcp: {
+    connect: (input) => ipcRenderer.invoke('mcp:connect', input),
+    cancel: () => ipcRenderer.invoke('mcp:cancel'),
   },
 });

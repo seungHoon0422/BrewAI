@@ -12,10 +12,22 @@
   audit_events                                                                         append-only (UPDATE · DELETE 코드 없음)
   ↓ v3 — 읽고 쓰는 코드 = usage.py
   usage_events    실행 한 번 = 한 줄 (누가 · 어느 모델 · 토큰 · 도구 호출 · 추정 비용 · 상태). 대화를 지워도 남는다 · 대화 내용 없음
+  ↓ v4 (ADR-0013 · slice 05) — 읽고 쓰는 코드 = connectors/ (판정 = auth/policy.py)
+  mcp_servers         MCP 서버 정의 (관리자 = origin admin · 사용자 = 주인 1명). url 은 정규 https 라 못 고친다
+  mcp_server_shares   어디에 공유했나 (scope_kind install | org | space · auto_include = 멤버 목록에 바로). 정의만 공유 · 인증정보는 절대 안 나눔
+  mcp_user_servers    사람마다: 내 별칭(handle) · state added | hidden · source own | imported | install(공통 서버를 숨김 · 별칭)
+  mcp_tool_policy     관리자: 도구별 hidden | auto | approval(slice 07) · always_reveal · 별칭
+  mcp_credentials     (user, resource) 하나 = 로그인 한 번이 같은 주소의 모든 항목에. 토큰 = AES-GCM 암호문만 (connectors/vault.py)
+  mcp_oauth_clients   (issuer, redirect_uri) 마다 client (사전 등록 > DCR) · secret 은 암호문
+  mcp_oauth_flows     로그인 흐름 10분 (state · iss · PKCE verifier 암호문 · 데스크톱 ds 해시 · 받은 토큰 암호문은 complete 까지만)
+  mcp_tool_cache      tools/list 다듬은 결과 (server, user 또는 '*') · ttl
+  users.mcp_auto_auth unset | on | off (자동 인증 알림) · runs.pending_json (연결 대기로 멈춘 실행) · one_time_tokens kind + mcp_handoff
+  meta                mcp.allow_user_servers · mcp.url_allowlist (관리자 정책)
 
 v1 → v2: 파일 DB 면 먼저 `<파일>.v1.bak` 으로 백업 → threads · runs 에 칸을 더한다. 옛 대화(space_id NULL)는 첫 관리자가
 생길 때 그 사람의 내 스페이스로 (auth/directory.bootstrap).
 v2 → v3: 파일 DB 면 먼저 `<파일>.v2.bak` → usage_events 표 + 이미 닫힌 옛 실행을 한 번 채운다 (v1 에서 오면 v1.bak 이 원본).
+v3 → v4: 파일 DB 면 먼저 `<파일>.v3.bak` → mcp_* 표 + users · runs 칸 + one_time_tokens 를 새 kind 로 다시 만든다 (v1 · v2 에서 오면 그 bak 이 원본).
 대화 · 실행 함수는 범위 인자(user_id · space_id)를 받는다. 전역 조회는 admin_* 만. 권한 판정은 auth/policy.py (여기선 안 한다).
 연결 하나 + 잠금 하나 (요청이 짧다 · P1). ":memory:" = 테스트·E2E (프로세스가 끝나면 사라짐).
 """
@@ -32,9 +44,10 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from . import scopes
 from . import usage as usage_log  # 이름 usage 는 finish_run 인자 (토큰 dict)
 
-SCHEMA_VERSION = 3  # 표 추가(IF NOT EXISTS)는 버전을 올리지 않는다. 칸 추가 · 뜻이 바뀌는 변경 · 채우기만 (v2 = 로그인 · 조직 · v3 = 사용량)
+SCHEMA_VERSION = 4  # 표 추가(IF NOT EXISTS)는 버전을 올리지 않는다. 칸 추가 · 뜻이 바뀌는 변경 · 채우기만 (v2 = 로그인 · 조직 · v3 = 사용량 · v4 = MCP)
 log = logging.getLogger("conductor.store")
 
 _SCHEMA = """
@@ -84,7 +97,8 @@ CREATE TABLE IF NOT EXISTS runs (
   duration_ms INTEGER,
   user_id     TEXT REFERENCES users (id) ON DELETE SET NULL,
   space_id    TEXT,
-  org_id      TEXT
+  org_id      TEXT,
+  pending_json TEXT
 );
 CREATE INDEX IF NOT EXISTS runs_thread ON runs (thread_id, seq);
 CREATE TABLE IF NOT EXISTS model_health (
@@ -104,7 +118,8 @@ CREATE TABLE IF NOT EXISTS users (
   last_space_id TEXT,
   created_at    TEXT NOT NULL,
   last_login_at TEXT,
-  email_verified_at TEXT
+  email_verified_at TEXT,
+  mcp_auto_auth TEXT NOT NULL DEFAULT 'unset' CHECK (mcp_auto_auth IN ('unset', 'on', 'off'))
 );
 CREATE TABLE IF NOT EXISTS identities (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -143,15 +158,7 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
   created_at TEXT NOT NULL,
   used_at    TEXT
 );
-CREATE TABLE IF NOT EXISTS one_time_tokens (
-  hash       TEXT PRIMARY KEY,
-  kind       TEXT NOT NULL CHECK (kind IN ('handoff', 'reset', 'oauth_flow', 'link')),
-  user_id    TEXT REFERENCES users (id) ON DELETE CASCADE,
-  data       TEXT NOT NULL DEFAULT '{}',
-  created_at TEXT NOT NULL,
-  expires_at TEXT NOT NULL,
-  used_at    TEXT
-);
+CREATE TABLE IF NOT EXISTS one_time_tokens ({ONE_TIME_COLUMNS});
 CREATE TABLE IF NOT EXISTS login_attempts (
   key          TEXT PRIMARY KEY,
   count        INTEGER NOT NULL DEFAULT 0,
@@ -236,6 +243,148 @@ CREATE INDEX IF NOT EXISTS threads_space ON threads (space_id, updated_at);
 CREATE INDEX IF NOT EXISTS runs_user ON runs (user_id, seq);
 """ + usage_log.SCHEMA
 
+# one_time_tokens 칸 (v4 = kind 에 mcp_handoff · SQLite 는 CHECK 를 못 바꿔 표를 다시 만든다 → 같은 정의를 두 곳에서 쓴다)
+ONE_TIME_KINDS = ("handoff", "reset", "oauth_flow", "link", "mcp_handoff")
+_ONE_TIME_COLUMNS = f"""
+  hash       TEXT PRIMARY KEY,
+  kind       TEXT NOT NULL CHECK (kind IN ({", ".join(repr(k) for k in ONE_TIME_KINDS)})),
+  user_id    TEXT REFERENCES users (id) ON DELETE CASCADE,
+  data       TEXT NOT NULL DEFAULT '{{}}',
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  used_at    TEXT
+"""
+_SCHEMA = _SCHEMA.replace("{ONE_TIME_COLUMNS}", _ONE_TIME_COLUMNS)
+
+# v4 — MCP (ADR-0013). scope_kind = scopes.share_kinds() (설치본 + 멤버십 층까지 = 계층 표에서 만든다 · 층이 바뀌면 마이그레이션)
+MCP_SHARE_KINDS = scopes.share_kinds()
+MCP_SCHEMA = """
+CREATE TABLE IF NOT EXISTS mcp_servers (
+  id              TEXT PRIMARY KEY,
+  handle          TEXT NOT NULL CHECK (length(handle) BETWEEN 2 AND 20 AND handle NOT GLOB '*[^a-z0-9_]*'),
+  name            TEXT NOT NULL,
+  url             TEXT NOT NULL,
+  resource        TEXT NOT NULL,
+  origin          TEXT NOT NULL CHECK (origin IN ('admin', 'user')),
+  owner_user_id   TEXT REFERENCES users (id) ON DELETE CASCADE,
+  description     TEXT NOT NULL DEFAULT '',
+  aliases         TEXT NOT NULL DEFAULT '[]',
+  auth            TEXT NOT NULL DEFAULT 'none' CHECK (auth IN ('oauth', 'none')),
+  status          TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'disabled', 'error')),
+  tool_count      INTEGER,
+  tool_tokens_est INTEGER,
+  issuer          TEXT,
+  last_error      TEXT,
+  last_checked_at TEXT,
+  created_at      TEXT NOT NULL,
+  updated_at      TEXT NOT NULL,
+  CHECK ((origin = 'user') = (owner_user_id IS NOT NULL)),
+  UNIQUE (url, owner_user_id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS mcp_servers_admin_url ON mcp_servers (url) WHERE owner_user_id IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS mcp_servers_admin_handle ON mcp_servers (handle) WHERE origin = 'admin';
+CREATE INDEX IF NOT EXISTS mcp_servers_resource ON mcp_servers (resource);
+CREATE TABLE IF NOT EXISTS mcp_server_shares (
+  server_id    TEXT NOT NULL REFERENCES mcp_servers (id) ON DELETE CASCADE,
+  scope_kind   TEXT NOT NULL CHECK (scope_kind IN ({SHARE_KINDS})),
+  scope_id     TEXT NOT NULL,
+  auto_include INTEGER NOT NULL DEFAULT 0 CHECK (auto_include IN (0, 1)),
+  shared_by    TEXT REFERENCES users (id) ON DELETE SET NULL,
+  created_at   TEXT NOT NULL,
+  PRIMARY KEY (server_id, scope_kind, scope_id)
+);
+CREATE INDEX IF NOT EXISTS mcp_shares_scope ON mcp_server_shares (scope_kind, scope_id);
+CREATE TABLE IF NOT EXISTS mcp_user_servers (
+  user_id    TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  server_id  TEXT NOT NULL REFERENCES mcp_servers (id) ON DELETE CASCADE,
+  handle     TEXT CHECK (handle IS NULL OR (length(handle) BETWEEN 2 AND 20 AND handle NOT GLOB '*[^a-z0-9_]*')),
+  state      TEXT NOT NULL DEFAULT 'added' CHECK (state IN ('added', 'hidden')),
+  source     TEXT NOT NULL CHECK (source IN ('own', 'imported', 'install')),
+  last_used_at TEXT,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (user_id, server_id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS mcp_user_servers_handle ON mcp_user_servers (user_id, handle) WHERE handle IS NOT NULL;
+CREATE TABLE IF NOT EXISTS mcp_tool_policy (
+  server_id     TEXT NOT NULL REFERENCES mcp_servers (id) ON DELETE CASCADE,
+  tool          TEXT NOT NULL,
+  mode          TEXT NOT NULL DEFAULT 'auto' CHECK (mode IN ('hidden', 'auto', 'approval')),
+  always_reveal INTEGER NOT NULL DEFAULT 0 CHECK (always_reveal IN (0, 1)),
+  aliases       TEXT NOT NULL DEFAULT '[]',
+  updated_at    TEXT NOT NULL,
+  PRIMARY KEY (server_id, tool)
+);
+CREATE TABLE IF NOT EXISTS mcp_credentials (
+  user_id      TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  resource     TEXT NOT NULL,
+  issuer       TEXT NOT NULL,
+  client_id    TEXT NOT NULL,
+  token_ct     BLOB NOT NULL,
+  key_id       TEXT NOT NULL,
+  scope        TEXT,
+  expires_at   TEXT,
+  status       TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'expired', 'revoked')),
+  created_at   TEXT NOT NULL,
+  updated_at   TEXT NOT NULL,
+  last_used_at TEXT,
+  PRIMARY KEY (user_id, resource)
+);
+CREATE INDEX IF NOT EXISTS mcp_credentials_resource ON mcp_credentials (resource, status);
+CREATE TABLE IF NOT EXISTS mcp_oauth_clients (
+  issuer           TEXT NOT NULL,
+  redirect_uri     TEXT NOT NULL,
+  client_id        TEXT NOT NULL,
+  secret_ct        BLOB,
+  key_id           TEXT,
+  auth_method      TEXT NOT NULL DEFAULT 'none' CHECK (auth_method IN ('none', 'client_secret_post', 'client_secret_basic')),
+  source           TEXT NOT NULL CHECK (source IN ('preregistered', 'dcr')),
+  scope            TEXT,
+  created_at       TEXT NOT NULL,
+  updated_at       TEXT NOT NULL,
+  PRIMARY KEY (issuer, redirect_uri)
+);
+CREATE TABLE IF NOT EXISTS mcp_oauth_flows (
+  state_hash   TEXT PRIMARY KEY,
+  user_id      TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  server_id    TEXT NOT NULL REFERENCES mcp_servers (id) ON DELETE CASCADE,
+  resource     TEXT NOT NULL,
+  issuer       TEXT NOT NULL,
+  client_id    TEXT NOT NULL,
+  redirect_uri TEXT NOT NULL,
+  token_endpoint TEXT NOT NULL,
+  iss_required INTEGER NOT NULL DEFAULT 0 CHECK (iss_required IN (0, 1)),
+  scope        TEXT,
+  verifier_ct  BLOB NOT NULL,
+  key_id       TEXT NOT NULL,
+  ds_hash      TEXT,
+  port         INTEGER,
+  cc           TEXT,
+  tokens_ct    BLOB,
+  created_at   TEXT NOT NULL,
+  expires_at   TEXT NOT NULL,
+  used_at      TEXT
+);
+CREATE INDEX IF NOT EXISTS mcp_oauth_flows_expires ON mcp_oauth_flows (expires_at);
+CREATE TABLE IF NOT EXISTS mcp_tool_cache (
+  server_id  TEXT NOT NULL REFERENCES mcp_servers (id) ON DELETE CASCADE,
+  user_key   TEXT NOT NULL,
+  tools_json TEXT NOT NULL,
+  tool_count INTEGER NOT NULL,
+  tokens_est INTEGER NOT NULL,
+  fetched_at TEXT NOT NULL,
+  ttl_ms     INTEGER NOT NULL DEFAULT 600000,
+  PRIMARY KEY (server_id, user_key)
+);
+"""
+MCP_SCHEMA = MCP_SCHEMA.replace("{SHARE_KINDS}", ", ".join(f"'{k}'" for k in MCP_SHARE_KINDS))
+_SCHEMA += MCP_SCHEMA
+
+# v3 → v4: 이미 있는 표에 더하는 칸 (새 DB 는 CREATE TABLE 이 처음부터 갖고 있다 · 표가 없으면 CREATE 가 만든다)
+_V4_COLUMNS = {
+    "users": ("mcp_auto_auth TEXT NOT NULL DEFAULT 'unset' CHECK (mcp_auto_auth IN ('unset', 'on', 'off'))",),
+    "runs": ("pending_json TEXT",),
+}
+
 # v1 → v2: 이미 있는 표에 더하는 칸 (새 DB 는 _SCHEMA 의 CREATE TABLE 이 처음부터 갖고 있다)
 _V2_COLUMNS = {
     "threads": (
@@ -282,8 +431,12 @@ class Store:
         self._migrate()
         if 0 < version < 3 and had_runs:
             self._backup(f"{self.path}.v2.bak", skip=version < 2)  # v1 에서 오면 v1.bak 이 이미 원본
+        if 0 < version < 4 and had_runs:
+            self._backup(f"{self.path}.v3.bak", skip=version < 3)  # v1 · v2 에서 오면 그 bak 이 원본
+        self._migrate_v4_columns()  # 옛 users · runs 에 칸 (CREATE TABLE IF NOT EXISTS 는 있는 표를 안 바꾼다)
         self._db.executescript(_SCHEMA)
         with self.tx() as db:
+            self._rebuild_one_time(db)
             if version < 3 and had_runs:
                 log.info("DB v%d → v3: 사용량 %d건 채움", version, usage_log.backfill(db))
             db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
@@ -329,6 +482,35 @@ class Store:
             self._db.execute("ROLLBACK")
             raise
         self._db.execute("COMMIT")
+
+    def _migrate_v4_columns(self) -> None:
+        """v3 → v4: users · runs 에 칸 더하기 (표가 아직 없으면 = 새 DB · v1 → 아래 CREATE 가 새 모양으로 만든다)."""
+        missing = {t: [c for c in cols if c.split()[0] not in self._columns(t)] for t, cols in _V4_COLUMNS.items() if self._columns(t)}
+        if not any(missing.values()):
+            return
+        self._db.execute("BEGIN IMMEDIATE")
+        try:
+            for table, cols in missing.items():
+                for col in cols:
+                    self._db.execute(f"ALTER TABLE {table} ADD COLUMN {col}")
+        except BaseException:
+            self._db.execute("ROLLBACK")
+            raise
+        self._db.execute("COMMIT")
+
+    @staticmethod
+    def _rebuild_one_time(db: sqlite3.Connection) -> None:
+        """one_time_tokens 의 kind CHECK 가 옛 것이면 같은 칸 · 새 CHECK 로 다시 만든다 (SQLite 는 CHECK 를 못 바꾼다). 줄은 그대로 옮긴다."""
+        row = db.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'one_time_tokens'").fetchone()
+        if row is None or all(f"'{k}'" in row[0] for k in ONE_TIME_KINDS):
+            return
+        db.execute(f"CREATE TABLE one_time_tokens_v4 ({_ONE_TIME_COLUMNS})")
+        db.execute(
+            "INSERT INTO one_time_tokens_v4 (hash, kind, user_id, data, created_at, expires_at, used_at)"
+            " SELECT hash, kind, user_id, data, created_at, expires_at, used_at FROM one_time_tokens"
+        )
+        db.execute("DROP TABLE one_time_tokens")
+        db.execute("ALTER TABLE one_time_tokens_v4 RENAME TO one_time_tokens")
 
     def close(self) -> None:
         with self._lock:
@@ -417,15 +599,17 @@ class Store:
         usage: dict[str, Any] | None = None,
         error_code: str | None = None,
         title: str | None = None,
+        pending: list[dict[str, Any]] | None = None,
     ) -> None:
+        """pending = 연결 대기로 멈춘 도구 호출 (CallDeferred · slice 05) → runs.pending_json. 이어서 하기 = 그 대화의 마지막 완료 실행일 때만."""
         at = now_iso()
         with self.tx() as db:
             row = db.execute("SELECT thread_id, status FROM runs WHERE id = ?", (run_id,)).fetchone()
             if row is None or row["status"] != "running":
                 return  # 이미 닫힘 (스레드 삭제 등)
             db.execute(
-                "UPDATE runs SET status = ?, steps = ?, messages = ?, usage = ?, error_code = ?, finished_at = ?, duration_ms = ?"
-                " WHERE id = ?",
+                "UPDATE runs SET status = ?, steps = ?, messages = ?, usage = ?, error_code = ?, finished_at = ?, duration_ms = ?,"
+                " pending_json = ? WHERE id = ?",
                 (
                     status,
                     json.dumps(steps, ensure_ascii=False),
@@ -434,6 +618,7 @@ class Store:
                     error_code,
                     at,
                     duration_ms,
+                    json.dumps(pending, ensure_ascii=False) if pending and status == "done" else None,
                     run_id,
                 ),
             )
@@ -471,6 +656,13 @@ class Store:
         """권한 판정용 한 줄 (판정은 부르는 쪽 · auth/policy.py)."""
         rows = self.query(f"SELECT {self._THREAD_COLS} FROM threads t LEFT JOIN users u ON u.id = t.user_id WHERE t.id = ?", (thread_id,))
         return rows[0] if rows else None
+
+    def pending_run(self, thread_id: str) -> sqlite3.Row | None:
+        """이어서 하기(resume) 대상 = 그 대화의 마지막 완료 실행이 연결 대기로 멈췄을 때만 (뒤에 다른 완료 실행이 있으면 지난 일)."""
+        rows = self.query(
+            "SELECT * FROM runs WHERE thread_id = ? AND status = 'done' ORDER BY seq DESC LIMIT 1", (thread_id,)
+        )
+        return rows[0] if rows and rows[0]["pending_json"] else None
 
     def thread_runs(self, thread_id: str) -> list[sqlite3.Row]:
         return self.query("SELECT * FROM runs WHERE thread_id = ? AND status = 'done' ORDER BY seq", (thread_id,))

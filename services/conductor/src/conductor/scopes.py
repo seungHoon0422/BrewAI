@@ -14,9 +14,10 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Literal, TypedDict
+from typing import TYPE_CHECKING, Any, Literal, TypedDict
 
-from .store import Store
+if TYPE_CHECKING:  # store.py 가 이 표(LEVELS)를 읽는다 → 여기선 타입으로만 (순환 import 없음)
+    from .store import Store
 
 Kind = Literal["org", "space", "project", "thread"]
 
@@ -41,6 +42,7 @@ MEMBERSHIP: Kind = "space"
 ITEM: Kind = "thread"
 
 _BY_KIND = {lv.kind: lv for lv in LEVELS}
+INSTALL = "install"  # 층 위 = 설치본 전체 (관리자 공통 · MCP 공유 범위의 맨 위)
 
 
 class Crumb(TypedDict):
@@ -55,6 +57,11 @@ def level(kind: str) -> Level:
 
 def depth(kind: str) -> int:
     return LEVELS.index(level(kind))
+
+
+def share_kinds() -> tuple[str, ...]:
+    """공유 범위 = 설치본 + 맨 위 층부터 멤버십 층까지 (지금 install · org · space). MCP 서버 공유(store mcp_server_shares)가 쓴다."""
+    return (INSTALL, *(lv.kind for lv in LEVELS[: depth(MEMBERSHIP) + 1]))
 
 
 def describe() -> list[dict[str, Any]]:

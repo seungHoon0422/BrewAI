@@ -224,3 +224,22 @@
 .conv-head .conv-owner{color:var(--text-muted);font-size:var(--fs-sm);white-space:nowrap}
 .readonly{display:flex;align-items:center;justify-content:center;gap:var(--space-2);padding:var(--space-3-5);border-radius:var(--radius-xl);
   background:var(--surface-sunken);color:var(--text-muted);font-size:var(--fs-sm)}
+
+/* 앱 카드 (답 아래 · 카드 A~D) — 테두리 면 · 플러그 타일 · 제목 · 한 줄 · 버튼. 색 = 상태만 (연결 대기 = 기본 면) */
+.app-cards{display:flex;flex-direction:column;gap:var(--space-2);margin-top:var(--space-3)}
+.app-card{display:flex;align-items:flex-start;gap:var(--space-3);padding:var(--space-3) var(--space-3-5);border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--surface);font-size:var(--fs-sm);line-height:var(--lh-base)}
+.app-card .ac-ico{width:28px;height:28px;border-radius:var(--radius-md);background:var(--surface-chip);color:var(--text-2);display:grid;place-items:center;flex:none}
+.app-card .ac-main{display:flex;flex-direction:column;gap:var(--space-1);min-width:0;flex:1}
+.app-card .ac-title{font-weight:var(--fw-semibold);color:var(--text)}
+.app-card .ac-body{margin:0;color:var(--text-muted)}
+.app-card .ac-busy{display:inline-flex;align-items:center;gap:var(--space-1-5);color:var(--text-2)}
+.app-card .ac-acts{display:flex;flex-wrap:wrap;gap:var(--space-2);margin-top:var(--space-1-5)}
+.app-card[data-ready] .ac-ico{color:var(--ok-text)}
+.app-card[data-phase="failed"] .ac-body{color:var(--danger-text)}
+/* 도구 카드: 쓰기 배지 · 연결 대기 */
+.tp-tool .twrite{flex:none}
+.tp-tool[data-state="waiting"] .tst{color:var(--warn-text)}
+.app-card .ac-meta{color:var(--text-muted)}
+.app-card .ac-will{display:flex;flex-direction:column;gap:var(--space-0-5);margin-top:var(--space-1);padding:var(--space-2) var(--space-2-5);border-radius:var(--radius-md);background:var(--surface-chip)}
+.app-card .ac-will-k{font-size:var(--fs-xs);color:var(--text-muted)}
+.app-card .ac-args{font-family:var(--font-mono);font-size:var(--fs-xs);color:var(--text-2);overflow-wrap:anywhere;white-space:pre-wrap}

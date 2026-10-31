@@ -6,6 +6,8 @@ import { SessionMenu } from '../features/auth/components/SessionMenu';
 import { useSession } from '../features/auth/hooks';
 import { SessionProvider } from '../features/auth/session';
 import CatalogScreen from '../features/catalog/components/CatalogScreen';
+import { TABS as CATALOG_TABS } from '../features/catalog/copy';
+import { catalogTabHref, isCatalogDetail } from '../features/catalog/route';
 import DocsScreen from '../features/docs/components/DocsScreen';
 import ModelsScreen from '../features/models/components/ModelsScreen';
 import { MODEL_TABS } from '../features/models/copy';
@@ -20,7 +22,7 @@ import UsersScreen from '../features/users/components/UsersScreen';
 import { ToastProvider } from '../shared/toast';
 import { SHELL_COPY as C } from './copy';
 import { useHash } from './hash';
-import { MENU, hrefOf, restOf, routeFromHash, type RouteId } from './routes';
+import { MENU, hrefOf, queryOf, restOf, routeFromHash, type RouteId } from './routes';
 
 // 화면 = 기능 폴더의 *Screen (features/<이름>/components). 틀은 사이드바 + 화면 머리(h1 하나)만 그린다
 const SCREENS: Record<RouteId, ComponentType> = {
@@ -37,8 +39,17 @@ const SCREENS: Record<RouteId, ComponentType> = {
 
 // 자세히 페이지 (예: '#/models/<id>') = 그 화면이 머리(h1 = 그 대상 이름)를 그린다. 틀은 위 줄(← 목록 · 환경 · 세션)만
 // is = 해시 두 번째 칸부터(restOf)가 자세히인지 (길 표는 그 기능 폴더의 route.ts) · back = 돌아갈 목록 (링크 글 · 주소)
-const DETAILS: Partial<Record<RouteId, { is: (sub: string) => boolean; back: string; href: string }>> = {
+// from = 해시 '?from=<탭 id>' 로 온 곳이 따로 있으면 그 탭으로 (카탈로그: 사용자 추가 서버 표 → 자세히 → 그 표로)
+type Detail = { is: (sub: string) => boolean; back: string; href: string; from?: (tab: string) => { back: string; href: string } | null };
+const DETAILS: Partial<Record<RouteId, Detail>> = {
   models: { is: isModelDetail, back: MODEL_TABS[0].label, href: tabHref(MODEL_TABS[0].id) },
+  catalog: {
+    is: isCatalogDetail, back: CATALOG_TABS[0].label, href: catalogTabHref(CATALOG_TABS[0].id),
+    from: (tab) => {
+      const t = CATALOG_TABS.find((x) => x.id === tab);
+      return t ? { back: t.label, href: catalogTabHref(t.id) } : null;
+    },
+  },
 };
 
 // UI 부품 모음 (#/ui, ADR-0012) = 개발 서버에서만. 빌드에선 import.meta.env.DEV 가 false → 통째로 빠진다 (메뉴 · E2E 계약 밖)
@@ -80,6 +91,7 @@ function Console() {
   const sub = restOf(hash); // 자세히 id 에 '/' 가 들어도 통째로
   const detail = DETAILS[route.id];
   const isDetail = !!detail?.is(sub);
+  const back = (isDetail && detail?.from?.(queryOf(hash).get('from') ?? '')) || detail;
   const page = isDetail ? `${route.id}/${sub}` : route.id; // 화면이 바뀌었는지 = 메뉴 + (자세히면) 그 대상
   const listRef = useRef<HTMLUListElement>(null);
   const h1Ref = useRef<HTMLHeadingElement>(null);
@@ -144,9 +156,9 @@ function Console() {
           <div className="wrap">
             {detail && isDetail ? (
               <div className="topbar">
-                <a className="back" href={detail.href}>
+                <a className="back" href={back?.href ?? detail.href}>
                   <Icon name="chevron-left" size="sm" />
-                  {detail.back}
+                  {back?.back ?? detail.back}
                 </a>
                 <div className="ui-page-actions">{actions}</div>
               </div>

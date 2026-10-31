@@ -8,6 +8,7 @@ import { retry, retryWithoutReasoning } from '../hooks';
 import { Markdown } from '../markdown/render';
 import { isLive, type Answer, type Turn } from '../model';
 import { skippedThinking, thought, usedTools } from '../trace';
+import { AppCards } from './AppCards';
 import { TraceView } from './TraceView';
 
 export function AnswerView({ turn, latest, threadId }: { turn: Turn; latest: boolean; threadId: string }) {
@@ -26,6 +27,7 @@ export function AnswerView({ turn, latest, threadId }: { turn: Turn; latest: boo
           {texts.map((p, i) => (
             <Markdown key={p.id} id={p.id} className="txt" text={p.text} live={live && i === texts.length - 1} />
           ))}
+          {a.cards.length > 0 && <AppCards cards={a.cards} parts={a.parts} threadId={threadId} runId={a.runId} active={latest} />}
           {(a.model || a.status === 'stopped') && (
             <div className="afoot">
               {a.status === 'stopped' && latest && !a.fromHistory && (

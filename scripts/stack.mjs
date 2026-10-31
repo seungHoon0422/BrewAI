@@ -4,7 +4,7 @@
 //   up trace    = litellm + Langfuse 묶음 6개       (npm run stack:trace · npm run stack -- trace)
 //   up auto     = .env(또는 셸)의 BREWAI_TRACE=1 일 때만 trace (npm run dev 가 부른다)
 //   down        = 전부 내린다 (데이터 볼륨은 남는다) · reset --yes = 볼륨까지 지운다 (trace·계정·UI 로 넣은 모델 초기화)
-//   secrets     = Docker 없이 .env 의 첫 관리자 계정(BREWAI_ADMIN_EMAIL · BREWAI_ADMIN_PASSWORD)만 만든다 (BREWAI_STACK=0 인 PC)
+//   secrets     = Docker 없이 .env 의 첫 관리자 계정(BREWAI_ADMIN_EMAIL · BREWAI_ADMIN_PASSWORD) · conductor 비밀 키(CONDUCTOR_SECRET_KEY)만 만든다 (BREWAI_STACK=0 인 PC)
 // - 처음 실행: .env 에 없는(또는 빈) 비밀값만 만들어 넣는다. 이미 있는 값은 절대 덮어쓰지 않는다
 // - up = docker compose up -d --wait → 모든 healthcheck 가 통과해야 끝난다 (= 바로 써도 된다)
 // - 의존성 없음 (Node 기본 모듈만). shell:false. 윈도우 · 맥 같은 코드
@@ -79,6 +79,12 @@ const ADMIN = {
   BREWAI_ADMIN_EMAIL: () => 'dev@brewai.local',
   BREWAI_ADMIN_PASSWORD: () => crypto.randomBytes(18).toString('base64url'),
 };
+// conductor 서버 쪽 비밀 (ADR-0013) = MCP 인증정보 AES-GCM 키 32바이트 + key id. Docker 와 상관없이 (ensureAdmin 이 같이 만든다)
+// 잃으면 MCP 연결을 모두 다시 해야 한다 (DB 의 토큰을 못 읽음) · 두 PC 는 DB 도 따로라 값이 달라도 된다
+const CONDUCTOR = {
+  CONDUCTOR_SECRET_KEY: () => crypto.randomBytes(32).toString('base64url'),
+  CONDUCTOR_SECRET_KEY_ID: () => 'k1',
+};
 const SECRETS = {
   LITELLM_MASTER_KEY: () => `sk-${hex(32)}`,
   LITELLM_DB_PASSWORD: () => hex(16),
@@ -141,6 +147,8 @@ function ensureAdmin() {
   const rel = path.relative(ROOT, ENV_FILE);
   const where = rel && !rel.startsWith('..') ? rel : ENV_FILE;
   if (added.length) say(`첫 관리자 계정을 ${where} 에 만들었어요 (비밀번호는 찍지 않아요): ${added.join(' · ')}`);
+  const keys = fillEnv(CONDUCTOR, 'conductor 비밀 키 (scripts/stack.mjs 가 처음 한 번 만듦 · MCP 인증정보 암호화 · 잃으면 MCP 다시 연결)');
+  if (keys.length) say(`conductor 비밀 키를 ${where} 에 만들었어요 (값은 찍지 않아요): ${keys.join(' · ')}`);
   const { text, values: now } = readEnv();
   // 테스트 관리자(npm run dev 가 켠다)면 로그인 안내는 dev-all 이 한 번만 (관리자 로그인: admin / admin)
   if ((process.env.BREWAI_TEST_ADMIN || now.BREWAI_TEST_ADMIN) !== '1')

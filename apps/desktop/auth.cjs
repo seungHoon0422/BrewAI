@@ -211,6 +211,14 @@ function createAuth({ api, packaged, fromApp, focus }) {
     return fail(r);
   }
 
+  // main 의 다른 모듈(mcp-connect.cjs)이 쓰는 Bearer 요청 — 401 이면 한 번 새로 고치고 다시. 토큰은 이 파일 밖으로 안 나간다
+  async function request(method, pathname, body) {
+    if (!access && !(await refreshOnce())) return { status: 401, data: { detail: 'auth_required' } };
+    let r = await call(method, pathname, body, access.token);
+    if (r.status === 401 && (await refreshOnce())) r = await call(method, pathname, body, access.token);
+    return r;
+  }
+
   // 창을 새로 고치면 renderer 는 이 사본으로 다시 시작한다. 닉네임 · 마지막 스페이스는 renderer 가 서버에서 바꾸므로
   // 사본이 낡았을 수 있다 → 상태를 물을 때 한 번 다시 읽는다 (실패하면 있던 사본 그대로)
   async function freshUser() {
@@ -244,7 +252,7 @@ function createAuth({ api, packaged, fromApp, focus }) {
     });
   }
 
-  return { start, register, authorize };
+  return { start, register, authorize, request };
 }
 
 module.exports = { createAuth };

@@ -2,11 +2,14 @@
 // 대화(thread)마다 하나씩 들고 있고, 서버(conductor SQLite)가 기록의 원본이다 → 다시 열면 GET /api/threads/{id}.
 // 보낼 모델 · 생각 깊이는 models/hooks.ts, 단계 이름표는 skills/hooks.ts, 어디에(스페이스 · 프로젝트) 는 scope/hooks.ts 에서 읽는다.
 // 스페이스가 바뀌면 홈으로 돌아가고 최근 목록을 다시 읽는다 (watchScope).
+// 앱 연결 (ADR-0013): 연결 필요 = 답 아래 카드 (model.ts AppCard) → 연결(main 의 시스템 브라우저 · connections/hooks) → 같은 대화에서
+// '이어서 하기' (forwardedProps.resume · 질문 없이 · 서버가 멈춘 호출을 다시 계산). auto + auto_open = 묻지 않고 바로 브라우저.
 import { useEffect, useState } from 'react';
 import { ApiError, failureOf, isAbort, type Failure } from '../../lib/api';
 import { titleOf } from '../../lib/format';
 import { createStore, loading, type Loadable } from '../../lib/store';
 import { currentMe } from '../auth/hooks';
+import { appById, appLabels, cancelConnect, changeAutoAuth, connectApp, isReady, loadApps } from '../connections/hooks';
 import { currentModel, currentReasoning, loadModels, pickReasoning } from '../models/hooks';
 import { projectById } from '../projects/hooks';
 import { currentProjectId, currentSpace, currentSpaceId, watchScope } from '../scope/hooks';
@@ -14,7 +17,7 @@ import { loadSkills, skillLabels, toolLabels } from '../skills/hooks';
 import { getThread, listThreads, patchThread, pickScope, runChat, type HistoryAssistant, type ThreadScope, type ThreadSummary } from './api';
 import { CONV_FALLBACK } from './copy';
 import { apply, closeOpen, elapsed } from './events';
-import { isLive, type Answer, type Conv, type Part, type Turn } from './model';
+import { isLive, type Answer, type AppCard, type AuthCard, type Conv, type Part, type Turn } from './model';
 
 export type ChatState = {
   convs: Record<string, Conv>;
@@ -27,6 +30,7 @@ export type ChatState = {
 const store = createStore<ChatState>({ convs: {}, current: null, threads: loading(), runsVersion: 0, nonce: 0 });
 const set = store.set;
 const runs = new Map<string, AbortController>(); // threadId → 진행 중인 실행
+const idle = new Map<string, Promise<void>>(); // threadId → 진행 중인 실행이 끝나면 풀린다 (이어서 하기는 실행이 끝난 뒤에)
 
 export const useChat = store.use;
 export const useCurrentConv = () => store.use((s) => (s.current ? s.convs[s.current] : undefined));
@@ -114,12 +118,18 @@ function historyAnswer(m: HistoryAssistant): Answer {
       kind: 'tool', id: p.id || `${m.id}:tool${i}`, name: p.name, label: p.label, argsText: JSON.stringify(p.args ?? {}),
       args: p.args, result: p.result, status: p.status === 'running' ? 'done' : p.status, ms: null, at: 0, ready: null,
       batch: p.batch ?? -(i + 1), // 옛 기록(batch 없음) = 도구마다 따로
+      ...(p.app ? { app: p.app } : {}),
     };
   });
+  // 지금도 앱 연결을 기다리는 호출 = 카드 (기록에서 연 답은 자동으로 브라우저를 열지 않는다)
+  const cards: AppCard[] = m.pending.map((w) => ({
+    kind: 'auth', callId: w.call_id, server: w.server, mode: w.mode, reason: w.reason, autoOpen: false, scope: w.scope, write: w.write, label: w.label,
+    phase: 'idle', error: null,
+  }));
   return {
     runId: m.run_id, status: 'done', failure: null, failureDetail: null, parts, steps: [],
     model: { id: m.model, label: m.model_label, provider: m.provider, provider_label: m.provider_label },
-    reasoning: m.reasoning_level, startedAt: 0, durationMs: m.duration_ms, usage: m.usage, fromHistory: true,
+    reasoning: m.reasoning_level, startedAt: 0, durationMs: m.duration_ms, usage: m.usage, fromHistory: true, cards,
   };
 }
 
@@ -144,6 +154,10 @@ export function openThread(id: string) {
       const turns: Turn[] = [];
       for (let i = 0; i < t.messages.length; i++) {
         const m = t.messages[i];
+        if (m.role === 'assistant' && m.resumed) { // 앱 연결 뒤 이어서 하기 = 질문 없이 답만
+          turns.push({ id: m.run_id || m.id, ask: '', answer: historyAnswer(m), resumed: true });
+          continue;
+        }
         if (m.role !== 'user') continue;
         const a = t.messages[i + 1];
         if (a?.role !== 'assistant') continue;
@@ -178,7 +192,7 @@ function freshAnswer(): Answer {
   return {
     runId: crypto.randomUUID(), status: 'sending', failure: null, failureDetail: null, parts: [], steps: [],
     model: m ? { id: m.id, label: m.label, provider: m.provider, provider_label: m.provider_label } : null,
-    reasoning: currentReasoning(), startedAt: Date.now(), durationMs: null, usage: null, fromHistory: false,
+    reasoning: currentReasoning(), startedAt: Date.now(), durationMs: null, usage: null, fromHistory: false, cards: [],
   };
 }
 
@@ -252,11 +266,16 @@ function wait(ms: number, signal: AbortSignal) {
   });
 }
 
-const labels = () => ({ tools: toolLabels(), skills: skillLabels() });
+const labels = () => ({ tools: toolLabels(), skills: skillLabels(), apps: appLabels() });
+
+// 이어서 하기 실패 code 는 화면 문구로 (copy.ts DETAIL) — 409 를 '보관됐거나 옮겨진 곳' 으로 보이지 않게
+const RESUME_CODES = new Set(['app_not_connected', 'nothing_to_resume']);
 
 async function start(threadId: string, answer: Answer) {
   const ctrl = new AbortController();
   runs.set(threadId, ctrl);
+  let release = () => {};
+  idle.set(threadId, new Promise<void>((resolve) => { release = resolve; }));
   const turn = store.get().convs[threadId].turns.find((t) => t.answer.runId === answer.runId)!;
   try {
     for (let attempt = 1; ; attempt++) {
@@ -265,12 +284,16 @@ async function start(threadId: string, answer: Answer) {
           threadId,
           runId: answer.runId, // 409 면 서버가 이 runId 를 받지 않았다 → 같은 값으로 다시
           text: turn.ask,
+          resume: turn.resume ?? null,
           model: answer.model?.id,
           reasoning: answer.reasoning,
           spaceId: store.get().convs[threadId].scope.space_id,
           projectId: store.get().convs[threadId].scope.project_id,
           signal: ctrl.signal,
-          onEvent: (ev) => patchAnswer(threadId, answer.runId, (a) => apply(a, ev, labels)),
+          onEvent: (ev) => {
+            patchAnswer(threadId, answer.runId, (a) => apply(a, ev, labels));
+            autoOpen(threadId, answer.runId, ev);
+          },
         });
         break;
       } catch (e) {
@@ -285,7 +308,8 @@ async function start(threadId: string, answer: Answer) {
   } catch (e) {
     const stopped = isAbort(e) || ctrl.signal.aborted;
     const failure = stopped ? null : failureOf(e);
-    const failureDetail = stopped ? null : detailOf(e);
+    const code = e instanceof ApiError ? e.code : undefined;
+    const failureDetail = stopped ? null : detailOf(e) ?? (code && RESUME_CODES.has(code) ? code : null);
     patchAnswer(threadId, answer.runId, (a) => ({
       ...closeOpen(a, stopped ? 'cancelled' : 'error'),
       status: stopped ? 'stopped' : 'failed', failure, failureDetail, durationMs: elapsed(a),
@@ -293,6 +317,7 @@ async function start(threadId: string, answer: Answer) {
     if (failure === 'model_gone' || failure === 'no_models') void loadModels(); // 숨겨진 모델 → 목록 새로
   } finally {
     if (runs.get(threadId) === ctrl) runs.delete(threadId);
+    release();
     void loadThreads();
     void loadSkills(); // 사용 횟수
     set((s) => ({ ...s, runsVersion: s.runsVersion + 1 }));
@@ -312,3 +337,101 @@ export async function updateThread(id: string, patch: Parameters<typeof patchThr
     };
   });
 }
+
+// ── 앱 연결 카드 (ADR-0013 · slice 05 카드 A~D) ──
+// 판정은 서버가 한다: 카드는 연결(시스템 브라우저)을 돕고, 끝나면 '이어서 하기' 를 보낸다 (서버가 멈춘 호출을 다시 계산 · UI 는 근거 아님)
+
+function patchCard(threadId: string, runId: string, callId: string, fn: (c: AuthCard) => AuthCard) {
+  patchAnswer(threadId, runId, (a) => {
+    let changed = false;
+    const cards = a.cards.map((c) => {
+      if (c.kind !== 'auth' || c.callId !== callId) return c;
+      const next = fn(c);
+      if (next !== c) changed = true;
+      return next;
+    });
+    return changed ? { ...a, cards } : a;
+  });
+}
+
+const cardOf = (threadId: string, runId: string, callId: string): AuthCard | null => {
+  const t = store.get().convs[threadId]?.turns.find((x) => x.answer.runId === runId);
+  const c = t?.answer.cards.find((x) => x.kind === 'auth' && x.callId === callId);
+  return c?.kind === 'auth' ? c : null;
+};
+
+// 이 답이 대화의 마지막 턴인가 (이어서 하기는 마지막 실행이 그 호출로 멈췄을 때만 된다 · 아니면 서버가 409 nothing_to_resume)
+export const isLastTurn = (threadId: string, runId: string) => store.get().convs[threadId]?.turns.at(-1)?.answer.runId === runId;
+
+// auto + auto_open = 묻지 않고 바로 로그인 화면 (실행당 1번 · 시간당 3번 = 서버가 정해 auto_open 으로 준다)
+function autoOpen(threadId: string, runId: string, ev: { type: string } & Record<string, unknown>) {
+  if (ev.type !== 'CUSTOM' || ev.name !== 'brewai.app_auth') return;
+  void loadApps(); // 연결 상태를 서버 값으로 (다른 곳에서 끊겼을 수 있다 · 카드 C 의 [이어서 하기] 가 낡은 값을 보지 않게)
+  const v = (ev.value ?? {}) as Record<string, unknown>;
+  if (v.mode === 'auto' && v.auto_open === true && typeof v.call_id === 'string') void connectCard(threadId, runId, v.call_id);
+}
+
+// 연결 → 성공이면 이어서 하기. 실패 = 카드에 이유 (그만두기 = stopped)
+// 쓰기 도구가 기다리던 호출 = 저절로 잇지 않는다: 카드가 할 일(도구 · 인자)을 보이고 사람이 [이어서 하기] 를 누른다
+// (앱 결과에 숨은 지시로 고른 쓰기일 수 있다 · 승인 카드는 slice 07)
+export async function connectCard(threadId: string, runId: string, callId: string) {
+  const card = cardOf(threadId, runId, callId);
+  if (!card || card.phase === 'opening' || card.phase === 'resuming') return;
+  patchCard(threadId, runId, callId, (c) => ({ ...c, phase: 'opening', error: null }));
+  const r = await connectApp(card.server.id, card.reason === 'insufficient_scope' ? card.scope : null);
+  if (!r.ok) {
+    patchCard(threadId, runId, callId, (c) => (c.phase !== 'opening' ? c
+      : r.code === 'cancelled' ? { ...c, phase: 'stopped' } : { ...c, phase: 'failed', error: r.code }));
+    return;
+  }
+  if (card.write) {
+    patchCard(threadId, runId, callId, (c) => (c.phase === 'opening' ? { ...c, phase: 'idle' } : c));
+    return;
+  }
+  await resumeCard(threadId, runId, callId);
+}
+
+// A [켜고 로그인] = 다음부터 묻지 않음(on) + 바로 브라우저
+export async function approveCard(threadId: string, runId: string, callId: string) {
+  await changeAutoAuth('on').catch(() => undefined); // 설정 저장이 실패해도 이번 연결은 한다
+  await connectCard(threadId, runId, callId);
+}
+
+// A [설정에서 할게요] = off + 카드 C
+export async function declineCard(threadId: string, runId: string, callId: string) {
+  await changeAutoAuth('off').catch(() => undefined);
+  patchCard(threadId, runId, callId, (c) => ({ ...c, mode: 'manual', phase: 'idle', error: null }));
+}
+
+// B [그만두기] = 브라우저 로그인 흐름을 닫는다 (main 의 loopback) → stopped
+export async function cancelCard(threadId: string, runId: string, callId: string) {
+  patchCard(threadId, runId, callId, (c) => (c.phase === 'opening' ? { ...c, phase: 'stopped' } : c));
+  await cancelConnect();
+}
+
+// 이어서 하기 = 질문 없는 새 턴 (forwardedProps.resume). 앞 실행이 끝난 뒤에 보낸다. 끝나면 카드를 접고 기다리던 도구 칸을 닫는다
+export async function resumeCard(threadId: string, runId: string, callId: string) {
+  await idle.get(threadId);
+  if (!isLastTurn(threadId, runId)) {
+    patchCard(threadId, runId, callId, (c) => ({ ...c, phase: 'failed', error: 'nothing_to_resume' }));
+    return;
+  }
+  patchCard(threadId, runId, callId, (c) => ({ ...c, phase: 'resuming', error: null }));
+  const answer = freshAnswer();
+  set((s) => {
+    const c = s.convs[threadId];
+    if (!c) return s;
+    const turn: Turn = { id: answer.runId, ask: '', answer, resumed: true, resume: callId };
+    return { ...s, convs: { ...s.convs, [threadId]: { ...c, turns: [...c.turns, turn] } } };
+  });
+  await start(threadId, answer);
+  const done = store.get().convs[threadId]?.turns.find((t) => t.answer.runId === answer.runId)?.answer.status === 'done';
+  patchCard(threadId, runId, callId, (c) => (c.phase === 'resuming' ? { ...c, phase: done ? 'done' : 'failed', error: done ? null : 'resume_failed' } : c));
+  if (done) {
+    patchAnswer(threadId, runId, (a) => ({ ...a, parts: a.parts.map((p) => (p.kind === 'tool' && p.id === callId && p.status === 'waiting' ? { ...p, status: 'done' } : p)) }));
+  }
+  void loadApps();
+}
+
+// 카드 C: 연결된 앱에서 연결을 마쳤다 = [이어서 하기] 를 보여 준다
+export const cardReady = (c: AuthCard) => isReady(appById(c.server.id));

@@ -41,7 +41,7 @@ TEST_ADMIN_PASSWORD = "admin"  # 비밀번호 길이 규칙을 건너뛰는 유�
 _EMAIL = re.compile(r"^[^@\s]{1,64}@[^@\s]+\.[^@\s]+$")
 
 Client = Literal["desktop", "admin"]
-OneTimeKind = Literal["handoff", "reset", "oauth_flow", "link"]
+OneTimeKind = Literal["handoff", "reset", "oauth_flow", "link", "mcp_handoff"]  # = store.ONE_TIME_KINDS (mcp_handoff = MCP 로그인 → 데스크톱 60초)
 
 
 class AuthFailed(Exception):
@@ -352,7 +352,7 @@ class Accounts:
             (user_id, now, now),
         )[0]["n"]
 
-    # ── 1회용 토큰 (handoff · reset · oauth_flow · link) ──
+    # ── 1회용 토큰 (handoff · reset · oauth_flow · link · mcp_handoff) ──
     def issue_once(self, kind: OneTimeKind, ttl_s: int, *, prefix: str, user_id: str | None = None, data: dict[str, Any] | None = None) -> str:
         token = tokens.new_token(prefix)
         with self.store.tx() as db:

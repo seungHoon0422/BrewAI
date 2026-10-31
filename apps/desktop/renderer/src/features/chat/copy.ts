@@ -64,6 +64,9 @@ export const DETAIL: Record<string, { text: string; hint: string; reasoningOff?:
     hint: 'LiteLLM 관리 화면 › Virtual Keys 또는 Teams 의 Max Budget 확인',
   },
   provider_rate_limited: { text: '요청이 많아 모델이 잠시 막혔어요', hint: '잠시 뒤 다시 시도해 주세요' },
+  // 앱 연결 뒤 이어서 하기 (POST /api/chat forwardedProps.resume 의 409)
+  app_not_connected: { text: '앱이 아직 연결되지 않았어요', hint: '연결된 앱에서 연결을 마친 뒤 다시 시도해 주세요' },
+  nothing_to_resume: { text: '이어서 할 작업이 없어요', hint: '이미 이어서 했거나 새 질문으로 넘어갔어요. 다시 질문해 주세요' },
   provider_unavailable: { text: '모델 쪽 서버가 지금 응답하지 않아요', hint: '잠시 뒤 다시 시도해 주세요' },
 };
 
@@ -75,9 +78,15 @@ export const detailText = (detail: string | null | undefined) =>
 // 문구는 시간으로만 고른다 (결정적 · 테스트가 본다). 무작위로 돌리지 않는다.
 
 // 단계 이름 → 화면 이름. 툴 이름은 /api/tools 의 label (계산기 · 현재 시각) · 스킬은 /api/skills 의 label (스킬: 요약)
-export function stepLabel(name: string, tools: Record<string, string>, skills: Record<string, string> = {}): string {
+// 앱 = app:<handle> → '앱: <이름>' (연결된 앱 목록의 이름 · 모르면 handle) · MCP 도구 이름표는 brewai.app_tool 이 바꾼다
+export const appStepLabel = (name: string) => `앱: ${name}`;
+export function stepLabel(name: string, tools: Record<string, string>, skills: Record<string, string> = {}, apps: Record<string, string> = {}): string {
   if (name === 'thinking') return '생각';
   if (name === 'writing') return '답 쓰기';
+  if (name.startsWith('app:')) {
+    const app = name.slice(4);
+    return app === 'unknown' ? '앱' : appStepLabel(apps[app] ?? app);
+  }
   if (name.startsWith('tool:')) {
     const tool = name.slice(5);
     return tools[tool] ?? tool;
@@ -115,6 +124,7 @@ export function stepPhrase(name: string | null, inStepMs: number, tools: Record<
     const skill = name.slice(6);
     return skillPhrase(skills[skill] ?? skill);
   }
+  if (name?.startsWith('app:')) return '쓸 앱 도구를 고르는 중';
   if (name?.startsWith('tool:')) {
     const tool = name.slice(5);
     return TOOL_PHRASE[tool] ?? `${tools[tool] ?? tool} 쓰는 중`;
@@ -162,9 +172,16 @@ export const MD = {
 export const TOOL = {
   skillGroup: '스킬 사용',
   group: (label: string) => `${label} 도구`,
-  state: { running: '실행 중', done: '완료', error: '실패', cancelled: '멈춤' },
+  state: { running: '실행 중', done: '완료', error: '실패', cancelled: '멈춤', waiting: '연결 기다림' },
+  useApp: '앱 고르기',
+  appGroup: (label: string) => `${label} 앱 도구`,
+  write: '쓰기',
+  writeTitle: '앱의 데이터를 바꾸는 도구예요',
+  appPicked: (app: string, n: number) => (n ? `${app}에서 쓸 도구 ${n}개를 골랐어요` : `${app}에서 맞는 도구를 찾지 못했어요`),
+  waitingAuth: '앱 연결을 기다려요',
   rows: {
     expression: '수식', timezone: '시간대', skill: '스킬', convert: '변환', calc: '계산', text: '글', input: '입력', error: '오류', result: '결과',
+    app: '앱', need: '찾는 일', tools: '고른 도구', state: '상태',
   },
   defaultTimezone: 'Asia/Seoul',
   days: (d: string) => `${d}일`,
@@ -248,4 +265,46 @@ export const THREADS = {
   failed: '대화 목록을 불러오지 못했어요',
   retry: '다시',
   shared: '공유됨',
+} as const;
+
+// 앱 카드 (답 아래 · ADR-0013 slice 05 카드 A~D). 이름 뒤 조사를 피해 '<이름> 앱' 으로 쓴다
+export const APP_CARD = {
+  region: (name: string) => `${name} 연결`,
+  // A = 처음 한 번 묻기
+  askTitle: (name: string) => `${name} 연결이 필요해요`,
+  askBody: '다음부터 연결이 필요하면 바로 로그인 화면을 열까요?',
+  askYes: '켜고 로그인',
+  askNo: '설정에서 할게요',
+  // B = 바로 로그인 화면 (자동)
+  autoTitle: (name: string) => `${name} 로그인 화면을 열었어요`,
+  autoBody: '브라우저에서 로그인을 마치면 이 대화에서 이어서 할게요.',
+  autoLimitedTitle: (name: string) => `${name} 연결이 필요해요`,
+  autoLimitedBody: '로그인 화면을 열어 연결하면 이 대화에서 이어서 할게요.',
+  reopen: '다시 열기',
+  open: '로그인 화면 열기',
+  stop: '그만두기',
+  // C = 연결된 앱에서 직접
+  manualTitle: (name: string) => `${name} 앱이 아직 연결되지 않았어요`,
+  manualBody: '연결된 앱에서 연결하면 이어서 할게요.',
+  openSettings: '연결된 앱 열기',
+  connectNow: '지금 연결',
+  resume: '이어서 하기',
+  readyBody: '연결됐어요. 이어서 하기를 누르면 멈춘 곳부터 다시 해요.',
+  // 쓰기 도구가 기다리던 호출 = 로그인 뒤에도 저절로 잇지 않는다
+  writeReadyTitle: (name: string) => `${name} 연결됐어요`,
+  writeReadyBody: '연결됐어요. 아래 일은 앱의 데이터를 바꿔요. 확인한 뒤 이어서 하기를 눌러 주세요.',
+  willRun: '이어서 할 일',
+  writeTool: '쓰기 도구',
+  loginAt: (domain: string) => `로그인 ${domain}`,
+  // 다시 로그인 · 권한 더
+  expiredTitle: (name: string) => `${name} 다시 로그인이 필요해요`,
+  scopeTitle: (name: string) => `${name} 권한을 더 받아야 해요`,
+  // D = 가져오기 전
+  importTitle: (name: string) => `${name} 앱을 먼저 가져와야 해요`,
+  importBody: (where: string) => (where ? `${where}에 공유된 앱이에요. 연결된 앱에서 가져온 뒤 쓸 수 있어요.` : '공유된 앱이에요. 연결된 앱에서 가져온 뒤 쓸 수 있어요.'),
+  // 상태
+  opening: '브라우저에서 로그인 중',
+  resuming: '이어서 하는 중',
+  stopped: '연결을 그만뒀어요. 연결된 앱에서 언제든 연결할 수 있어요.',
+  failed: (why: string) => `연결하지 못했어요. ${why}`,
 } as const;

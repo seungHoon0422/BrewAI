@@ -448,7 +448,9 @@ BUILTIN_TOOLS: tuple[ToolSpec, ...] = (
 )
 
 USE_SKILL = "use_skill"  # skills.py 가 만드는 툴 이름 (활동 단계는 tool:use_skill 대신 skill:<스킬 이름>)
-EXTRA_LABELS = {USE_SKILL: "스킬 사용"}
+USE_APP = "use_app"  # MCP 앱 도구 꺼내기 (agent.py · connectors/session.py — 활동 단계는 tool:use_app 대신 app:<handle>)
+SEARCH_TOOLS = "search_tools"  # 앱 도구 찾기 (Pydantic AI ToolSearch · 우리 검색 전략)
+EXTRA_LABELS = {USE_SKILL: "스킬 사용", USE_APP: "앱 도구 고르기", SEARCH_TOOLS: "앱 도구 찾기"}
 STEP_LABELS = {"thinking": "생각", "writing": "답 쓰기"}  # 활동 단계 이름 → 화면 이름 (tool:<name> 은 툴 label)
 
 
@@ -457,7 +459,13 @@ def tool_label(name: str) -> str:
 
 
 def step_label(step: str, skill_labels: dict[str, str] | None = None) -> str:
-    """thinking · writing · tool:<툴> · skill:<스킬> → 화면 이름. skill_labels = 스킬 이름 → 한국어 이름."""
+    """thinking · writing · tool:<툴> · skill:<스킬> · app:<handle> → 화면 이름. skill_labels = 스킬 이름 → 한국어 이름
+    (+ 'app:<handle>' → 앱 이름 · 'tool:<handle>__<도구>' → '앱: 도구' — MCP 는 실행마다 connectors/session.py 가 채운다)."""
+    labels = skill_labels or {}
+    if step in labels and not step.startswith("skill:"):
+        return f"앱: {labels[step]}" if step.startswith("app:") else labels[step]
+    if step.startswith("app:"):
+        return f"앱: {step.removeprefix('app:')}"
     if step.startswith("tool:"):
         return tool_label(step.removeprefix("tool:"))
     if step.startswith("skill:"):

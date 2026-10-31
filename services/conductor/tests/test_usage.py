@@ -205,7 +205,8 @@ def test_v2_database_is_backed_up_and_backfilled(tmp_path) -> None:
     assert bak.execute("PRAGMA user_version").fetchone()[0] == 2
     assert bak.execute("SELECT name FROM sqlite_master WHERE name = 'usage_events'").fetchone() is None
     bak.close()
-    assert store.query("PRAGMA user_version")[0][0] == SCHEMA_VERSION == 3
+    assert store.query("PRAGMA user_version")[0][0] == SCHEMA_VERSION
+    assert not (tmp_path / "conductor.sqlite3.v3.bak").exists()  # v2 에서 오면 v2.bak 이 원본 (v4 백업을 또 만들지 않는다)
     rows = {r["run_id"]: dict(r) for r in store.query("SELECT * FROM usage_events")}
     assert (rows["old"]["status"], rows["old"]["input_tokens"], rows["old"]["output_tokens"]) == ("ok", 10, 5)
     assert rows["stuck"]["status"] == "cancelled" and rows["stuck"]["error_code"] == "interrupted"  # 꺼진 뒤 닫은 실행도 한 줄

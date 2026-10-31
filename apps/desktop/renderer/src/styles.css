@@ -11,6 +11,7 @@
 @import './features/scope/scope.css';
 @import './features/projects/projects.css';
 @import './features/sharing/sharing.css';
+@import './features/connections/connections.css';
 
 html,body,#root{height:100%}
 body{overflow:hidden}

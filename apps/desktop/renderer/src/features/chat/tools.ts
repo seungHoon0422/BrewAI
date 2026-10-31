@@ -4,9 +4,11 @@ import { TOOL } from './copy';
 import type { ToolPart } from './model';
 
 export const TOOL_ICON: Record<string, IconName> = {
-  calculator: 'calc', current_time: 'clock', unit_convert: 'ruler', date_calc: 'calendar', text_stats: 'text', use_skill: 'layers',
+  calculator: 'calc', current_time: 'clock', unit_convert: 'ruler', date_calc: 'calendar', text_stats: 'text', use_skill: 'layers', use_app: 'plug',
 };
-export const TOOL_STATE_ICON: Partial<Record<ToolPart['status'], IconName>> = { done: 'check', error: 'close' };
+export const TOOL_STATE_ICON: Partial<Record<ToolPart['status'], IconName>> = { done: 'check', error: 'close', waiting: 'lock' };
+// 카드 아이콘: MCP 앱 도구 = 플러그 (앱 서버) · 그 밖 = 도구마다
+export const toolIcon = (p: ToolPart): IconName => (p.app ? 'plug' : TOOL_ICON[p.name] ?? 'wrench');
 
 export type ToolRow = { k: string; v: string; mono?: boolean; err?: boolean };
 
@@ -25,12 +27,23 @@ export function toolRows(p: ToolPart): ToolRow[] {
   else if (p.name === 'unit_convert') rows.push({ k: K.convert, v: args ? `${show(args.value)} ${show(args.from_unit)} → ${show(args.to_unit)}` : p.argsText || '…', mono: true });
   else if (p.name === 'date_calc') rows.push({ k: K.calc, v: args ? [show(args.operation), show(args.date), show(args.other_date), args.days != null ? TOOL.days(show(args.days)) : ''].filter(Boolean).join(', ') : p.argsText || '…' });
   else if (p.name === 'text_stats') rows.push({ k: K.text, v: typeof args?.text === 'string' ? TOOL.received(Array.from(args.text).length) : '…' });
+  else if (p.name === 'use_app') rows.push({ k: K.need, v: show(args?.need) || p.argsText || '…' });
   else if (p.argsText || p.args !== undefined) rows.push({ k: K.input, v: p.args !== undefined ? show(p.args) : p.argsText, mono: true });
+  if (p.status === 'waiting') return [...rows, { k: K.state, v: TOOL.waitingAuth }];
   if (p.status === 'running' || p.status === 'cancelled') return rows;
   if (res && 'error' in res) {
     rows.push({ k: K.error, v: show(res.message) || show(res.error), err: true });
   } else if (p.name === 'calculator' && res && 'result' in res) {
     rows.push({ k: K.result, v: show(res.result), mono: true });
+  } else if (p.name === 'use_app' && res && Array.isArray(res.tools)) {
+    // 고른 도구 = 이름 (쓰기 도구는 '쓰기' 표시) — 스키마 · 설명은 모델만 본다
+    const picked = res.tools.filter((t): t is Record<string, unknown> => typeof t === 'object' && t !== null);
+    rows.push({ k: K.result, v: TOOL.appPicked(show(res.app_name) || show(res.app), picked.length) });
+    if (picked.length) rows.push({ k: K.tools, v: picked.map((t) => `${show(t.title) || show(t.name)}${t.write === true ? ` (${TOOL.write})` : ''}`).join(', ') });
+  } else if (p.app && res && 'result' in res) {
+    // MCP 도구 결과 = {result, truncated?, note?} (12KB 상한 · 나머지 N개는 뺐다)
+    const body = show(res.result);
+    rows.push({ k: K.result, v: res.note ? `${body} (${show(res.note)})` : body, mono: typeof res.result !== 'string' });
   } else if (p.name === 'use_skill' && res) {
     // 지침 본문은 모델만 본다 — 카드엔 줄 수만 (기록에서 연 답은 서버가 본문을 빼고 lines 를 준다)
     const lines = typeof res.lines === 'number' ? res.lines : typeof res.instructions === 'string' ? res.instructions.split('\n').length : null;

@@ -1,12 +1,13 @@
 // 대화 API — 최근 대화 · 대화 기록 · 한 번 실행(AG-UI SSE).
 // 대화 = POST /api/chat (AG-UI RunAgentInput) → AG-UI SSE. 새 의존성 없이 fetch + ReadableStream 으로 읽는다.
-import { ApiError, call, isObj, json, kindOf, num, reasoningOf, send, str, strOrNull, type Reasoning } from '../../lib/api';
+import { ApiError, bool, call, isObj, json, kindOf, list, num, reasoningOf, send, str, strOrNull, type Reasoning } from '../../lib/api';
 import type { ScopePath } from '@brewai/ui';
 import { toScopePath } from '../scope/api';
+export { toVia, type Via } from '../connections/api';
 import { UNTITLED } from './copy';
 
-export type StepStatus = 'running' | 'done' | 'error' | 'cancelled';
-// name = thinking | tool:<이름> | skill:<스킬> | writing · started_ms = 실행 시작부터
+export type StepStatus = 'running' | 'done' | 'error' | 'cancelled' | 'waiting';
+// name = thinking | tool:<이름> | skill:<스킬> | app:<앱> | writing · started_ms = 실행 시작부터 · waiting = 앱 연결을 기다리며 멈춘 툴 단계
 // call_id · batch = 툴 단계만 (같은 batch = 한 모델 응답에서 같이 불려 동시에 돌았다)
 export type Step = { name: string; label: string; status: StepStatus; started_ms: number; duration_ms: number | null; call_id?: string; batch?: number };
 // reasoning_tokens = 생각 토큰 (글이 안 와도 >0 이면 생각은 했다 · display omitted · redacted)
@@ -32,10 +33,43 @@ export type ThreadSummary = ThreadScope & {
   path: ScopePath;
 };
 
+// MCP 도구 · use_app 카드 = + app (handle) · app_name · write (쓰기 도구)
 export type HistoryPart =
   | { type: 'reasoning'; text: string }
   | { type: 'text'; text: string }
-  | { type: 'tool'; id: string; name: string; label: string; args: unknown; result: unknown; status: 'done' | 'error' | 'running'; batch: number | null };
+  | {
+    type: 'tool'; id: string; name: string; label: string; args: unknown; result: unknown; status: 'done' | 'error' | 'running' | 'waiting'; batch: number | null;
+    app: { handle: string; name: string; write: boolean } | null;
+  };
+
+// 앱 연결을 기다리며 멈춘 호출 (run_summary.pending · 기록의 assistant.pending · brewai.app_auth 와 같은 서버 정보)
+export type AppAuthMode = 'ask' | 'auto' | 'manual';
+export type AppAuthReason = 'not_connected' | 'expired' | 'insufficient_scope';
+// issuerDomain = 로그인 화면이 열릴 곳 (서버 도메인과 다르면 카드에 보인다)
+export type AppServer = { id: string; handle: string; name: string; domain: string; issuerDomain: string | null };
+// write · label = 멈춘 호출이 앱 도구일 때 (쓰기 도구 = 로그인 뒤 저절로 잇지 않고 [이어서 하기] 를 누른다)
+export type PendingCall = {
+  call_id: string; server: AppServer; mode: AppAuthMode; reason: AppAuthReason; scope: string | null; write: boolean; label: string | null;
+};
+
+const MODES = ['ask', 'auto', 'manual'] as const;
+const REASONS = ['not_connected', 'expired', 'insufficient_scope'] as const;
+export const authMode = (v: unknown): AppAuthMode => MODES.find((x) => x === v) ?? 'manual';
+export const authReason = (v: unknown): AppAuthReason => REASONS.find((x) => x === v) ?? 'not_connected';
+export const toAppServer = (v: unknown): AppServer =>
+  isObj(v)
+    ? { id: str(v.id), handle: str(v.handle), name: str(v.name, str(v.handle)), domain: str(v.domain), issuerDomain: strOrNull(v.issuer_domain) }
+    : { id: '', handle: '', name: '', domain: '', issuerDomain: null };
+
+// 기록의 pending 한 칸 = {call_id, tool, server_id, handle, name, domain, issuer_domain, reason, mode, scope, write, label}
+function toPending(v: Record<string, unknown>): PendingCall | null {
+  const call_id = str(v.call_id);
+  if (!call_id) return null;
+  return {
+    call_id, server: toAppServer({ ...v, id: v.server_id }),
+    mode: authMode(v.mode), reason: authReason(v.reason), scope: strOrNull(v.scope), write: v.write === true, label: strOrNull(v.label),
+  };
+}
 
 export type HistoryUser = { id: string; role: 'user'; run_id: string; content: string; created_at: string };
 export type HistoryAssistant = {
@@ -53,6 +87,8 @@ export type HistoryAssistant = {
   duration_ms: number | null;
   usage: Usage;
   created_at: string;
+  resumed: boolean; // 앱 연결 뒤 이어서 하기로 돈 실행 (앞에 질문이 없다)
+  pending: PendingCall[]; // 지금도 앱 연결을 기다리는 호출
 };
 // path = 범위 경로 (조직 › 스페이스 › 프로젝트 › 이 대화). 아직 경로를 안 주는 서버면 빈 배열
 export type ThreadDetail = ThreadScope & {
@@ -78,7 +114,7 @@ export function toSteps(v: unknown): Step[] {
   return v.filter(isObj).map((s) => ({
     name: str(s.name),
     label: str(s.label, str(s.name)),
-    status: (['running', 'done', 'error', 'cancelled'] as const).find((x) => x === s.status) ?? 'done',
+    status: (['running', 'done', 'error', 'cancelled', 'waiting'] as const).find((x) => x === s.status) ?? 'done',
     started_ms: num(s.started_ms) ?? 0,
     duration_ms: num(s.duration_ms),
     ...(typeof s.call_id === 'string' ? { call_id: s.call_id } : {}),
@@ -127,8 +163,9 @@ export async function patchThread(id: string, patch: { title?: string; visibilit
 function toPart(p: Record<string, unknown>): HistoryPart | null {
   if (p.type === 'reasoning' || p.type === 'text') return { type: p.type, text: str(p.text) };
   if (p.type === 'tool') {
-    const status = p.status === 'error' ? 'error' : p.status === 'running' ? 'running' : 'done';
-    return { type: 'tool', id: str(p.id), name: str(p.name), label: str(p.label, str(p.name)), args: p.args ?? null, result: p.result ?? null, status, batch: num(p.batch) };
+    const status = p.status === 'error' ? 'error' : p.status === 'running' ? 'running' : p.status === 'waiting' ? 'waiting' : 'done';
+    const app = typeof p.app === 'string' && p.app ? { handle: p.app, name: str(p.app_name, p.app), write: bool(p.write) } : null;
+    return { type: 'tool', id: str(p.id), name: str(p.name), label: str(p.label, str(p.name)), args: p.args ?? null, result: p.result ?? null, status, batch: num(p.batch), app };
   }
   return null;
 }
@@ -147,6 +184,7 @@ export async function getThread(id: string, signal?: AbortSignal): Promise<Threa
       model: str(m.model), model_label: str(m.model_label, str(m.model)), provider: str(m.provider, 'other'),
       provider_label: str(m.provider_label), reasoning_level: reasoningOf(m.reasoning_level),
       duration_ms: num(m.duration_ms), usage: toUsage(m.usage), created_at: str(m.created_at),
+      resumed: m.resumed === true, pending: list(m.pending).map(toPending).filter((x): x is PendingCall => x !== null),
     }];
   });
   return {
@@ -164,6 +202,7 @@ export async function runChat(opts: {
   threadId: string;
   runId: string;
   text: string;
+  resume?: string | null; // 앱 연결 뒤 이어서 하기 = 멈춘 호출 id (질문 없이 · 서버가 그 호출을 다시 계산한다)
   model?: string;
   reasoning: Reasoning;
   spaceId: string | null; // 새 대화만 쓰인다 (있는 대화는 서버가 기록에서 정한다)
@@ -175,7 +214,7 @@ export async function runChat(opts: {
     threadId: opts.threadId,
     runId: opts.runId,
     state: {},
-    messages: [{ id: `${opts.runId}:user`, role: 'user', content: opts.text }],
+    messages: opts.resume ? [] : [{ id: `${opts.runId}:user`, role: 'user', content: opts.text }],
     tools: [], // 툴은 conductor 가 갖는다 (승인·정책). 프런트 툴은 서버가 400
     context: [],
     forwardedProps: {
@@ -183,6 +222,7 @@ export async function runChat(opts: {
       reasoning: opts.reasoning,
       ...(opts.spaceId ? { spaceId: opts.spaceId } : {}),
       ...(opts.projectId ? { projectId: opts.projectId } : {}),
+      ...(opts.resume ? { resume: { call_id: opts.resume } } : {}),
     },
   };
   const res = await call('/api/chat', {

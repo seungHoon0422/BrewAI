@@ -53,6 +53,11 @@ class Settings:
     # 테스트 관리자 admin / admin (BREWAI_TEST_ADMIN=1 · npm run dev 가 기본으로 켠다). 켜지는 건 test_admin_active 일 때만
     test_admin: bool = False
     test_admin_off: bool = False  # BREWAI_TEST_ADMIN=0 이라고 적었을 때만 True → 그 계정을 잠근다 (비어 있음 = 그대로 둔다)
+    # ↓ MCP 연결 (ADR-0013). 인증정보 암호화 키 = CONDUCTOR_SECRET_KEY (stack.mjs 가 만든다 · 32바이트 base64url 또는 64 hex)
+    secret_key: str | None = field(default=None, repr=False)
+    secret_key_id: str = "k1"
+    secret_keys_old: tuple[tuple[str, str], ...] = field(default=(), repr=False)  # 키 교체 뒤 옛 키 (id, 키) — 읽기만
+    mcp_allow_loopback: bool = False  # CONDUCTOR_MCP_ALLOW_LOOPBACK=1 (테스트 전용) — 켜지는 건 mcp_loopback_ok 일 때만
 
     @property
     def google_enabled(self) -> bool:
@@ -73,6 +78,12 @@ class Settings:
         — 꺼져 있는 동안 로그인 ID 'admin' 은 어차피 안 받으니 비밀번호 로그인은 안 되고, 켜 둔 세션만 끊기지 않는다."""
         here = is_loopback(self.public_url) and is_loopback(self.admin_url)
         return not self.test_admin_active and (self.test_admin_off or not here)
+
+    @property
+    def mcp_loopback_ok(self) -> bool:
+        """http://127.0.0.1 MCP 서버 · OAuth 서버(가짜) = 테스트 전용: 켜 두고 + (E2E 또는 conductor 공개 주소가 loopback) 일 때만.
+        사설 · link-local · 메타데이터 주소는 이때도 막는다 (connectors/ssrf.py)."""
+        return self.mcp_allow_loopback and (self.e2e or is_loopback(self.public_url))
 
     @property
     def secure_cookies(self) -> bool:
@@ -124,7 +135,21 @@ def load_settings(env: Mapping[str, str] = os.environ) -> Settings:
         e2e=env.get("BREWAI_E2E") == "1",
         test_admin=_test_admin(env),
         test_admin_off=(env.get("BREWAI_TEST_ADMIN") or "").strip() == "0",
+        secret_key=(env.get("CONDUCTOR_SECRET_KEY") or "").strip() or None,
+        secret_key_id=(env.get("CONDUCTOR_SECRET_KEY_ID") or "").strip() or "k1",
+        secret_keys_old=_old_keys(env.get("CONDUCTOR_SECRET_KEYS_OLD")),
+        mcp_allow_loopback=env.get("CONDUCTOR_MCP_ALLOW_LOOPBACK") == "1",
     )
+
+
+def _old_keys(raw: str | None) -> tuple[tuple[str, str], ...]:
+    # "<id>:<키>,<id>:<키>" — 모양이 틀린 칸은 버린다 (값은 로그에 안 찍는다)
+    out: list[tuple[str, str]] = []
+    for part in (raw or "").split(","):
+        kid, sep, key = part.strip().partition(":")
+        if sep and kid.strip() and key.strip():
+            out.append((kid.strip(), key.strip()))
+    return tuple(out)
 
 
 def _test_admin(env: Mapping[str, str]) -> bool:

@@ -14,11 +14,16 @@
   POST   /api/chat                   AG-UI RunAgentInput → AG-UI SSE (agent.py 머리말 = 이벤트 순서)
                                      forwardedProps.spaceId · projectId = 새 대화만 (없으면 내 스페이스) · 기존 대화는 DB 값
                                      남의 대화 = 404 thread_not_found · 공유된 남의 대화에 이어 쓰기 = 403 forbidden
+                                     forwardedProps.resume = {call_id} (messages 없어도 됨) = MCP 앱 연결 뒤 이어서 하기 (ADR-0013):
+                                       그 대화의 마지막 완료 실행이 그 호출로 멈췄을 때만 (아니면 409 nothing_to_resume) · 아직 연결 전 = 409 app_not_connected
+  MCP 앱 (api_mcp.py 머리말)         /api/me/mcp/* · /api/me/settings · 공개 GET /api/mcp/oauth/callback · 관리자 /api/admin/mcp/*
   GET    /api/scopes                 범위 계층 표 [{kind, parent, optional, membership, tenant, item}] (scopes.py)
   GET    /api/threads?space=&project=<id|none>&limit=   한 스페이스의 내 대화 + 공유된 대화 (space 없으면 내 스페이스)
                                      + space_id · project_id · visibility · user_id · owner_name · mine
                                      · path = [{kind, id, name}] 위 → 아래 (조직 · 스페이스 · 프로젝트? · 대화)
   GET    /api/threads/{id}           대화 기록 (완료된 턴만) + 위 범위 칸 · path · can_edit
+                                     이어서 하기 실행 = user 메시지 없이 assistant 만 (resumed: true) · 연결 대기 툴 = status waiting
+                                     · assistant.pending = [대기 호출] (run_summary.pending 과 같은 모양)
   PATCH  /api/threads/{id}           {title?, visibility?: private|shared, project_id?: id|null} (만든 사람만 · 내 스페이스 공유 = 409
                                      personal_space · 다른 스페이스 프로젝트 = 409 project_in_other_space)
   DELETE /api/threads/{id}           대화 지우기 (204 · 만든 사람만)
@@ -59,7 +64,7 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from . import api_admin, api_auth, api_spaces
+from . import api_admin, api_auth, api_mcp, api_spaces
 from .agent import ChatRequest, ChatRequestError, ChatRuntime, RunScope, render_run
 from .auth import policy
 from .auth.accounts import Accounts, AuthFailed, Principal
@@ -68,6 +73,8 @@ from .auth.google import GoogleOIDC
 from .auth.guard import Guard
 from .auth.http import auth_failed_response, require_admin, require_user
 from .auth.policy import Denied
+from .connectors.session import Connectors
+from .connectors.vault import Vault
 from .diagnose import MODEL_HEALTH_CODES
 from .gateway import GatewayCatalogPort, GatewayError, LiteLLMCatalog
 from .models import ExposureRow, ModelChoice, ModelPatchError, ModelRegistry
@@ -254,10 +261,10 @@ class _Sink:
     def steps_changed(self, steps: list[dict[str, Any]]) -> None:
         self._store.update_steps(self._req.run_id, steps)
 
-    def finish(self, *, status, steps, duration_ms, messages, usage, error_code, error_detail) -> None:  # type: ignore[no-untyped-def]
+    def finish(self, *, status, steps, duration_ms, messages, usage, error_code, error_detail, pending=None) -> None:  # type: ignore[no-untyped-def]
         self._store.finish_run(
             self._req.run_id, status=status, steps=steps, duration_ms=duration_ms, messages=messages, usage=usage,
-            error_code=error_code, title=_title(self._req.prompt),
+            error_code=error_code, title=_title(self._req.prompt) if self._req.prompt else None, pending=pending,
         )
         # 관리자 모델 표의 '연결' 칸: 성공 · 모델 탓인 실패만 (멈춤 · 단계 초과 · 서버 오류는 안 남긴다)
         if status == "done":
@@ -282,6 +289,7 @@ def create_app(
     runtime: ChatRuntime | None = None,
     store: Store | None = None,
     google: GoogleOIDC | None = None,
+    mcp_transport: Any = None,  # 테스트 = httpx2.MockTransport (가짜 MCP · OAuth 서버) · 기본 = SSRF 검사한 진짜 연결
 ) -> FastAPI:
     settings = settings or load_settings()
     catalog = catalog or LiteLLMCatalog(settings.gateway_url, settings.gateway_key, ttl_s=settings.catalog_ttl_s)
@@ -298,6 +306,10 @@ def create_app(
     scopes = Scopes(store)
     guard = Guard(directory, scopes)
     google = google or GoogleOIDC(settings)
+    connectors = Connectors(
+        store, accounts, vault=Vault.from_settings(settings), public_url=settings.public_url, allow_loopback=settings.mcp_loopback_ok,
+        transport=mcp_transport,
+    )
     # .env 첫 관리자 (users 가 비었을 때만) → 테스트 관리자 admin / admin (켜져 있으면 · .env 값이 없으면 그가 첫 관리자)
     if not (test_admin and not settings.admin_email):
         directory.bootstrap(settings.admin_email, settings.admin_password)
@@ -357,6 +369,7 @@ def create_app(
     app.state.directory = directory
     app.state.scopes = scopes
     app.state.guard = guard
+    app.state.connectors = connectors
 
     # 라우터 3개 = 인증 3종류. 경로는 반드시 이 중 하나에 (app 에 직접 붙이지 않는다 · /healthz 만 예외)
     public = APIRouter()
@@ -449,16 +462,33 @@ def create_app(
                 _, tf = guard.thread(p.actor, req.thread_id, "owner")
                 space = tf.space
                 project = directory.project(existing["project_id"])
+            elif req.resume:
+                raise ChatRequestError(404, "thread_not_found")
             else:
                 space = guard.space(p.actor, req.space_id)
                 project = guard.project_in(p.actor, req.project_id, space) if req.project_id else None
             policy.require_space_writable(p.actor, space)
+            apps = connectors.session(p.user_id)  # 쓸 수 있는 MCP 앱 (0개 = None = 프롬프트 · 도구 0 추가)
+            blobs = store.thread_history(req.thread_id)
+            resume: tuple[str, ...] = ()
+            stopped = store.pending_run(req.thread_id) if req.resume else None
+            if req.resume:
+                # 이어서 하기: 그 대화의 마지막 완료 실행이 이 호출로 멈췄고 · 기록에 아직 결과가 없고 · 그 앱이 지금 연결돼 있을 때만
+                waiting = [w for w in (_json(stopped["pending_json"]) if stopped else None) or [] if isinstance(w, dict)]
+                asked = next((w for w in waiting if w.get("call_id") == req.resume), None)
+                open_ids = ChatRuntime.pending_calls(blobs, [str(w.get("call_id")) for w in waiting])
+                if asked is None or req.resume not in open_ids:
+                    raise ChatRequestError(409, "nothing_to_resume")
+                if apps is None or not apps.ready(str(asked.get("server_id"))):
+                    raise ChatRequestError(409, "app_not_connected")
+                resume = tuple(str(w["call_id"]) for w in waiting if w is asked or apps.ready(str(w.get("server_id"))))
             await registry.refresh()
-            choice = registry.resolve(req.model)
+            choice = registry.resolve(req.model or (stopped["model"] if stopped else None))
+            if choice is None and req.resume and req.model is None:
+                choice = registry.resolve(None)  # 멈춘 실행의 모델이 숨겨졌으면 기본 모델로 잇는다
             if choice is None:
                 # 숨긴 모델 · 없는 모델 · 채팅 모델 아님 = 모두 unknown_model (무엇이 숨겨져 있는지 알려 주지 않는다)
                 raise ChatRequestError(503, "no_models") if req.model is None else ChatRequestError(400, "unknown_model")
-            blobs = store.thread_history(req.thread_id)
             effective = req.reasoning if ChatRuntime.model_settings(choice, req.reasoning) is not None else "off"
             try:
                 store.start_run(
@@ -472,7 +502,10 @@ def create_app(
                 f"이 대화는 프로젝트 '{project['name']}' 안에 있다. 아래 프로젝트 지침을 따른다 (위 규칙이 우선).\n{project['instructions']}"
                 if project is not None and project["instructions"] else None
             )
-            scope = RunScope(user_id=p.user_id, space_id=space.id, project_id=project["id"] if project else None, instructions=instructions)
+            scope = RunScope(
+                user_id=p.user_id, space_id=space.id, project_id=project["id"] if project else None, instructions=instructions,
+                apps=apps, resume=resume,
+            )
             return choice, blobs, _Sink(store, req, choice.id), scope
 
         return await runtime.handle(request, prepare)
@@ -496,17 +529,25 @@ def create_app(
     async def get_thread(thread_id: str, p: Principal = Depends(require_user)) -> dict[str, Any]:
         thread, _ = guard.thread(p.actor, thread_id)
         messages: list[dict[str, Any]] = []
+        carry: dict[str, dict[str, Any]] = {}  # 툴 칸을 실행끼리 공유 (이어서 하기 결과가 앞 실행의 대기 카드를 채운다)
         for r in store.thread_runs(thread_id):
-            messages.append({"id": f"{r['id']}:user", "role": "user", "run_id": r["id"], "content": r["prompt"], "created_at": r["started_at"]})
-            answer = render_run(r["messages"])
+            resumed = r["prompt"] == ""  # 이어서 하기 실행 = 사용자 메시지 없음
+            if not resumed:
+                messages.append({"id": f"{r['id']}:user", "role": "user", "run_id": r["id"], "content": r["prompt"], "created_at": r["started_at"]})
+            waiting = [w for w in _json(r["pending_json"]) or [] if isinstance(w, dict)]
+            answer = render_run(r["messages"], pending=[str(w.get("call_id")) for w in waiting], carry=carry)
             messages.append(
                 {
                     "id": f"{r['id']}:assistant", "role": "assistant", "run_id": r["id"], **answer,
                     "model": r["model"], "model_label": r["model_label"], "provider": r["provider"],
                     "provider_label": provider_label(r["provider"]), "reasoning_level": r["reasoning"],
                     "duration_ms": r["duration_ms"], "usage": _json(r["usage"]), "created_at": r["finished_at"],
+                    "resumed": resumed, "pending": waiting,
                 }
             )
+        for m in messages:  # 이어서 하기로 끝난 대기는 빼고 지금도 기다리는 것만
+            if m["role"] == "assistant":
+                m["pending"] = [w for w in m["pending"] if carry.get(str(w.get("call_id")), {}).get("status") == "waiting"]
         out = thread_out(thread, p)
         keys = ("id", "title", "created_at", "updated_at", "space_id", "project_id", "visibility", "user_id", "owner_name", "mine", "path")
         return {k: out[k] for k in keys} | {"can_edit": out["mine"], "messages": messages}
@@ -624,6 +665,7 @@ def create_app(
     api_auth.register(public, user, admin, settings=settings, google=google)
     api_spaces.register(user)
     api_admin.register(admin)
+    api_mcp.register(public, user, admin, settings=settings, connectors=connectors)
     for router in (public, user, admin):
         app.include_router(router)
     return app

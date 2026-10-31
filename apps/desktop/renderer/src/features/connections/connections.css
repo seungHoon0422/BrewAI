@@ -1,0 +1,48 @@
+/* 연결된 앱 — 맨 위 체크박스 · 앱 줄(이름 · 출처 배지 · 도메인 · 상태 · 버튼) · 앱 추가 대화상자 · 상세 서랍 · 대화 카드는 chat.css. 토큰만. */
+.conn-note{margin-top:var(--space-4)}
+.conn-auto{margin-top:var(--space-6);padding:var(--space-3) var(--space-4);border:1px solid var(--border);border-radius:var(--radius-lg)}
+.conn-auto .ui-check-text{display:flex;flex-direction:column;gap:var(--space-0-5)}
+.conn-auto .ui-check-text>span:first-child{font-weight:var(--fw-medium)}
+.sec-head .sec-sp{flex:1}
+.sec-sub{margin:0 var(--space-0-5) var(--space-2-5);font-size:var(--fs-sm);color:var(--text-muted)}
+
+.row.conn-app{gap:var(--space-3)}
+.app-open{border:0;background:none;padding:0;margin:0;text-align:left;color:inherit;font:inherit;cursor:pointer;border-radius:var(--radius-sm)}
+.app-open:hover b{text-decoration:underline;text-underline-offset:3px}
+.app-head{display:flex;align-items:center;gap:var(--space-2);min-width:0}
+.app-head b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.app-src{flex:none}
+.app-acts{display:flex;align-items:center;gap:var(--space-1-5);flex:none}
+.row.conn-app[data-state="needs_login"] .app-state,.row.conn-app[data-state="expired"] .app-state{color:var(--warn-text)}
+.row.conn-app[data-state="connected"] .app-state{color:var(--ok-text)}
+.row.conn-app[data-state="error"] .app-state{color:var(--danger-text)}
+.row.conn-app.importable{align-items:flex-start}
+.row.conn-app.importable .ui-tile{margin-top:2px}
+.app-via{margin-top:var(--space-1);font-size:var(--fs-xs)}
+.apps-hidden{margin-top:var(--space-3)}
+.apps-hidden summary{cursor:pointer;color:var(--text-muted);font-size:var(--fs-sm);margin:0 var(--space-0-5) var(--space-2)}
+.apps-hidden summary .ui-num{margin-left:var(--space-1)}
+
+/* 앱 추가 */
+.app-share{display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap}
+.app-share-target{min-width:200px}
+.app-preview{display:flex;flex-direction:column;gap:var(--space-1);padding:var(--space-3) var(--space-3-5);border:1px solid var(--border-subtle);border-radius:var(--radius-md);background:var(--surface-sunken)}
+.app-preview b{font-weight:var(--fw-semibold)}
+.app-preview-meta{margin:0;color:var(--text-2);font-size:var(--fs-sm)}
+.app-line{display:flex;align-items:baseline;gap:var(--space-2);flex-wrap:wrap;margin:var(--space-1) 0 0;font-size:var(--fs-sm);color:var(--text-muted)}
+.app-line code{font-family:var(--font-mono);font-size:var(--fs-xs);color:var(--text);overflow-wrap:anywhere}
+
+/* 상세 서랍 */
+.app-detail{display:flex;flex-direction:column;gap:var(--space-4)}
+.app-detail .app-acts{flex-wrap:wrap}
+.app-block h3{display:flex;align-items:center;gap:var(--space-1-5);margin:0 0 var(--space-2);font-size:var(--fs-sm);font-weight:var(--fw-semibold)}
+.app-block h3 .count{color:var(--text-muted);font-weight:var(--fw-regular)}
+.app-block .needs{margin:var(--space-2) 0 0}
+.app-tools{list-style:none;margin:0;padding:0;border:1px solid var(--border);border-radius:var(--radius-lg)}
+.app-tools li{display:flex;flex-direction:column;gap:var(--space-0-5);padding:var(--space-2-5) var(--space-3-5)}
+.app-tools li+li{border-top:1px solid var(--border-subtle)}
+.app-tool-head{display:flex;align-items:center;gap:var(--space-2);min-width:0;font-size:var(--fs-sm)}
+.app-tool-head b{font-weight:var(--fw-medium)}
+.app-tool-head code{margin-left:auto;font-family:var(--font-mono);font-size:var(--fs-xs);color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.app-shares .app-share{margin-top:var(--space-2-5)}
+.app-foot{display:flex;justify-content:flex-start;padding-top:var(--space-2);border-top:1px solid var(--border-subtle)}

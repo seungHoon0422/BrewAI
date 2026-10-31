@@ -85,10 +85,11 @@ test('모델 화면에 가격·컨텍스트·provider 입력칸이 없다', asyn
   await expect(page.getByRole('button', { name: REGISTER }).or(page.getByRole('link', { name: REGISTER }))).toHaveCount(0);
 });
 
-test('카탈로그 › Skill: runtime/skills 스타터 5개 (읽기 전용 · 버전 = sha256 앞 12자) · MCP 는 비어 있다', async ({ page }) => {
+test('카탈로그 › Skill: runtime/skills 스타터 5개 (읽기 전용 · 버전 = sha256 앞 12자) · 첫 탭 = MCP 서버 (admin-mcp.spec)', async ({ page }) => {
   await page.goto('/#/catalog');
   const tabs = page.getByRole('tablist', { name: '카탈로그 종류' });
-  await expect(page.getByRole('table', { name: 'MCP 서버 목록' })).toContainText('등록된 MCP 서버 없음');
+  await expect(tabs.getByRole('tab')).toHaveText(['MCP 서버', '사용자 추가 서버', 'Skill']);
+  await expect(page.getByRole('table', { name: 'MCP 서버 목록' }).getByRole('columnheader').first()).toHaveText('이름');
   await tabs.getByRole('tab', { name: 'Skill', exact: true }).click();
   const table = page.getByRole('table', { name: 'Skill 목록' });
   await expect(table.getByRole('columnheader')).toHaveText(['이름', '설명', '쓰는 도구', '출처', '버전 (sha256)', '사용']);

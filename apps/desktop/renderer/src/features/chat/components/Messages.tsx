@@ -42,7 +42,7 @@ export function Messages({ conv }: { conv: Conv }) {
   useLayoutEffect(() => {
     const t = conv.turns[0];
     const bubble = col.current?.querySelector<HTMLElement>('.turn .msg.user .bubble');
-    if (t && conv.turns.length === 1 && bubble) arriveFromHome(bubble, t.ask);
+    if (t && !t.resumed && conv.turns.length === 1 && bubble) arriveFromHome(bubble, t.ask);
   }, []); // 처음 한 번
   useEffect(() => {
     const el = box.current;
@@ -63,7 +63,7 @@ export function Messages({ conv }: { conv: Conv }) {
       <div ref={col} className="col" role="log" aria-label={CHAT.log} aria-live="polite">
         {conv.turns.map((t, i) => (
           <div key={t.id} className="turn">
-            <div className="msg user enter"><div className="bubble">{t.ask}</div></div>
+            {!t.resumed && <div className="msg user enter"><div className="bubble">{t.ask}</div></div>}
             <AnswerView turn={t} latest={i === conv.turns.length - 1} threadId={conv.id} />
           </div>
         ))}

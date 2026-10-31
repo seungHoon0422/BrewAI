@@ -19,6 +19,15 @@ POST /api/chat 본문 = AG-UI RunAgentInput, 응답 = AG-UI SSE. 이벤트 순�
 멀티턴 = 서버가 원본: 클라이언트가 보낸 messages 중 마지막 user 메시지만 쓰고, 앞 대화는 저장된 기록(message_history)으로.
 범위 = forwardedProps.spaceId · projectId (새 대화만 · 판정은 app.py prepare). 프로젝트 지침은 시스템 프롬프트 '뒤'에 붙는다
 (conductor 규칙을 덮지 못하게) · LiteLLM 요청 `user` = users.id (ADR-0011).
+MCP 앱 (ADR-0013 · slice 05 · 판단은 connectors/session.py · 여기는 Pydantic AI 접착만)
+  앱이 0개 = 프롬프트 · 도구 0 추가. 1개 이상 = 실행 지침에 앱 목록 블록(프로젝트 지침 앞) + 상시 도구 use_app(app, need)
+  + MCP 도구 전부 deferred (ToolDefinition.defer_loading · 공개 전엔 요청에 안 실림) + 자동 search_tools (우리 검색 전략 = 한글 bigram)
+  use_app → ToolReturn(tools=[…4개]) = 그 대화에 고정 (기록의 ToolAvailabilityDeltaPart) · 대화당 12개
+  활동 단계 = app:<handle> (tool:use_app 대신) · MCP 도구 = tool:<handle>__<도구> + CUSTOM brewai.app_tool {call_id, app, app_name, server_id, tool, write, label}
+  연결 없음 = CallDeferred → 툴 단계 status waiting → CUSTOM brewai.app_auth {call_id, server{id, handle, name, domain}, mode ask|auto|manual,
+    reason not_connected|expired|insufficient_scope, auto_open, scope} → run_summary.pending = [그 호출들] → runs.pending_json
+  공유됐지만 안 가져온 앱 = CUSTOM brewai.app_needs_import {server{id, name, domain}, via} (실행은 계속 · 모델이 안내)
+  이어서 하기 = forwardedProps.resume {call_id} (메시지 없이) → 서버가 기록의 그 호출을 다시 계산(UI 는 근거 아님) → deferred_tool_results
 """
 
 from __future__ import annotations
@@ -31,7 +40,7 @@ import time
 from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Sequence
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, field, replace
-from typing import Any, Literal, Protocol
+from typing import Annotated, Any, Literal, Protocol, TypedDict
 
 from ag_ui.core import (
     BaseEvent,
@@ -44,8 +53,10 @@ from ag_ui.core import (
 )
 from openai import APIConnectionError, APIStatusError, AsyncOpenAI
 from pydantic import ValidationError
+from pydantic import Field, TypeAdapter
 from pydantic_ai import Agent, FunctionToolset, RunContext, Tool
-from pydantic_ai.exceptions import ModelConnectionError, ModelHTTPError, UsageLimitExceeded
+from pydantic_ai.capabilities import ToolSearch
+from pydantic_ai.exceptions import CallDeferred, ModelConnectionError, ModelHTTPError, UsageLimitExceeded
 from pydantic_ai.messages import (
     INTERRUPTED_TOOL_RETURN_CONTENT,
     ModelMessage,
@@ -55,9 +66,13 @@ from pydantic_ai.messages import (
     RetryPromptPart,
     TextPart,
     ThinkingPart,
+    ToolAvailabilityDeltaPart,
     ToolCallPart,
+    ToolReturn,
     ToolReturnPart,
+    ToolSearchReturnPart,
     UserPromptPart,
+    repair_messages,
 )
 from pydantic_ai.models import Model, ModelRequestParameters, StreamedResponse
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAIChatModelSettings
@@ -65,17 +80,20 @@ from pydantic_ai.models.wrapper import WrapperModel
 from pydantic_ai.providers.litellm import LiteLLMProvider
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.tool_manager import ParallelExecutionMode, ToolManager
+from pydantic_ai.tools import DeferredToolRequests, DeferredToolResults, ToolDefinition
 from pydantic_ai.toolsets import AbstractToolset, ToolsetTool, WrapperToolset
+from pydantic_ai.toolsets.external import TOOL_SCHEMA_VALIDATOR
 from pydantic_ai.ui.ag_ui import AGUIAdapter, AGUIEventStream
 from pydantic_ai.usage import UsageLimits
 from starlette.requests import Request
 from starlette.responses import Response
 
 from . import diagnose as dx
+from .connectors.session import AppSession, AuthNeeded, Revealed, search_names
 from .models import ModelChoice
 from .skills import NAME_RE as SKILL_NAME_RE
 from .skills import SkillRegistry
-from .tools import BUILTIN_TOOLS, USE_SKILL, ToolSpec, step_label, tool_label
+from .tools import BUILTIN_TOOLS, USE_APP, USE_SKILL, ToolSpec, step_label, tool_label
 
 log = logging.getLogger("conductor.agent")
 
@@ -104,6 +122,7 @@ MAX_PARALLEL_TOOLS = 4
 TOOL_TIMEOUT_S = 20.0
 # 실행이 오류 · 취소로 끝날 때 Pydantic AI 가 아직 결과 없는 툴마다 보내는 마감 결과 (ui/_event_stream.py) → 그 툴 단계는 완료가 아니다
 _CLOSEOUT = {"Tool execution was interrupted by an error.": "error", INTERRUPTED_TOOL_RETURN_CONTENT: "cancelled"}
+APP_TOOL_TIMEOUT_S = 45.0  # use_app (tools/list 여러 쪽) · MCP 도구 한 번 (MCP 클라이언트 자체 시간 제한 30초가 먼저)
 PROBE_MAX_TOKENS = 16  # 관리자 '연결 시험' (LiteLLM 자체 health check 기본값과 같다. 1 은 생각 모델에서 거절될 수 있다)
 _ID = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 
@@ -119,6 +138,27 @@ PUBLIC_ERRORS = {
     "run_limit": "작업 단계가 너무 많아 멈췄어요. 질문을 나눠서 다시 시도해 주세요.",
     "model_error": "모델이 응답하지 못했어요. 잠시 뒤 다시 시도해 주세요.",
 }
+
+
+USE_APP_DESCRIPTION = (
+    "연결된 앱(MCP)의 도구를 꺼낸다. 앱 목록의 handle 과 할 일(need)을 주면 맞는 도구를 골라 바로 부를 수 있게 해 준다. "
+    "같은 대화에서 이미 꺼낸 도구는 다시 꺼내지 않고 바로 부른다."
+)
+SEARCH_DESCRIPTION = (
+    "앱 도구를 낱말로 찾는다 (한국어 · 영어). 어느 앱인지 알면 use_app 을 먼저 쓴다. 못 찾으면 같은 낱말로 다시 찾지 않는다."
+)
+SEARCH_PARAM_DESCRIPTION = "찾을 낱말 목록 (예: ['이슈 검색', 'search issues']). 결과는 하나로 합친다."
+
+
+class _UseAppArgs(TypedDict):
+    app: Annotated[str, Field(description="앱 목록의 handle (예: linear)", max_length=80)]
+    need: Annotated[str, Field(description="이 앱으로 할 일 한 줄 (예: 내 이슈 검색)", max_length=300)]
+
+
+_USE_APP_ARGS = TypeAdapter(_UseAppArgs)
+_USE_APP_DEF = ToolDefinition(
+    name=USE_APP, description=USE_APP_DESCRIPTION, parameters_json_schema=_USE_APP_ARGS.json_schema(), timeout=APP_TOOL_TIMEOUT_S,
+)
 
 
 class ChatRequestError(Exception):
@@ -141,6 +181,7 @@ class ChatRequest:
     reasoning: Reasoning  # forwardedProps.reasoning (기본 off)
     space_id: str | None = None  # forwardedProps.spaceId (새 대화만 · 없으면 내 스페이스)
     project_id: str | None = None  # forwardedProps.projectId (새 대화만)
+    resume: str | None = None  # forwardedProps.resume.call_id = 연결 뒤 이어서 하기 (prompt 없음 · 기존 대화만)
 
 
 @dataclass(frozen=True)
@@ -151,6 +192,8 @@ class RunScope:
     space_id: str | None = None
     project_id: str | None = None
     instructions: str | None = None  # 프로젝트 지침 (시스템 프롬프트 뒤에 붙는다)
+    apps: AppSession | None = None  # 이 사람이 쓸 수 있는 MCP 앱 (없으면 None = 앱 목록 · use_app 0)
+    resume: tuple[str, ...] = ()  # 이어서 하기: 서버가 다시 계산할 대기 호출 id (prepare 가 runs.pending_json 으로 확인)
 
 
 class RunSink(Protocol):
@@ -168,6 +211,7 @@ class RunSink(Protocol):
         usage: dict[str, Any] | None,
         error_code: str | None,
         error_detail: str | None,
+        pending: list[dict[str, Any]] | None = None,  # 연결 대기로 멈춘 호출 (status done 일 때만 · runs.pending_json)
     ) -> None: ...
 
 
@@ -294,8 +338,139 @@ class _Bounded(WrapperToolset[None]):
             return await self.wrapped.call_tool(name, tool_args, ctx, tool)
 
 
-def bounded(toolset: AbstractToolset[None], limit: int | None = None) -> _Bounded:
-    return _Bounded(toolset, gate=asyncio.Semaphore(limit or MAX_PARALLEL_TOOLS))
+def bounded(toolset: AbstractToolset[None], limit: int | None = None, *, gate: asyncio.Semaphore | None = None) -> _Bounded:
+    return _Bounded(toolset, gate=gate or asyncio.Semaphore(limit or MAX_PARALLEL_TOOLS))
+
+
+# ── MCP 앱 (connectors/session.py 의 판단 → Pydantic AI 도구 · 이벤트) ─────────────────────────
+
+
+@dataclass
+class _AppRun:
+    """실행 하나의 앱 상태: 연결 대기 호출 · 내보낼 CUSTOM 이벤트 · 대기로 닫을 툴 단계."""
+
+    apps: AppSession
+    pending: dict[str, dict[str, Any]] = field(default_factory=dict)  # call id → runs.pending_json 한 칸
+    events: list[BaseEvent] = field(default_factory=list)
+    waiting: list[str] = field(default_factory=list)
+    resumed: int = 0  # 이어서 하기로 서버가 대신 돌린 호출 수 (사용량 tool_calls 에 더한다)
+
+    def defer(self, call_id: str, tool_name: str, need: AuthNeeded) -> CallDeferred:
+        self.pending[call_id] = need.pending(call_id, tool_name)
+        self.events.append(CustomEvent(name="brewai.app_auth", value=need.event(call_id)))
+        self.waiting.append(call_id)
+        return CallDeferred(metadata={k: v for k, v in need.pending(call_id, tool_name).items() if k != "call_id"})
+
+    def drain(self) -> tuple[list[str], list[BaseEvent]]:
+        events = [*self.events, *(CustomEvent(name=n, value=v) for n, v in self.apps.notices)]
+        waiting = list(self.waiting)
+        self.events.clear()
+        self.waiting.clear()
+        self.apps.notices.clear()
+        return waiting, events
+
+
+class _AppTools(AbstractToolset[None]):
+    """use_app (상시) + MCP 도구 (전부 deferred = 공개 전엔 요청에 0). 실행마다 만든다. 판단 = connectors/session.py."""
+
+    def __init__(self, run: _AppRun) -> None:
+        self.run = run
+
+    @property
+    def id(self) -> str:
+        return "brewai_apps"
+
+    async def get_tools(self, ctx: RunContext[None]) -> dict[str, ToolsetTool[None]]:
+        out: dict[str, ToolsetTool[None]] = {
+            USE_APP: ToolsetTool(toolset=self, tool_def=_USE_APP_DEF, max_retries=1, args_validator=_USE_APP_ARGS.validator),  # type: ignore[arg-type]
+        }
+        for t in self.run.apps.tools():
+            d = t.definition()
+            out[d["name"]] = ToolsetTool(
+                toolset=self, max_retries=1, args_validator=TOOL_SCHEMA_VALIDATOR,
+                tool_def=ToolDefinition(name=d["name"], description=d["description"], parameters_json_schema=d["parameters"],
+                                        metadata=d["metadata"], defer_loading=True, timeout=APP_TOOL_TIMEOUT_S),
+            )
+        return out
+
+    async def call_tool(self, name: str, tool_args: dict[str, Any], ctx: RunContext[None], tool: ToolsetTool[None]) -> Any:
+        call_id = ctx.tool_call_id or ""
+        if name == USE_APP:
+            got = await self.run.apps.use_app(tool_args.get("app"), tool_args.get("need"), revealed=ctx.discovered_tool_names)
+            if isinstance(got, AuthNeeded):
+                raise self.run.defer(call_id, name, got)
+            return app_return(got)
+        res, meta = await self.run.apps.call(name, tool_args, pinned=pinned_servers(ctx.messages))
+        if isinstance(res, AuthNeeded):
+            raise self.run.defer(call_id, name, res)
+        return ToolReturn(res, metadata=meta)
+
+
+def app_return(got: Revealed | dict[str, Any]) -> Any:
+    """use_app 결과 → 모델 · 기록. 새로 공개할 도구 = ToolReturn.tools (기록에 남아 그 대화에 고정)."""
+    if isinstance(got, Revealed):
+        return ToolReturn(got.result(), tools=got.new, metadata={"app": got.app.handle, "app_name": got.app.name, "server_id": got.app.server_id})
+    return got
+
+
+def _search_apps(ctx: RunContext[Any], queries: Sequence[str], tools: Sequence[ToolDefinition]) -> list[str]:
+    """자동 search_tools 의 검색 전략 = 한글 되는 우리 BM25 (기본은 [a-z0-9]+ 라 한글을 버린다 · ADR-0013)."""
+    return search_names(queries, [(t.name, t.description, t.metadata) for t in tools], ctx.discovered_tool_names)
+
+
+def revealed_names(messages: Sequence[ModelMessage]) -> set[str]:
+    """기록에서 공개된 deferred 도구 이름 (use_app 의 ToolReturn.tools · search_tools 결과)."""
+    out: set[str] = set()
+    for m in messages:
+        if isinstance(m, ModelRequest):
+            for p in m.parts:
+                if isinstance(p, ToolAvailabilityDeltaPart):
+                    out.update(p.tools_added)
+                elif isinstance(p, ToolSearchReturnPart):
+                    out.update(x["name"] for x in p.discovered_tools)
+    return out
+
+
+def pinned_servers(messages: Sequence[ModelMessage]) -> dict[str, str]:
+    """기록이 MCP 도구 이름을 묶은 서버: use_app 결과(metadata server_id · 고른 도구 이름) · MCP 도구 결과(metadata server_id).
+    나중 것이 이긴다 (use_app 을 다시 부르면 지금 서버로). handle 이 다른 서버로 옮겨 간 이름을 옛 대화가 부르지 않게 (session.call)."""
+    out: dict[str, str] = {}
+    for m in messages:
+        if not isinstance(m, ModelRequest):
+            continue
+        for p in m.parts:
+            if not isinstance(p, ToolReturnPart) or not isinstance(p.metadata, dict) or not isinstance(p.metadata.get("server_id"), str):
+                continue
+            sid = p.metadata["server_id"]
+            if p.tool_name == USE_APP:
+                tools = p.content.get("tools") if isinstance(p.content, dict) else None
+                out.update({t["name"]: sid for t in tools or [] if isinstance(t, dict) and isinstance(t.get("name"), str)})
+            elif "__" in p.tool_name:
+                out[p.tool_name] = sid
+    return out
+
+
+def open_calls(messages: Sequence[ModelMessage]) -> dict[str, ToolCallPart]:
+    """마지막 모델 응답에서 결과가 아직 없는 툴 호출 (연결 대기로 멈춘 실행의 끝 · 그 뒤 요청에 결과가 없는 것)."""
+    last = next((i for i in range(len(messages) - 1, -1, -1) if isinstance(messages[i], ModelResponse)), None)
+    if last is None:
+        return {}
+    calls = {p.tool_call_id: p for p in messages[last].parts if isinstance(p, ToolCallPart)}
+    for m in messages[last + 1 :]:
+        for p in m.parts:
+            if isinstance(p, ToolReturnPart | RetryPromptPart):
+                calls.pop(p.tool_call_id, None)
+    return calls
+
+
+def ready_history(blobs: Sequence[str], *, resume: bool) -> list[ModelMessage]:
+    """모델에 줄 기록. 새 질문인데 마지막 응답에 결과 없는 툴 호출(연결을 기다리다 그만둔 것)이 있으면 닫는다
+    (Pydantic AI 는 그대로면 새 질문을 거절한다). 이어서 하기 = 그대로 둔다 (deferred_tool_results 가 채운다).
+    더 앞의 열린 호출은 Pydantic AI 가 요청마다 스스로 닫는다."""
+    history = load_history(blobs)
+    if not resume and open_calls(history):
+        return repair_messages(history)
+    return history
 
 
 def load_history(blobs: Sequence[str]) -> list[ModelMessage]:
@@ -325,10 +500,12 @@ def skill_card(result: Any) -> Any:
     return result
 
 
-def render_run(blob: str | None) -> dict[str, Any]:
-    """저장된 실행 하나 → 화면용 답 (GET /api/threads/{id}). parts = 생각 · 툴 · 글 을 나온 순서대로."""
+def render_run(blob: str | None, *, pending: Sequence[str] = (), carry: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
+    """저장된 실행 하나 → 화면용 답 (GET /api/threads/{id}). parts = 생각 · 툴 · 글 을 나온 순서대로.
+    pending = 연결 대기로 멈춘 호출 id (그 툴 = status waiting). carry = 대화 전체에서 공유하는 툴 칸 (이어서 하기 실행의 결과가
+    앞 실행의 대기 카드를 채운다). MCP 도구 = + app · app_name · write (기록의 ToolReturn metadata)."""
     parts: list[dict[str, Any]] = []
-    tools: dict[str, dict[str, Any]] = {}
+    tools: dict[str, dict[str, Any]] = carry if carry is not None else {}
     batch = 0  # 툴을 부른 모델 응답 번호 (같은 응답의 툴 = 같은 batch = 동시에 돌았다)
     if blob:
         try:
@@ -363,8 +540,16 @@ def render_run(blob: str | None) -> dict[str, Any]:
                         t = tools[p.tool_call_id]
                         t["result"] = skill_card(p.content) if t["name"] == USE_SKILL else p.content
                         t["status"] = "error" if isinstance(p.content, dict) and "error" in p.content else "done"
+                        if isinstance(p.metadata, dict) and isinstance(p.metadata.get("app"), str):  # MCP 도구 · use_app 카드
+                            keys = ("app", "app_name", "write", "label")
+                            t.update({k: p.metadata[k] for k in keys if k in p.metadata})
+                            if t["name"] != USE_APP and p.metadata.get("label"):
+                                t["label"] = p.metadata["label"]
                     elif isinstance(p, RetryPromptPart) and p.tool_call_id in tools:
                         tools[p.tool_call_id].update(status="error", result={"error": "retry", "message": p.model_response()})
+    for call_id in pending:
+        if call_id in tools and tools[call_id]["status"] == "running":
+            tools[call_id]["status"] = "waiting"  # 연결 대기 (이어서 하기 전)
     text = [p["text"] for p in parts if p["type"] == "text"]
     reasoning = [p["text"] for p in parts if p["type"] == "reasoning"]
     return {"content": "\n\n".join(text), "reasoning": "\n\n".join(reasoning) or None, "parts": parts}
@@ -389,6 +574,8 @@ class _Activity:
     closed: bool = False
     messages: str | None = None
     usage: dict[str, Any] | None = None
+    apps: _AppRun | None = None  # MCP 앱 (없으면 None)
+    pending: list[dict[str, Any]] = field(default_factory=list)  # 연결 대기로 멈춘 호출 (on_complete 가 채운다)
 
     def _ms(self) -> int:
         return int((time.monotonic() - self.started) * 1000)
@@ -402,8 +589,9 @@ class _Activity:
         except Exception:  # 진행 상황 기록 실패가 대화를 막지 않게
             log.exception("failed to record run steps")
 
-    def open(self, key: str, name: str, call_id: str | None = None) -> list[BaseEvent]:
-        """단계를 연다. call_id 가 있으면 툴 단계 = 다른 툴 단계는 열어 둔다 (동시에 돈다) · 생각 · 쓰기만 닫는다."""
+    def open(self, key: str, name: str, call_id: str | None = None, extra: dict[str, Any] | None = None) -> list[BaseEvent]:
+        """단계를 연다. call_id 가 있으면 툴 단계 = 다른 툴 단계는 열어 둔다 (동시에 돈다) · 생각 · 쓰기만 닫는다.
+        extra = 툴 단계에 더할 칸 (MCP 도구: app · write)."""
         tool = call_id is not None
         out = self.close_all("done", keep_tools=tool)
         if tool and not any("call_id" in self.steps[i] for i in self.opened.values()):
@@ -412,7 +600,7 @@ class _Activity:
             "name": name, "label": step_label(name, self.labels), "status": "running", "started_ms": self._ms(), "duration_ms": None,
         }
         if tool:
-            step |= {"call_id": call_id, "batch": self.batch}
+            step |= {"call_id": call_id, "batch": self.batch, **(extra or {})}
             self.calls[call_id] = key
         self.opened[key] = len(self.steps)
         self.steps.append(step)
@@ -451,17 +639,19 @@ class _Activity:
         self.closed = True
         self.close_all("cancelled" if self.status == "cancelled" else ("error" if self.status == "error" else "done"))
         try:
+            extra = {"pending": self.pending} if self.pending and self.status == "done" else {}
             self.sink.finish(
                 status=self.status, steps=self.steps, duration_ms=self._ms(),
                 messages=self.messages if self.status == "done" else None, usage=self.usage,
                 error_code=None if self.status == "done" else self.code,
-                error_detail=None if self.status == "done" else self.detail,
+                error_detail=None if self.status == "done" else self.detail, **extra,
             )
         except Exception:  # 기록 실패가 스트림·종료를 막지 않게
             log.exception("failed to record run end")
 
     def summary(self, run_id: str, model: ModelChoice) -> dict[str, Any]:
-        return {"run_id": run_id, "model": model.id, "duration_ms": self._ms(), "usage": self.usage, "steps": self.steps}
+        return {"run_id": run_id, "model": model.id, "duration_ms": self._ms(), "usage": self.usage, "steps": self.steps,
+                "pending": self.pending}
 
 
 class _RunStream:
@@ -491,21 +681,38 @@ class _RunStream:
         # TEXT_MESSAGE_START (와 바로 뒤 빈 END) 는 다음 이벤트까지 잡아 둔다: 글이면 '쓰기' 단계 뒤에, 툴 앞 빈 메시지면
         # 툴 단계 뒤에 내보낸다 → STEP_STARTED 가 언제나 그 단계의 첫 이벤트보다 먼저 온다
         held: list[BaseEvent] = []
-        # use_skill: 스킬 이름은 인자(TOOL_CALL_ARGS)에 있다 → TOOL_CALL_END 까지 잡아 두고 skill:<이름> 단계를 연다
+        # use_skill · use_app: 스킬 · 앱 이름은 인자(TOOL_CALL_ARGS)에 있다 → TOOL_CALL_END 까지 잡아 두고 skill:<이름> · app:<handle> 단계를 연다
         skill: dict[str, Any] | None = None
+        apps = act.apps
 
         def open_skill() -> list[BaseEvent]:
             nonlocal skill
             assert skill is not None
             try:
-                name = json.loads(skill["args"] or "{}").get("name")
-            except (ValueError, AttributeError):
-                name = None
-            name = name.strip() if isinstance(name, str) else ""
-            step = f"skill:{name if SKILL_NAME_RE.match(name) else 'unknown'}"
+                args = json.loads(skill["args"] or "{}")
+            except ValueError:
+                args = {}
+            args = args if isinstance(args, dict) else {}
+            if skill["tool"] == USE_APP:
+                found = apps.apps.find(args.get("app")) if apps else None
+                step = f"app:{found.handle if found else 'unknown'}"
+            else:
+                name = args.get("name")
+                name = name.strip() if isinstance(name, str) else ""
+                step = f"skill:{name if SKILL_NAME_RE.match(name) else 'unknown'}"
             out = [*act.open(f"{step}#{skill['id']}", step, skill["id"]), *skill["events"]]
             skill = None
             return out
+
+        def app_events() -> list[BaseEvent]:
+            """연결 대기 = 그 툴 단계를 waiting 으로 닫고 brewai.app_auth · 공유 앱 = brewai.app_needs_import (생긴 대로 바로)."""
+            if apps is None:
+                return []
+            waiting, events = apps.drain()
+            out: list[BaseEvent] = []
+            for call_id in waiting:
+                out += act.close_call(call_id, "waiting")
+            return out + events
 
         # 병렬 툴 실행을 이 실행에 못 박는다 (컨텍스트 변수 · 툴 태스크가 물려받는다). 다른 컨텍스트에서 닫혀도(GC) 실패하지 않게
         mode = ToolManager.parallel_execution_mode(TOOL_EXECUTION)
@@ -526,8 +733,8 @@ class _RunStream:
                         continue
                     for e in open_skill():  # 끝 신호 전에 다른 이벤트 (오류 등) → 이름 없이 연다
                         yield e
-                if t == EventType.TOOL_CALL_START and ev.tool_call_name == USE_SKILL:  # type: ignore[attr-defined]
-                    skill = {"id": ev.tool_call_id, "args": "", "events": [*held, ev]}  # type: ignore[attr-defined]
+                if t == EventType.TOOL_CALL_START and ev.tool_call_name in (USE_SKILL, USE_APP):  # type: ignore[attr-defined]
+                    skill = {"id": ev.tool_call_id, "tool": ev.tool_call_name, "args": "", "events": [*held, ev]}  # type: ignore[attr-defined]
                     held.clear()
                     continue
                 if t == EventType.TEXT_MESSAGE_START or (
@@ -543,20 +750,28 @@ class _RunStream:
                     pre = act.open("thinking", "thinking")
                 elif t == EventType.TOOL_CALL_START:
                     name = f"tool:{ev.tool_call_name}"  # type: ignore[attr-defined]
-                    pre = act.open(f"{name}#{ev.tool_call_id}", name, ev.tool_call_id)  # type: ignore[attr-defined]
+                    mcp = apps.apps.index.get(ev.tool_call_name) if apps else None  # type: ignore[attr-defined]
+                    extra = None
+                    if mcp is not None:  # MCP 도구 카드: 앱 · 쓰기 표시 (승인은 slice 07)
+                        act.labels[name] = mcp.label
+                        extra = {"app": mcp.app.handle, "write": mcp.tool.write}
+                        post.append(CustomEvent(name="brewai.app_tool", value={"call_id": ev.tool_call_id, **mcp.meta}))  # type: ignore[attr-defined]
+                    pre = act.open(f"{name}#{ev.tool_call_id}", name, ev.tool_call_id, extra)  # type: ignore[attr-defined]
                 elif t == EventType.TOOL_CALL_RESULT:
                     closeout = _CLOSEOUT.get(getattr(ev, "content", None) or "")
                     post = act.close_call(ev.tool_call_id, closeout or "done")  # type: ignore[attr-defined]
                 elif t == EventType.TEXT_MESSAGE_CONTENT and not act.is_open("writing"):
                     pre = act.open("writing", "writing")
                 elif t == EventType.RUN_FINISHED:
-                    pre = act.close_all("done")
+                    pre = [*app_events(), *act.close_all("done")]
                     act.status, act.code = "done", None
                     pre.append(CustomEvent(name="brewai.run_summary", value=act.summary(run_id, model)))
                 elif t == EventType.RUN_ERROR:
                     pre = act.close_all("error")
                     act.status, act.code = "error", getattr(ev, "code", None) or "model_error"
                     act.detail = getattr(ev, "detail", None)
+                if t == EventType.TOOL_CALL_RESULT or t == EventType.TOOL_CALL_END:
+                    post += app_events()
                 for e in (*pre, *held, ev, *post):
                     yield e
                 held.clear()
@@ -594,7 +809,12 @@ class ChatRuntime:
         self._toolset = build_toolset(self.tools)
         # 점진 공개: 스킬 이름·설명만 시스템 프롬프트에 (본문은 use_skill 로)
         self.instructions = INSTRUCTIONS + self.skills.prompt()
-        self.agent: Agent[None, str] = Agent(name="conductor", instructions=self.instructions)
+        # 출력 = 글 또는 연결 대기(DeferredToolRequests · MCP 앱 로그인 전). search_tools = deferred 도구가 있을 때만 생긴다 (앱 0개 = 0토큰)
+        self.agent: Agent[None, str | DeferredToolRequests] = Agent(
+            name="conductor", instructions=self.instructions, output_type=[str, DeferredToolRequests],
+            capabilities=[ToolSearch(strategy=_search_apps, max_results=8, tool_description=SEARCH_DESCRIPTION,
+                                     parameter_description=SEARCH_PARAM_DESCRIPTION)],
+        )
 
     async def __aenter__(self) -> ChatRuntime:  # 앱 수명 = provider HTTP 클라이언트 수명
         await self._provider.__aenter__()
@@ -645,15 +865,23 @@ class ChatRuntime:
             raise ChatRequestError(400, "bad_thread_id")
         if not _ID.match(run_input.run_id):
             raise ChatRequestError(400, "bad_run_id")
-        last = run_input.messages[-1] if run_input.messages else None
-        if not isinstance(last, UserMessage):
-            raise ChatRequestError(400, "last_message_not_user")
-        prompt = _user_text(last).strip()
-        if not prompt:
-            raise ChatRequestError(400, "empty_message")
-        if len(prompt) > MAX_PROMPT_CHARS:
-            raise ChatRequestError(400, "message_too_long")
         props = run_input.forwarded_props if isinstance(run_input.forwarded_props, dict) else {}
+        resume = props.get("resume")
+        resume_id: str | None = None
+        if resume is not None:  # 연결 뒤 이어서 하기 = 메시지 없이 그 호출 id 만 (보낸 메시지는 쓰지 않는다)
+            resume_id = resume.get("call_id") if isinstance(resume, dict) else None
+            if not isinstance(resume_id, str) or not _ID.match(resume_id):
+                raise ChatRequestError(400, "bad_resume")
+            prompt = ""
+        else:
+            last = run_input.messages[-1] if run_input.messages else None
+            if not isinstance(last, UserMessage):
+                raise ChatRequestError(400, "last_message_not_user")
+            prompt = _user_text(last).strip()
+            if not prompt:
+                raise ChatRequestError(400, "empty_message")
+            if len(prompt) > MAX_PROMPT_CHARS:
+                raise ChatRequestError(400, "message_too_long")
         model = props.get("model")
         if model is not None and not isinstance(model, str):
             raise ChatRequestError(400, "unknown_model")
@@ -666,7 +894,7 @@ class ChatRuntime:
                 raise ChatRequestError(400, f"bad_{key}")
         return ChatRequest(
             thread_id=run_input.thread_id, run_id=run_input.run_id, prompt=prompt, model=model or None, reasoning=reasoning,
-            space_id=scope["spaceId"], project_id=scope["projectId"],
+            space_id=scope["spaceId"], project_id=scope["projectId"], resume=resume_id,
         )
 
     async def handle(self, request: Request, prepare: Prepare) -> Response:
@@ -676,22 +904,66 @@ class ChatRuntime:
             return Response(e.json(include_input=False), status_code=422, media_type="application/json")
         req = self.parse(adapter)
         model, blobs, sink, scope = await prepare(req)
-        activity = _Activity(sink=sink, labels=self.skills.labels())  # 여기부터 실행 기록이 열려 있다 → 어떤 길로 나가든 finish
+        apps = _AppRun(scope.apps) if scope.apps is not None and model.supports_tools else None
+        labels = self.skills.labels() | (scope.apps.labels() if scope.apps is not None else {})
+        activity = _Activity(sink=sink, labels=labels, apps=apps)  # 여기부터 실행 기록이 열려 있다 → 어떤 길로 나가든 finish
         try:
-            return self._stream(adapter, req, model, blobs, activity, scope)
+            resumed = await self._resume(scope, apps, blobs) if req.resume else None
+            return self._stream(adapter, req, model, blobs, activity, scope, resumed)
         except BaseException:
             activity.status, activity.code = "error", "internal_error"
             activity.finish()
             raise
 
+    @staticmethod
+    def pending_calls(blobs: Sequence[str], call_ids: Sequence[str]) -> dict[str, ToolCallPart]:
+        """이어서 하기 확인용 (app.py prepare): 기록 끝에서 아직 결과가 없는 그 호출들."""
+        calls = open_calls(ready_history(blobs, resume=True))
+        return {c: calls[c] for c in call_ids if c in calls}
+
+    @staticmethod
+    async def _resume(scope: RunScope, apps: _AppRun | None, blobs: Sequence[str]) -> DeferredToolResults:
+        """대기 호출을 서버가 다시 계산 (UI 가 보낸 결과는 없다 · 권한 · 연결을 지금 다시 본다). 아직 안 되는 호출 = 오류 결과."""
+        history = ready_history(blobs, resume=True)
+        calls = open_calls(history)
+        revealed = revealed_names(history)
+        pinned = pinned_servers(history)
+        results: dict[str, Any] = {}
+        for call_id in scope.resume:
+            call = calls.get(call_id)
+            if call is None:
+                continue
+            args = call.args_as_dict()
+            if apps is None:
+                results[call_id] = {"error": "not_connected", "message": "앱을 쓸 수 없어요."}
+                continue
+            if call.tool_name == USE_APP:
+                got = await apps.apps.use_app(args.get("app"), args.get("need"), revealed=revealed)
+                if isinstance(got, Revealed):
+                    revealed |= set(got.new)
+                value: Any = app_return(got) if not isinstance(got, AuthNeeded) else None
+            else:
+                apps.apps.tools()
+                res, meta = await apps.apps.call(call.tool_name, args, pinned=pinned)
+                value = ToolReturn(res, metadata=meta) if not isinstance(res, AuthNeeded) else None
+            if value is not None:
+                apps.resumed += 1  # 서버가 실제로 돌린 호출만 사용량에 (아직 연결 전 = 안 돌았다)
+            results[call_id] = value if value is not None else {
+                "error": "not_connected", "message": "앱이 아직 연결되지 않았어요. 사용자에게 설정 > 연결된 앱에서 연결해 달라고 안내한다.",
+            }
+        for call_id in calls:  # 같은 응답의 다른 대기 호출 (이번에 고른 것 밖) = 그만둠
+            results.setdefault(call_id, {"error": "cancelled", "message": "사용자가 이 호출을 이어서 하지 않았어요."})
+        return DeferredToolResults(calls=results)
+
     def _stream(
-        self, adapter: _Adapter, req: ChatRequest, model: ModelChoice, blobs: list[str], activity: _Activity, scope: RunScope | None = None
+        self, adapter: _Adapter, req: ChatRequest, model: ModelChoice, blobs: list[str], activity: _Activity, scope: RunScope | None = None,
+        resumed: DeferredToolResults | None = None,
     ) -> Response:
         scope = scope or RunScope()
-        history = load_history(blobs)
-        # 서버가 원본: 이번 질문(마지막 user 메시지)만 어댑터에 남긴다. 클라이언트가 보낸 앞 대화는 쓰지 않는다
-        last = adapter.run_input.messages[-1]
-        single = _Adapter(agent=self.agent, run_input=adapter.run_input.model_copy(update={"messages": [last]}), accept=adapter.accept)
+        history = ready_history(blobs, resume=resumed is not None)
+        # 서버가 원본: 이번 질문(마지막 user 메시지)만 어댑터에 남긴다. 클라이언트가 보낸 앞 대화는 쓰지 않는다 · 이어서 하기 = 메시지 없음
+        keep = [] if resumed is not None else [adapter.run_input.messages[-1]]
+        single = _Adapter(agent=self.agent, run_input=adapter.run_input.model_copy(update={"messages": keep}), accept=adapter.accept)
         settings = self.model_settings(model, req.reasoning)
         effective: Reasoning = req.reasoning if settings is not None else "off"
         if scope.user_id:  # LiteLLM 요청 user = users.id (게이트웨이 로그 · 예산 · trace)
@@ -709,9 +981,13 @@ class ChatRuntime:
             # 글 없이 토큰만 있으면 = 생각은 했는데 내용을 안 보냄 (display omitted · redacted) → 화면이 그렇게 말한다
             reasoning_tokens = u.output_reasoning_tokens or int((u.details or {}).get("reasoning_tokens") or 0)
             activity.usage = {
-                "input_tokens": u.input_tokens, "output_tokens": u.output_tokens, "requests": u.requests, "tool_calls": u.tool_calls,
+                "input_tokens": u.input_tokens, "output_tokens": u.output_tokens,
+                "requests": u.requests, "tool_calls": u.tool_calls + (apps.resumed if apps else 0),  # 이어서 하기로 서버가 돌린 호출도 센다
                 "reasoning_tokens": reasoning_tokens,
             }
+            out = result.output
+            if apps is not None and isinstance(out, DeferredToolRequests):  # 연결 대기로 멈춤 → runs.pending_json · run_summary.pending
+                activity.pending = [apps.pending[c.tool_call_id] for c in out.calls if c.tool_call_id in apps.pending]
 
         # BrewAI 가 정한 값(CUSTOM value · REST)은 snake_case. AG-UI 자체 필드만 camelCase
         meta = {
@@ -729,16 +1005,27 @@ class ChatRuntime:
             "turn": len(blobs) + 1,
             "space_id": scope.space_id,
             "project_id": scope.project_id,
+            "apps": scope.apps.handles if scope.apps is not None and model.supports_tools else [],
+            "resume": req.resume,
         }
         llm = self._model_factory(model.id)
         if effective != "off" and model.supports_tools and _signed_thinking(model):
             llm = _ThinkFirstOnly(llm)
+        apps = activity.apps
+        toolsets: list[AbstractToolset[None]] | None = None
+        if model.supports_tools:  # 실행마다 동시 실행 상한 하나 (기본 툴 · 앱 도구가 같이 센다)
+            gate = asyncio.Semaphore(MAX_PARALLEL_TOOLS)
+            toolsets = [bounded(self._toolset, gate=gate), *([bounded(_AppTools(apps), gate=gate)] if apps else [])]
+        # 실행 지침 = 앱 목록 블록 (정렬 고정 = 프롬프트 캐시) → 프로젝트 지침 (conductor 규칙 · 앱 목록 뒤에)
+        block = apps.apps.prompt() if apps else ""
+        instructions = "\n\n".join(x for x in (block, scope.instructions) if x) or None
         events = single.run_stream(
             model=llm,
             message_history=history,
-            instructions=scope.instructions,
+            deferred_tool_results=resumed,
+            instructions=instructions,
             model_settings=settings,
-            toolsets=[bounded(self._toolset)] if model.supports_tools else None,  # 실행마다 동시 실행 상한
+            toolsets=toolsets,
             usage_limits=UsageLimits(request_limit=MAX_MODEL_REQUESTS),
             on_complete=on_complete,
         )

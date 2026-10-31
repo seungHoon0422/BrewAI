@@ -30,6 +30,9 @@
 //   · [fake:calc] <수식> → calculator (줄 끝까지가 수식, 없으면 12*(3+4)) · [fake:time] → current_time. 다 부르면 결과들로 답한다
 //   병렬 (한 응답에 tool_calls 여럿 = conductor 가 동시에 돌린다): [fake:parallel] → current_time 서울 · 뉴욕 + unit_convert 68 F → C 를 한 번에
 //   여러 단계 (한 응답에 하나씩 차례로): [fake:chain] → current_time → date_calc(오늘부터 12-25 까지) → use_skill meeting-prep → 답
+//   MCP 앱 (ADR-0013 · slice 05): [fake:app <handle> <need>] → use_app {app, need} · [fake:tool <이름> {json 인자}?] → 그 도구가
+//   요청 tools 에 있을 때만 (= use_app 이 공개한 뒤 · 다음 턴엔 바로) 부른다. 적은 순서대로 차례 하나씩 → 결과로 답
+//   예: '[fake:app tracker 이슈 검색] [fake:tool tracker__search_issues {"query":"버그"}]' · FAKE_GATEWAY_RECORD 로 요청 tools 를 검사
 // drop_params: 요청에 drop_params true 면 (LiteLLM 처럼) 모델이 지원 안 하는 reasoning_effort 를 400 대신 버린다
 // 등록 출처: GET /v1/model/info (LiteLLM 모양: data[{model_name, litellm_params, model_info:{id, db_model}}]) — db_model true = 관리 화면(DB)
 // 테스트 조작 (Bearer 필요): POST /__fake/catalog {"late": true|false, "hide": ["fake-chat-large"], "broken": {"<모델>": "<FAILURES 이름>"}, "reset": true}
@@ -233,8 +236,14 @@ function sentenceFromTool(message) {
     out = { raw: textOf(message.content) };
   }
   if (out?.error) return `도구가 오류를 냈어요: ${out.message ?? out.error}`;
+  if (out?.app && Array.isArray(out?.tools)) return `${out.app_name ?? out.app}에서 쓸 도구 ${out.tools.length}개를 골랐어요.`; // use_app
   if (out?.instructions !== undefined) return `스킬 '${out.label ?? out.name}' 지침을 따랐어요.`;
   if (out?.text !== undefined && out?.from_unit !== undefined) return `변환 결과는 ${out.text}예요.`;
+  if (out?.result !== undefined && out?.expression === undefined) {
+    // MCP 도구 결과 (conductor cap_result 모양: {result, truncated?, note?})
+    const body = typeof out.result === 'string' ? out.result : JSON.stringify(out.result);
+    return `앱 결과를 받았어요: ${body.slice(0, 120)}${out.truncated ? ` (${out.note})` : ''}`;
+  }
   if (out?.result !== undefined) return `계산 결과는 ${out.result}예요. (수식 ${out.expression})`;
   if (out?.iso) return `지금은 ${out.date} ${out.time} ${out.weekday}이에요. (${out.timezone})`;
   if (out?.operation === 'diff') return `${out.to?.date}까지 ${out.days}일 남았어요.`;
@@ -271,6 +280,16 @@ function plannedRounds(body, question) {
         { name: 'unit_convert', args: { value: 68, from_unit: 'F', to_unit: 'C' } },
       ],
     });
+  }
+  for (const m of question.matchAll(/\[fake:app\s+([a-z0-9_]+)\s+([^\]]+)\]/g)) one(m.index, 'use_app', { app: m[1], need: m[2].trim() });
+  for (const m of question.matchAll(/\[fake:tool\s+([A-Za-z0-9_-]+)(?:\s+(\{[^\]]*\}))?\]/g)) {
+    let args = {};
+    try {
+      args = m[2] ? JSON.parse(m[2]) : {};
+    } catch {
+      args = {};
+    }
+    one(m.index, m[1], args);
   }
   const chain = question.indexOf('[fake:chain]');
   if (chain >= 0) {
@@ -363,7 +382,8 @@ async function chatCompletions(req, res) {
     }
   }
 
-  const afterTool = messages.at(-1)?.role === 'tool';
+  // 툴 결과 뒤에 system 한 줄이 붙을 수 있다 (Pydantic AI: deferred 도구 공개 알림 'The following tool(s) are now available')
+  const afterTool = messages.filter((m) => m?.role !== 'system').at(-1)?.role === 'tool';
   const lastUser = messages.findLastIndex((m) => m?.role === 'user');
   // 이번 질문에서 이미 지난 차례 수 = 툴을 부른 assistant 메시지 수
   const done = messages.slice(lastUser + 1).filter((m) => m?.role === 'assistant' && Array.isArray(m.tool_calls) && m.tool_calls.length > 0).length;

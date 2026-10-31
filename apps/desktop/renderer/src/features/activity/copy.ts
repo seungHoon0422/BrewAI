@@ -24,7 +24,7 @@ export const RUN_STATUS: Record<RunStatus, { label: string; dot: DotState }> = {
   error: { label: '실패', dot: 'fail' },
   cancelled: { label: '멈춤', dot: 'stop' },
 };
-export const STEP_DOT: Record<StepStatus, DotState> = { running: 'run', done: 'ok', error: 'fail', cancelled: 'stop' };
+export const STEP_DOT: Record<StepStatus, DotState> = { running: 'run', done: 'ok', error: 'fail', cancelled: 'stop', waiting: 'wait' };
 
 // 목록의 짧은 실패 이유 (error_code)
 const RUN_ERROR_TEXT: Record<string, string> = {

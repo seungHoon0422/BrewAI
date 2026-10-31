@@ -214,7 +214,7 @@ def test_ip_limit_window_does_not_lock_out_a_day_of_other_peoples_typos(make_api
 PUBLIC = {
     ("GET", "/api/auth/state"), ("POST", "/api/auth/login"), ("POST", "/api/auth/token"), ("POST", "/api/auth/invite/preview"),
     ("POST", "/api/auth/signup"), ("POST", "/api/auth/reset"), ("POST", "/api/admin/auth/login"),
-    ("GET", "/api/auth/google/start"), ("GET", "/api/auth/google/callback"),
+    ("GET", "/api/auth/google/start"), ("GET", "/api/auth/google/callback"), ("GET", "/api/mcp/oauth/callback"),
 }
 
 

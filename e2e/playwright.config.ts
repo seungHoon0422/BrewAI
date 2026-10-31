@@ -1,7 +1,7 @@
 import { defineConfig } from '@playwright/test';
 import path from 'node:path';
 import { ADMIN_STATE } from './auth';
-import { ADMIN_DEV_URL, ADMIN_URL, ADMIN_USER, API, GATEWAY, GATEWAY_KEY, OIDC, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET } from './env';
+import { ADMIN_DEV_URL, ADMIN_URL, ADMIN_USER, API, GATEWAY, GATEWAY_KEY, GATEWAY_RECORD, MCP, MCP_SECRET_KEY, OIDC, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET } from './env';
 
 // E2E = 기능이 끝난 시점에 돈다 (금요일 데모 스크립트). 전체 = npm run e2e (데스크톱·관리자 빌드 → 테스트)
 // 브라우저: 맥 = Chrome · 윈도우 = Edge (PC에 깔린 것) · 그 밖(CI) = Playwright 번들 Chromium
@@ -20,8 +20,8 @@ export default defineConfig({
   use: { trace: 'retain-on-failure' },
   globalSetup: './global-setup.ts',
   projects: [
-    // 데스크톱 (Electron): 셸 · 대화 · 로그인 · 가입 · Google · 스페이스 · 프로젝트 · 계정
-    { name: 'desktop', testMatch: /[\\/](desktop|chat(-[a-z]+)?|auth(-[a-z]+)?|spaces|projects|account)\.spec\.ts$/ },
+    // 데스크톱 (Electron): 셸 · 대화 · 로그인 · 가입 · Google · 스페이스 · 프로젝트 · 계정 · 앱 연결(MCP)
+    { name: 'desktop', testMatch: /[\\/](desktop|chat(-[a-z]+)?|auth(-[a-z]+)?|mcp(-[a-z]+)+|spaces|projects|account)\.spec\.ts$/ },
     // 관리자 콘솔: 한 번 로그인해 둔 쿠키를 쓴다 (로그인 · 로그아웃 자체를 보는 스펙은 빈 상태로 시작)
     { name: 'admin-login', testMatch: 'admin.setup.ts', use: { ...browser, baseURL: ADMIN_URL } },
     {
@@ -44,7 +44,7 @@ export default defineConfig({
       url: `${GATEWAY}/health/liveliness`,
       reuseExistingServer: false, // 남이 띄운 서버(진짜 LiteLLM 등)를 절대 재사용하지 않는다
       timeout: 15_000,
-      env: { FAKE_GATEWAY_KEY: GATEWAY_KEY, FAKE_GATEWAY_DELAY: '40' },
+      env: { FAKE_GATEWAY_KEY: GATEWAY_KEY, FAKE_GATEWAY_DELAY: '40', FAKE_GATEWAY_RECORD: GATEWAY_RECORD },
     },
     {
       name: 'oidc',
@@ -55,6 +55,16 @@ export default defineConfig({
       timeout: 15_000,
       // 기본 계정 = @gmail.com (Google 이 권위 → 같은 이메일이면 자동 연결). 스펙이 /__fake/account 로 바꾼다
       env: { FAKE_OIDC_CLIENT_ID: OIDC_CLIENT_ID, FAKE_OIDC_CLIENT_SECRET: OIDC_CLIENT_SECRET, FAKE_OIDC_ISSUER: OIDC },
+    },
+    {
+      name: 'mcp',
+      command: `node e2e/mock/mcp.mjs --port ${new URL(MCP).port}`,
+      cwd: ROOT,
+      url: `${MCP}/health`,
+      reuseExistingServer: false,
+      timeout: 15_000,
+      // 허용 화면 없이 바로 code (스펙이 화면을 보려면 /__fake 로 끄지 말고 이 줄만 빼고 돌린다) · 기본 계정 alice (/__fake/account 로 바꿈)
+      env: { FAKE_MCP_AUTO_APPROVE: '1' },
     },
     {
       name: 'api',
@@ -88,6 +98,11 @@ export default defineConfig({
         GOOGLE_ISSUER: OIDC,
         CONDUCTOR_PUBLIC_URL: API,
         CONDUCTOR_ADMIN_URL: ADMIN_URL,
+        // MCP (ADR-0013): 가짜 MCP 가 http://127.0.0.1 → loopback 허용 (E2E 전용) · 금고 키 = E2E 고정값
+        CONDUCTOR_MCP_ALLOW_LOOPBACK: '1',
+        CONDUCTOR_SECRET_KEY: MCP_SECRET_KEY,
+        CONDUCTOR_SECRET_KEY_ID: 'e2e',
+        CONDUCTOR_SECRET_KEYS_OLD: '',
       },
     },
     {

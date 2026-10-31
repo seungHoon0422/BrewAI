@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import copy
 import json
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -194,6 +195,19 @@ def make_api() -> Callable[..., Api]:
 @pytest.fixture
 def anyio_backend() -> str:
     return "asyncio"
+
+
+@pytest.fixture
+def fake_mcp() -> Any:
+    """tests/fake_mcp.py 모듈 (가짜 MCP · OAuth 서버 · importlib 모드라 파일에서 바로 불러온다)."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("brewai_fake_mcp", Path(__file__).parent / "fake_mcp.py")
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module  # dataclass 가 자기 모듈을 찾는다
+    spec.loader.exec_module(module)
+    return module
 
 
 @pytest.fixture

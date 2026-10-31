@@ -1,7 +1,8 @@
 """불투명 토큰 = 접두사 + 32바이트 무작위(base64url 43자). DB 엔 sha256 hex 만 (서명 키 없음 · ADR-0010).
 
   bwa_ access (15분)   bwr_ refresh (회전)   bwc_ 관리자 쿠키   bwh_ Google handoff (60초 · PKCE S256)
-  bwp_ 재설정 코드 (30분)   bwl_ Google 연결 표 (5분)   BREW-XXXX-XXXX 초대 코드 (사람이 옮겨 적는다)
+  bwp_ 재설정 코드 (30분)   bwl_ Google 연결 표 (5분)   bwm_ MCP 앱 로그인 handoff (60초 · PKCE S256)
+  BREW-XXXX-XXXX 초대 코드 (사람이 옮겨 적는다)
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ ADMIN = "bwc_"
 HANDOFF = "bwh_"
 RESET = "bwp_"
 LINK = "bwl_"
+MCP_HANDOFF = "bwm_"  # MCP 앱 로그인 → 데스크톱 loopback (60초 · PKCE S256 · ADR-0013)
 
 _BODY = r"[A-Za-z0-9_-]{43}"
 PKCE_RE = re.compile(r"^[A-Za-z0-9._~-]{43,128}$")  # RFC 7636 code_verifier

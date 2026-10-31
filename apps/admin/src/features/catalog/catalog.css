@@ -11,3 +11,87 @@
 .sktable .nil{color:var(--text-faint)}
 .skfoot{margin:0;font-size:var(--fs-xs);color:var(--text-muted)}
 .skfoot code{font-size:var(--fs-2xs)}
+
+/* MCP 서버 (ADR-0013) — 표 · 자세히 페이지 · 추가 대화상자. 왼쪽 맞춤 · 칸 나눔 = 여백 (가운뎃점 없음) */
+.mcp{gap:var(--space-3)}
+.mcp-intro{font-size:var(--fs-sm);color:var(--text-muted);min-width:0}
+.mcp-note{margin:0}
+.mcp-name{display:grid;gap:1px;min-width:0;padding:var(--space-1-5) 0}
+.mcp-link{display:inline-flex;min-width:0;max-width:100%;color:inherit;text-decoration:none}
+.mcp-link b{font-weight:var(--fw-semibold);color:var(--text)}
+.mcp-link:hover b{text-decoration:underline;text-underline-offset:2px}
+.mcp-handle,:where(.main) code.mcp-handle{padding:0;border-radius:0;background:none;font-family:var(--font-mono);font-size:var(--fs-xs);color:var(--text-muted)}
+.mcp-domain{font-family:var(--font-mono);font-size:var(--fs-xs);color:var(--text-2);white-space:nowrap}
+.mcp-sub{font-size:var(--fs-xs);font-weight:var(--fw-regular);color:var(--text-muted)}
+.mcp-nil{color:var(--text-faint);font-size:var(--fs-xs)}
+.mcp-num{display:inline-flex;align-items:baseline;gap:var(--space-1-5);white-space:nowrap}
+.mcp-auth{white-space:nowrap}
+.mcp-inline{display:inline-flex;align-items:center;flex-wrap:wrap;gap:var(--space-1-5)}
+.mcp-table .ui-table td,.mcp-table .ui-table th{vertical-align:middle}
+.mcp-table td.mcp-testcol{width:1%;min-width:200px}
+
+/* 연결 칸 = 점 + 결과 + 꼬리 [테스트] */
+.mcp-test{display:flex;align-items:center;justify-content:space-between;gap:var(--space-2);min-width:0}
+.mcp-test.head{justify-content:flex-start;gap:var(--space-2-5)}
+.mcp-hl{display:inline-flex;align-items:center;gap:var(--space-1-5);min-width:0;overflow:hidden;font-size:var(--fs-xs);color:var(--text-2);white-space:nowrap}
+.mcp-test.head .mcp-hl{font-size:var(--fs-sm)}
+.mcp-hl[data-health="error"]{color:var(--warn-text)}
+.mcp-hl[data-health="unknown"],.mcp-hl[data-health="running"]{color:var(--text-muted)}
+.mcp-hl .ui-dot,.mcp-hl .ui-spinner{flex:none}
+.mcp-ht{display:inline-flex;align-items:center;gap:var(--space-1-5);flex:none}
+.mcp-tail{min-width:0;color:var(--text-muted);font-variant-numeric:tabular-nums}
+.mcp-probe.ui-btn{flex:none}
+.mcp-table .mcp-probe{opacity:.75}
+.mcp-table tr:hover .mcp-probe,.mcp-table .mcp-probe:focus-visible{opacity:1}
+
+/* 추가 대화상자 */
+.mcp-client-fields{display:grid;gap:var(--space-3);padding-left:var(--space-6)}
+.mcp-found{gap:var(--space-3)}
+.mcp-kv{gap:var(--space-2-5)}
+.mcp-kv .ui-kv-row{grid-template-columns:112px minmax(0,1fr)}
+.mcp-line{display:grid;gap:var(--space-1)}
+.mcp-line-label{font-size:var(--fs-xs);color:var(--text-muted)}
+.mcp-line-code,:where(.main) code.mcp-line-code{display:block;padding:var(--space-2) var(--space-2-5);border:1px solid var(--border-subtle);border-radius:var(--radius-md);
+  background:var(--surface-chip);font-family:var(--font-mono);font-size:var(--fs-xs);line-height:var(--lh-base);color:var(--text);white-space:pre-wrap;overflow-wrap:anywhere}
+
+/* 자세히 페이지: 머리 + 두 칸 카드 */
+.mcp-page{display:flex;flex-direction:column;gap:var(--space-4);min-width:0}
+.mcp-page>.ui-page-head{margin:0}
+.mcp-head .ui-page-title{overflow-wrap:anywhere}
+.mcp-head .ui-page-desc{margin-top:2px}
+.mcp-url,:where(.main) code.mcp-url{padding:0;background:none;font-family:var(--font-mono);font-size:var(--fs-sm);color:var(--text-muted);overflow-wrap:anywhere}
+.mcp-tags{display:inline-flex;align-items:center;flex-wrap:wrap;gap:var(--space-1-5)}
+.mcp-head .ui-page-actions{align-self:center}
+.mcp-head-act{display:flex;align-items:center;flex-wrap:wrap;justify-content:flex-end;gap:var(--space-2) var(--space-3)}
+.mcp-head-sw{font-size:var(--fs-sm);color:var(--text-2)}
+.mcp-head-sep{width:1px;height:20px;background:var(--border)}
+.mcp-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--space-4);align-items:start}
+.mcp-col{display:grid;gap:var(--space-4);min-width:0}
+.mcp-card{display:grid;gap:var(--space-4)}
+.mcp-card .ui-card-head{align-items:center}
+.mcp-card .ui-card-title{font-size:var(--fs-base)}
+.mcp-card-body{display:grid;gap:var(--space-3);min-width:0}
+.mcp-line-meta{font-size:var(--fs-xs);color:var(--text-muted)}
+.mcp-actions{display:flex;justify-content:flex-start;gap:var(--space-2)}
+.mcp-foot{margin:0;font-size:var(--fs-xs);color:var(--text-muted)}
+.mcp-tool{display:grid;gap:1px;min-width:0;padding:var(--space-1) 0}
+.mcp-tool-line{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-1-5);min-width:0}
+.mcp-tool-line b{font-weight:var(--fw-medium);color:var(--text)}
+.mcp-tools .mcp-tool .mcp-handle{white-space:nowrap}
+.mcp-tools th:first-child{min-width:200px}
+.mcp-tools td.mcp-tool-desc{max-width:420px;font-size:var(--fs-xs);color:var(--text-2);line-height:var(--lh-base);white-space:normal}
+.mcp-policy-row{display:grid;gap:var(--space-1)}
+.mcp-allow{display:grid;gap:var(--space-2);max-width:var(--width-read)}
+
+@media (min-width:1100px){
+  .mcp-grid{grid-template-columns:minmax(0,7fr) minmax(0,5fr)}
+}
+@media (max-width:760px){
+  .mcp-head .ui-page-actions{flex:1 1 100%}
+  .mcp-head-act{justify-content:flex-start}
+  .mcp-head-sep{display:none}
+  .mcp-table td.mcp-testcol{min-width:0}
+  .mcp-table .mcp-tail{display:none}
+  .mcp-kv .ui-kv-row{grid-template-columns:88px minmax(0,1fr);column-gap:var(--space-3)}
+  .mcp-client-fields{padding-left:0}
+}

@@ -82,7 +82,9 @@ export function tracePhrase(a: Answer, now: number, tools: Record<string, string
     const tool = a.parts.findLast((p): p is ToolPart => isTool(p) && p.name === name);
     if (tool && tool.status !== 'running') return one(step.name, 'live', READING_RESULT);
   }
-  return one(step.name, 'live', stepPhrase(step.name, elapsed - step.started_ms, tools, skills));
+  // MCP 앱 도구 = 단계 이름표('<앱>: <도구>')로 '… 쓰는 중'
+  const named = step.name.startsWith('tool:') && step.label && !(step.name.slice(5) in tools) ? { ...tools, [step.name.slice(5)]: step.label } : tools;
+  return one(step.name, 'live', stepPhrase(step.name, elapsed - step.started_ms, named, skills));
 }
 
 // 도구 묶음 (패널) — 같은 batch 가 이어진 도구들. 하나뿐이면 묶지 않는다

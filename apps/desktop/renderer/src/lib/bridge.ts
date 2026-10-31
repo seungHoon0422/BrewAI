@@ -1,4 +1,4 @@
-// main 프로세스 다리 (preload.cjs 가 여는 window.brewai) — 로그인만. 토큰은 여기로 오지 않는다 (ADR-0010).
+// main 프로세스 다리 (preload.cjs 가 여는 window.brewai) — 로그인 · 앱 연결. 토큰은 여기로 오지 않는다 (ADR-0010 · ADR-0013).
 // 모양은 apps/desktop/preload.cjs 와 같다. 브라우저에서 열면(다리 없음) 'no_bridge' → 로그인 화면이 데스크톱 앱을 안내한다.
 
 export type BridgeStatus = 'checking' | 'signed_in' | 'signed_out';
@@ -7,6 +7,10 @@ export type BridgeReason = 'offline' | 'expired' | null;
 export type BridgeState = { status: BridgeStatus; reason: BridgeReason; user: unknown };
 // 실패 code = conductor detail (invalid_credentials …) 또는 main 의 것 (offline · timeout · cancelled · loopback_failed · browser_failed)
 export type BridgeResult = { ok: true; linked?: boolean } | { ok: false; code: string; retryAfter?: number | null };
+
+// 앱(MCP 서버) 연결 = 시스템 브라우저 로그인 → loopback → conductor 가 토큰을 금고에 (mcp-connect.cjs).
+// 실패 code = conductor detail (needs_import · vault_missing · handoff_invalid …) 또는 main 의 것 (cancelled · timeout · browser_failed …)
+export type McpConnectResult = { ok: true; connection: string; tool_count: number } | { ok: false; code: string };
 
 export type DesktopBridge = {
   auth: {
@@ -19,6 +23,10 @@ export type DesktopBridge = {
     google: (input: { invite?: string; link?: boolean }) => Promise<BridgeResult>;
     cancelGoogle: () => Promise<boolean>;
     onChange: (fn: (state: BridgeState) => void) => () => void;
+  };
+  mcp?: {
+    connect: (input: { serverId: string; scope?: string | null }) => Promise<McpConnectResult>;
+    cancel: () => Promise<boolean>;
   };
 };
 

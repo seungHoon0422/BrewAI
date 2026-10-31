@@ -11,6 +11,8 @@ dependencies = [
     "uvicorn==0.54.0",                        # 2026-09-25 · [standard] 아님 (uvloop 은 윈도우 미지원)
     "httpx2==2.16.0",                         # 2026-10-21 · pydantic-ai·openai 가 이미 쓰는 HTTP 클라이언트 (게이트웨이 카탈로그 · Google code 교환)
     "argon2-cffi==25.1.0",                    # 2025-06-03 · 비밀번호 argon2id (ADR-0010) · 전이 bindings 26.1.0 · cffi 2.1.1 · pycparser 3.11 (모두 exclude-newer 안)
+    "mcp==2.3.0",                             # 2026-10-02 · 공식 MCP SDK 클라이언트 (Streamable HTTP 만 · ADR-0013) · 연결 코드 = connectors/ 만
+    "cryptography==50.0.2",                   # 2026-09-30 · MCP 인증정보 AES-GCM (connectors/vault.py · ADR-0013) · 직접 고정
 ]
 
 [build-system]
