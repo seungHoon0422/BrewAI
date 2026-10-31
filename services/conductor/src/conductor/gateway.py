@@ -26,6 +26,10 @@ class GatewayModel:
     supports_reasoning: bool
     # 어디서 등록했나 (LiteLLM `/v1/model/info` model_info.db_model): config = config.yaml · ui = 관리 화면(DB) · mixed · None = 모름
     source: str | None = None
+    # 캐시 가격 (USD/토큰). `/model_group/info` 에는 없다 (1.106.2 ModelGroupInfo) → `/v1/model/info` model_info 에서 읽는다.
+    # None = 모름 → 사용량 비용은 입력 가격으로 어림하고 '어림' 표시 (usage.py cost_parts)
+    cache_read_input_token_cost: float | None = None
+    cache_creation_input_token_cost: float | None = None
 
     @property
     def is_chat(self) -> bool:
@@ -69,7 +73,14 @@ def parse_model_group(item: dict[str, Any]) -> GatewayModel:
         supports_function_calling=bool(item.get("supports_function_calling")),
         supports_vision=bool(item.get("supports_vision")),
         supports_reasoning=bool(item.get("supports_reasoning")),
+        cache_read_input_token_cost=_price(item.get("cache_read_input_token_cost")),
+        cache_creation_input_token_cost=_price(item.get("cache_creation_input_token_cost")),
     )
+
+
+def _price(v: Any) -> float | None:
+    f = _float(v)
+    return f if f is not None and f >= 0 else None
 
 
 def sources_from_model_info(data: Any) -> dict[str, str]:
@@ -84,6 +95,24 @@ def sources_from_model_info(data: Any) -> dict[str, str]:
         info = d.get("model_info") if isinstance(d.get("model_info"), dict) else {}
         seen.setdefault(d["model_name"], set()).add(info.get("db_model") is True)
     return {name: ("mixed" if len(v) > 1 else "ui" if True in v else "config") for name, v in seen.items()}
+
+
+CachePrices = tuple[float | None, float | None]  # (캐시 읽기, 캐시 쓰기) USD/토큰
+
+
+def cache_prices_from_model_info(data: Any) -> dict[str, CachePrices]:
+    """LiteLLM `/v1/model/info` → {model_name: (cache_read_input_token_cost, cache_creation_input_token_cost)}.
+    model_info 는 LiteLLM 가격표(get_model_info)를 합친 값이다. 배포가 여럿이면 처음 아는 값. 가격 칸만 읽는다 (litellm_params 안 봄)."""
+    out: dict[str, CachePrices] = {}
+    items = data.get("data") if isinstance(data, dict) else None
+    for d in items if isinstance(items, list) else ():
+        if not isinstance(d, dict) or not isinstance(d.get("model_name"), str):
+            continue
+        info = d.get("model_info") if isinstance(d.get("model_info"), dict) else {}
+        read, write = _price(info.get("cache_read_input_token_cost")), _price(info.get("cache_creation_input_token_cost"))
+        old = out.get(d["model_name"], (None, None))
+        out[d["model_name"]] = (old[0] if old[0] is not None else read, old[1] if old[1] is not None else write)
+    return out
 
 
 def _no_db(res: httpx2.Response) -> bool:
@@ -107,6 +136,7 @@ class LiteLLMCatalog:
         self._ttl_s = ttl_s
         self._cache: tuple[float, list[GatewayModel]] | None = None
         self._sources_ok: dict[str, str] = {}  # 마지막으로 읽은 출처 — 한 번 못 읽어도 '알 수 없음'으로 깜빡이지 않게
+        self._cache_ok: dict[str, CachePrices] = {}  # 마지막으로 읽은 캐시 가격 (같은 이유)
 
     async def list_models(self, *, fresh: bool = False) -> list[GatewayModel]:
         now = time.monotonic()
@@ -124,22 +154,32 @@ class LiteLLMCatalog:
             models = [parse_model_group(item) for item in res.json()["data"]]
         except (ValueError, KeyError, TypeError) as e:
             raise GatewayError("gateway_bad_response") from e
-        sources = await self._sources()
-        if sources is None:
-            sources = self._sources_ok  # 일시 오류 = 지난 값 그대로
+        info = await self._model_info()
+        if info is None:
+            sources, cache = self._sources_ok, self._cache_ok  # 일시 오류 = 지난 값 그대로
         else:
-            self._sources_ok = sources
-        if sources:
-            models = [replace(m, source=sources.get(m.id)) for m in models]
+            sources, cache = sources_from_model_info(info), cache_prices_from_model_info(info)
+            self._sources_ok, self._cache_ok = sources, cache
+        if sources or cache:
+            models = [self._with_info(m, sources, cache) for m in models]
         self._cache = (now, models)
         return models
 
-    async def _sources(self) -> dict[str, str] | None:
-        """등록 출처는 덤: 못 읽으면(옛 LiteLLM · 권한 · 오류) None → 지난 값 (처음이면 빈 값 = 화면은 '알 수 없음').
+    @staticmethod
+    def _with_info(m: GatewayModel, sources: dict[str, str], cache: dict[str, CachePrices]) -> GatewayModel:
+        read, write = cache.get(m.id, (None, None))
+        return replace(
+            m, source=sources.get(m.id),
+            cache_read_input_token_cost=m.cache_read_input_token_cost if m.cache_read_input_token_cost is not None else read,
+            cache_creation_input_token_cost=m.cache_creation_input_token_cost if m.cache_creation_input_token_cost is not None else write,
+        )
+
+    async def _model_info(self) -> Any:
+        """등록 출처 · 캐시 가격은 덤: 못 읽으면(옛 LiteLLM · 권한 · 오류) None → 지난 값 (처음이면 빈 값 = 화면은 '알 수 없음').
         목록 읽기는 막지 않는다."""
         try:
             res = await self._client.get(self._info_url, headers=self._headers)
-            return sources_from_model_info(res.json()) if res.status_code == 200 else None
+            return res.json() if res.status_code == 200 else None
         except (httpx2.HTTPError, ValueError):
             return None
 

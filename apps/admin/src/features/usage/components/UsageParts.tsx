@@ -1,7 +1,12 @@
-// 사용량 조각 = 숫자 카드 줄 · 흐름 차트 둘 (호출 · 토큰 = 척도가 달라 차트를 나눈다 · 축 하나씩) · 묶음 줄 이름. 개요와 사용량 메뉴가 같이 쓴다
-import { Card, CardHeader, StatTile, TimeSeriesChart, deltaOf, type StatDelta } from '@brewai/ui';
-import type { UsageRow, UsageSummary } from '../api';
-import { USAGE_COPY as C, compact, count, dayLabel, money, percent, type BreakdownGroup } from '../copy';
+// 사용량 조각 = 숫자 카드 줄 · 흐름 차트 (척도가 다르면 차트를 나눈다 · 축 하나씩) · 종류별 막대 · Top 표 · 묶음 줄 이름.
+// 개요 · 사용량 메뉴 · 모델 자세히가 같이 쓴다
+import type { ReactNode } from 'react';
+import { Card, CardHeader, LinkButton, ProviderIcon, ShareBar, StatTile, TimeSeriesChart, deltaOf, vizSlot, type ShareItem, type StatDelta } from '@brewai/ui';
+import { TOKEN_KINDS, type ByKind, type UsageOthers, type UsageRow, type UsageSummary, type UsageTotals } from '../api';
+import {
+  TOKEN_KIND_LABEL, USAGE_COPY as C, compact, count, dayLabel, money, moneyAxis, percent,
+  type BreakdownGroup, type Metric,
+} from '../copy';
 import '../usage.css';
 
 type KpiKey = keyof typeof C.kpi;
@@ -40,30 +45,153 @@ export function UsageKpis({ data, hrefs }: { data: UsageSummary; hrefs?: Partial
   );
 }
 
-// 흐름 = 호출(성공 + 실패 따로) · 토큰(입력 · 출력). 두 척도를 한 축에 겹치지 않는다
-export function UsageTrends({ data, height = 200 }: { data: UsageSummary; height?: number }) {
+// 비용 색 = 한 칸 (보라 7). 종류 막대(1~5)와 겹치지 않게 · 개요 '모델별' 비용 막대와 같은 색 = 돈
+export const COST_COLOR = 7;
+
+// 작은 흐름 둘 = 호출 · 추정 비용 (척도가 달라 한 축에 겹치지 않는다 → 위아래 작은 차트 둘 · 같은 날짜 축). 개요 · 모델 자세히
+export function TrendPair({ data, height = 104 }: { data: UsageSummary; height?: number }) {
   const x = data.series.map((s) => s.date);
   return (
-    <div className="us-grid">
-      <Card as="section" aria-label={C.runsChart}>
-        <CardHeader title={C.runsChart} />
-        <TimeSeriesChart label={C.runsChart} x={x} xLabel={dayLabel} height={height} area
-          series={[
-            { id: 'runs', label: C.seriesRuns, values: data.series.map((s) => s.runs), color: 1 },
-            { id: 'errors', label: C.seriesErrors, values: data.series.map((s) => s.errors), color: 2 },
-          ]} />
-      </Card>
-      <Card as="section" aria-label={C.tokensChart}>
-        <CardHeader title={C.tokensChart} />
-        <TimeSeriesChart label={C.tokensChart} x={x} xLabel={dayLabel} height={height}
-          series={[
-            { id: 'input', label: C.seriesInput, values: data.series.map((s) => s.input_tokens), color: 1 },
-            { id: 'output', label: C.seriesOutput, values: data.series.map((s) => s.output_tokens), color: 3 },
-          ]} />
-      </Card>
+    <div className="us-pair">
+      <TimeSeriesChart label={C.runsChart} x={x} xLabel={dayLabel} height={height} area legend
+        series={[{ id: 'runs', label: C.seriesRuns, values: data.series.map((s) => s.runs), color: 1 }]} />
+      <TimeSeriesChart label={C.costChart} x={x} xLabel={dayLabel} height={height} area legend integer={false} format={money} axisFormat={moneyAxis}
+        series={[{ id: 'cost', label: C.seriesCost, values: data.series.map((s) => s.cost_usd ?? 0), color: COST_COLOR }]} />
     </div>
   );
 }
+
+// 사용량 메뉴의 흐름 = 기준(호출 · 토큰 · 비용) 하나. 호출 = 호출 + 실패 · 토큰 = 입력 + 출력 · 비용 = 추정 비용
+export function MetricTrend({ data, metric, height = 200 }: { data: UsageSummary; metric: Metric; height?: number }) {
+  const x = data.series.map((s) => s.date);
+  const title = C.trendChart(metric);
+  const chart =
+    metric === 'cost' ? (
+      <TimeSeriesChart label={title} x={x} xLabel={dayLabel} height={height} area integer={false} format={money} axisFormat={moneyAxis}
+        series={[{ id: 'cost', label: C.seriesCost, values: data.series.map((s) => s.cost_usd ?? 0), color: COST_COLOR }]} />
+    ) : metric === 'tokens' ? (
+      <TimeSeriesChart label={title} x={x} xLabel={dayLabel} height={height}
+        series={[
+          { id: 'input', label: C.seriesInput, values: data.series.map((s) => s.input_tokens), color: 1 },
+          { id: 'output', label: C.seriesOutput, values: data.series.map((s) => s.output_tokens), color: 3 },
+        ]} />
+    ) : (
+      <TimeSeriesChart label={title} x={x} xLabel={dayLabel} height={height} area
+        series={[
+          { id: 'runs', label: C.seriesRuns, values: data.series.map((s) => s.runs), color: 1 },
+          { id: 'errors', label: C.seriesErrors, values: data.series.map((s) => s.errors), color: 4 },
+        ]} />
+    );
+  return (
+    <Card as="section" aria-label={title}>
+      <CardHeader title={title} />
+      {chart}
+    </Card>
+  );
+}
+
+// 종류별 막대 (토큰 또는 비용). 색 = 종류마다 고정 칸 (입력 1 · 출력 2 · 생각 3 · 캐시 읽기 4 · 캐시 쓰기 5)
+export function kindItems(values: ByKind, fmt: (v: number) => string): ShareItem[] {
+  return TOKEN_KINDS.map((k, i) => ({ key: k, label: TOKEN_KIND_LABEL[k], value: values[k], valueText: fmt(values[k]), color: vizSlot(i) }));
+}
+
+export function KindShare({ totals, cost, label }: { totals: UsageTotals; cost: boolean; label: string }) {
+  if (cost && !totals.cost_by_kind) return <p className="us-note">{C.costNone}</p>;
+  const items = cost ? kindItems(totals.cost_by_kind!, money) : kindItems(totals.tokens_by_kind, compact);
+  return (
+    <div className="us-kinds">
+      <ShareBar label={label} items={items} format={cost ? money : compact} />
+      {cost && totals.cost_estimated_runs > 0 && <p className="us-note">{C.estimated(totals.cost_estimated_runs)}</p>}
+    </div>
+  );
+}
+
+// 비용 칸 = 값 + 풍선(종류별 비용). 표 틀이 넘침을 자르므로 브라우저 title 풍선 + 화면 낭독용 글
+export function CostCell({ t }: { t: Pick<UsageTotals, 'cost_usd' | 'cost_by_kind'> }) {
+  if (t.cost_usd === null || !t.cost_by_kind) return <span className="ui-num">{money(t.cost_usd)}</span>;
+  const parts = TOKEN_KINDS.filter((k) => t.cost_by_kind![k] > 0).map((k) => `${TOKEN_KIND_LABEL[k]} ${money(t.cost_by_kind![k])}`);
+  const text = parts.join(', ');
+  return (
+    <span className="ui-num us-cost" title={text} data-breakdown={text}>
+      {money(t.cost_usd)}
+      {parts.length > 0 && <span className="ui-sr">, {text}</span>}
+    </span>
+  );
+}
+
+// Top 표 (개요 · 모델 자세히의 카드 안). 줄 = 이름(링크) · 호출 · 토큰 · 비용 + 이름 아래 얇은 막대(기준 비율). 상세보기 = 사용량 메뉴(그 묶음)
+export type TopItem = { key: string; name: string; sub?: string; icon?: ReactNode; href?: string; row: UsageTotals };
+
+export function TopCard({ title, hint, items, others, more, metric = 'calls', empty }: {
+  title: string;
+  hint?: string;
+  items: TopItem[];
+  others?: UsageOthers | null;
+  more?: string; // 상세보기 링크
+  metric?: Metric; // 막대 기준
+  empty: string;
+}) {
+  const val = (t: UsageTotals) => (metric === 'cost' ? t.cost_usd ?? 0 : metric === 'tokens' ? t.tokens : t.runs);
+  const top = Math.max(0, ...items.map((i) => val(i.row)));
+  return (
+    <Card as="section" aria-label={title} className="us-topcard">
+      <CardHeader title={title} description={hint}
+        actions={more ? <LinkButton size="sm" variant="ghost" iconEnd="arrow-right" href={more}>{C.more}</LinkButton> : undefined} />
+      {items.length === 0 ? (
+        <p className="us-note">{empty}</p>
+      ) : (
+        <table className="ui-table us-top" data-density="compact" aria-label={title}>
+          <thead>
+            <tr>
+              <th scope="col">{C.col.name}</th>
+              <th scope="col" data-align="end">{C.col.runs}</th>
+              <th scope="col" data-align="end">{C.col.tokens}</th>
+              <th scope="col" data-align="end">{C.col.cost}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((it, i) => {
+              const pct = top > 0 ? Math.max(val(it.row) > 0 ? 2 : 0, (val(it.row) / top) * 100) : 0;
+              const name = (
+                <>
+                  {it.icon}
+                  <span className="us-top-text">
+                    <b className="ui-ell">{it.name}</b>
+                    {it.sub && <span className="ui-ell">{it.sub}</span>}
+                  </span>
+                </>
+              );
+              return (
+                <tr key={it.key} data-rank={i + 1}>
+                  <th scope="row">
+                    {it.href ? <a className="us-top-name" href={it.href}>{name}</a> : <span className="us-top-name">{name}</span>}
+                    <span className="us-top-track" aria-hidden="true"><span style={{ width: `${pct}%` }} /></span>
+                  </th>
+                  <td data-align="end" className="ui-num">{count(it.row.runs)}</td>
+                  <td data-align="end" className="ui-num">{compact(it.row.tokens)}</td>
+                  <td data-align="end"><CostCell t={it.row} /></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+      {others && <p className="us-note">{C.others(others.count)} {C.summaryLine(count(others.runs), compact(others.tokens), money(others.cost_usd)).join(', ')}</p>}
+    </Card>
+  );
+}
+
+// 묶음 줄 → Top 표 한 줄 (이름 · 아래 줄 · 모델이면 제공사 아이콘)
+export function topItem(group: BreakdownGroup, r: UsageRow, href?: string): TopItem {
+  const { name, sub } = rowName(group, r);
+  return {
+    key: r.key ?? 'unknown', name, sub, href: r.key ? href : undefined, row: r,
+    icon: group === 'model' && r.provider ? <ProviderIcon provider={r.provider} size="sm" /> : undefined,
+  };
+}
+
+export const metricValue = (m: Metric, t: UsageTotals) => (m === 'cost' ? t.cost_usd ?? 0 : m === 'tokens' ? t.tokens : t.runs);
+export const metricText = (m: Metric, t: UsageTotals) => (m === 'cost' ? money(t.cost_usd) : m === 'tokens' ? compact(t.tokens) : count(t.runs));
 
 // 묶음 한 줄의 이름 · 아래 줄 (null = 알 수 없음 · 내 스페이스 전부)
 export function rowName(group: BreakdownGroup, r: UsageRow): { name: string; sub?: string } {

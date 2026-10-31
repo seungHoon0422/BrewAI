@@ -12,10 +12,58 @@
 .us-name-text{display:grid;min-width:0}
 .us-name-text span{font-size:var(--fs-xs);color:var(--text-muted)}
 .us-body [data-bad]{color:var(--danger-text)}
+.us-grid-3{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:var(--space-3)}
+/* 작은 흐름 둘 (위아래 · 같은 날짜 축) */
+.us-pair{display:grid;gap:var(--space-3);min-width:0}
+.us-kinds{display:grid;gap:var(--space-2);min-width:0}
+.us-cost{cursor:help;text-decoration:underline dotted var(--border-strong);text-underline-offset:3px}
+/* Top 표 = 카드 안 작은 표 (틀 없음) · 이름 아래 얇은 막대 = 기준 비율 */
+.us-top{table-layout:fixed}
+.us-top th:first-child{width:auto}
+.us-top thead th:not(:first-child){width:72px}
+.us-top thead th:last-child{width:84px}
+.us-top th,.us-top td{padding:0 var(--space-2)}
+.us-top th:first-child{padding-left:0}
+.us-top td:last-child,.us-top thead th:last-child{padding-right:0}
+.us-top tbody th{padding-top:var(--space-1-5);padding-bottom:var(--space-1-5)}
+.us-top-name{display:flex;align-items:center;gap:var(--space-2);min-width:0;color:var(--text);text-decoration:none}
+a.us-top-name:hover b{text-decoration:underline;text-underline-offset:2px}
+.us-top-text{display:grid;min-width:0}
+.us-top-text b{font-weight:var(--fw-medium)}
+.us-top-text span{font-size:var(--fs-xs);font-weight:var(--fw-regular);color:var(--text-muted)}
+.us-top-track{display:block;height:3px;margin-top:var(--space-1);border-radius:var(--radius-pill);background:var(--surface-sunken);overflow:hidden}
+.us-top-track>span{display:block;height:100%;border-radius:var(--radius-pill);background:var(--viz-1)}
 /* 서랍 안 사용량 칸 */
 .us-section{display:grid;gap:var(--space-2-5);min-width:0;transition:opacity var(--dur-base)}
 .us-section>.ui-btn{justify-self:start;margin-left:calc(-1 * var(--space-2))}
 .us-section-meta{font-size:var(--fs-sm);color:var(--text-2)}
 .us-sub{margin:var(--space-1) 0 0;font-size:var(--fs-xs);font-weight:var(--fw-semibold);color:var(--text-muted)}
 @media (max-width:1100px){.us-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}}
-@media (max-width:760px){.us-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.us-grid{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:1100px){.us-grid-3{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:760px){.us-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.us-grid{grid-template-columns:minmax(0,1fr)}
+  .us-top thead th:not(:first-child){width:60px}.us-top thead th:last-child{width:72px}}
+.us-switch{display:inline-flex;align-items:center;flex-wrap:wrap;justify-content:flex-end;gap:var(--space-2)}
+/* 모델 자세히의 사용량 칸 (모양 = 모델 카드 .mcard 와 같게 · 클래스는 따로 = 모델 카드 셋 세는 E2E 와 섞이지 않게) */
+.us-model{display:grid;gap:var(--space-4);min-width:0}
+.us-model>.ui-card-head{align-items:center}
+.us-model>.ui-card-head .ui-card-title{font-size:var(--fs-base)}
+.us-model-body{display:grid;gap:var(--space-4);min-width:0}
+.us-model .us-kpis .ui-stat{min-width:0}
+.us-model-trend{display:grid;gap:var(--space-2);align-content:start;min-width:0}
+.us-model .us-sub{margin:0}
+.us-sub-hint{font-weight:var(--fw-regular)}
+.us-kind-table th,.us-kind-table td{padding:0 var(--space-2)}
+.us-kind-table th:first-child{padding-left:0}
+.us-kind-table td:last-child,.us-kind-table th:last-child{padding-right:0}
+.us-kind-name{display:inline-flex;align-items:center;gap:var(--space-2)}
+.us-kind-total>*{font-weight:var(--fw-semibold)!important;border-top:1px solid var(--border)}
+@media (max-width:760px){
+  .us-model>.ui-card-head{flex-wrap:wrap}
+  .us-model>.ui-card-head>.ui-card-actions{flex:1 1 100%}
+  .us-model .us-switch{justify-content:flex-start}
+}
+@media (max-width:760px){
+  .us .ui-card-head{flex-wrap:wrap}
+  .us .ui-card-head>.ui-card-actions{flex:1 1 100%;min-width:0}
+  .us .us-switch{justify-content:flex-start}
+}

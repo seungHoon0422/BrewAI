@@ -5,8 +5,11 @@
   ② 관리자 집계는 이 표만 읽는다 → 질문 · 답 · 제목(runs.prompt · messages)이 집계 SQL 에 아예 없다 (대화 내용 0).
   ③ 하루 묶음(usage_daily)은 만들지 않는다: 지금 규모(실행 수천~수만)는 started_at 색인 + GROUP BY 로 충분하고,
      묶음 표는 늦게 닫히는 실행 · 가격 갱신과 어긋날 수 있다. 느려지면 그때 이 표에서 만든다.
-한 줄 = 누가(user · org · space) · 무엇으로(model · provider · 그때 이름) · 토큰(입력 · 출력 · 생각) · 모델 요청 수 · 도구 호출 수
-  · 추정 비용(토큰 × 그때 model_exposure 게이트웨이 가격 · 가격을 모르면 NULL) · 걸린 시간 · 상태(ok | error | cancelled) · 시작 시각.
+한 줄 = 누가(user · org · space) · 무엇으로(model · provider · 그때 이름) · 토큰(입력 · 출력 · 생각 · 캐시 읽기 · 캐시 쓰기) · 모델 요청 수 · 도구 호출 수
+  · 추정 비용(토큰 × 그때 model_exposure 게이트웨이 가격 · 가격을 모르면 NULL) + 종류별 비용 칸 다섯 · 걸린 시간 · 상태(ok | error | cancelled) · 시작 시각.
+토큰 칸은 겹친다 (Pydantic AI · OpenAI 형식): 입력 ⊇ 캐시 읽기 + 캐시 쓰기 · 출력 ⊇ 생각. 종류별 = 겹치지 않게 나눈 값 (tokens_by_kind · cost_by_kind).
+캐시 · 종류별 비용 칸 (ADDED_COLUMNS)은 store v3 뒤에 더했다 → 스키마 번호를 올리지 않고 여기서 없으면 더한다 (ensure_columns · 몇 번이든 같은 결과).
+  더할 때 이미 있던 줄의 비용은 지금 가격 비율로 입력 · 출력 · 생각에 나눠 둔다 (합 = 그때 cost_usd 그대로).
 실패 · 취소한 실행은 토큰을 모른다 (게이트웨이가 끝까지 안 줬다) → NULL. 도구 호출 수는 단계(tool:* · skill:*)로 센다.
 시간대: 하루 경계 = 요청의 tz(분, 브라우저 기준 · 기본 0 = UTC). 저장은 언제나 UTC ISO.
 """
@@ -21,6 +24,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any, Literal
 
 Group = Literal["day", "org", "user", "space", "model"]
+Sort = Literal["runs", "tokens", "cost"]
 GROUPS: tuple[Group, ...] = ("day", "org", "user", "space", "model")
 PERSONAL = "personal"  # 스페이스 묶음: 내 스페이스(개인)는 사람마다 나누지 않고 한 줄 (내용은 본인만 · ADR-0011)
 MAX_DAYS = 366
@@ -29,6 +33,16 @@ _STATUS = {"done": "ok", "error": "error", "cancelled": "cancelled"}
 COLUMNS = (
     "run_id", "started_at", "finished_at", "status", "error_code", "user_id", "org_id", "space_id", "model", "model_label",
     "provider", "input_tokens", "output_tokens", "reasoning_tokens", "requests", "tool_calls", "cost_usd", "duration_ms",
+    "cache_read_tokens", "cache_write_tokens", "cost_input_usd", "cost_output_usd", "cost_reasoning_usd", "cost_cache_read_usd",
+    "cost_cache_write_usd", "cost_estimated",
+)
+# 종류 = 겹치지 않는 토큰 묶음 (화면의 비용 분해 · 모델 사용량). 순서 = 막대 왼쪽부터
+KINDS = ("input", "output", "reasoning", "cache_read", "cache_write")
+# v3 표에 나중에 더한 칸 (이름, 모양). 새 DB 는 SCHEMA 가 처음부터 갖고, 옛 v3 DB 는 ensure_columns 가 더한다
+ADDED_COLUMNS = (
+    ("cache_read_tokens", "INTEGER"), ("cache_write_tokens", "INTEGER"),
+    *((f"cost_{k}_usd", "REAL") for k in KINDS),
+    ("cost_estimated", "INTEGER"),  # 1 = 캐시 가격을 몰라 입력 가격으로 어림
 )
 
 SCHEMA = """
@@ -50,7 +64,15 @@ CREATE TABLE IF NOT EXISTS usage_events (
   requests         INTEGER,
   tool_calls       INTEGER NOT NULL DEFAULT 0,
   cost_usd         REAL,
-  duration_ms      INTEGER
+  duration_ms      INTEGER,
+  cache_read_tokens    INTEGER,
+  cache_write_tokens   INTEGER,
+  cost_input_usd       REAL,
+  cost_output_usd      REAL,
+  cost_reasoning_usd   REAL,
+  cost_cache_read_usd  REAL,
+  cost_cache_write_usd REAL,
+  cost_estimated       INTEGER
 );
 CREATE INDEX IF NOT EXISTS usage_at ON usage_events (started_at);
 CREATE INDEX IF NOT EXISTS usage_org ON usage_events (org_id, started_at);
@@ -72,14 +94,37 @@ def _price(info: Mapping[str, Any], key: str) -> float | None:
     return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 0 else None
 
 
-def estimate_cost(info: Mapping[str, Any], input_tokens: int | None, output_tokens: int | None) -> float | None:
-    """토큰 × 게이트웨이 가격 (USD). 토큰이나 가격 하나라도 모르면 None (0 으로 속이지 않는다).
-    생각 토큰은 출력 토큰 안에 들어 있다 (OpenAI 형식 completion_tokens) → 따로 더하지 않는다.
-    위 한도(상한) 추정: 캐시에서 읽은 입력 토큰도 정가(input_cost_per_token)로 센다 — 캐시 토큰 수를 아직 기록하지 않는다."""
+def cost_parts(
+    info: Mapping[str, Any], input_tokens: int | None, output_tokens: int | None,
+    reasoning_tokens: int | None = 0, cache_read_tokens: int | None = 0, cache_write_tokens: int | None = 0,
+) -> dict[str, Any] | None:
+    """토큰 × 게이트웨이 가격 (USD) → {parts: {종류: 비용}, total, estimated}. 입력 · 출력 토큰이나 그 가격을 모르면 None (0 으로 속이지 않는다).
+    입력 토큰 안에 캐시 읽기 · 쓰기가, 출력 토큰 안에 생각이 들어 있다 (OpenAI 형식) → 겹치지 않게 나눠서 각 가격을 곱한다.
+    캐시 가격(cache_read_input_token_cost · cache_creation_input_token_cost)을 모르면 입력 가격으로 어림 → estimated True.
+    캐시 토큰이 입력보다 크게 오면(입력에서 캐시를 뺀 provider 형식) 캐시 아닌 입력 = 0 으로 막는다."""
     pin, pout = _price(info, "input_cost_per_token"), _price(info, "output_cost_per_token")
     if input_tokens is None or output_tokens is None or pin is None or pout is None:
         return None
-    return round(input_tokens * pin + output_tokens * pout, 10)
+    cr, cw = cache_read_tokens or 0, cache_write_tokens or 0
+    think = min(reasoning_tokens or 0, output_tokens)
+    pread, pwrite = _price(info, "cache_read_input_token_cost"), _price(info, "cache_creation_input_token_cost")
+    parts = {
+        "input": max(0, input_tokens - cr - cw) * pin,
+        "output": (output_tokens - think) * pout,
+        "reasoning": think * pout,
+        "cache_read": cr * (pin if pread is None else pread),
+        "cache_write": cw * (pin if pwrite is None else pwrite),
+    }
+    return {
+        "parts": {k: round(v, 10) for k, v in parts.items()}, "total": round(sum(parts.values()), 10),
+        "estimated": bool((cr and pread is None) or (cw and pwrite is None)),
+    }
+
+
+def estimate_cost(info: Mapping[str, Any], input_tokens: int | None, output_tokens: int | None) -> float | None:
+    """캐시 · 생각을 모를 때의 합계 (모두 정가 입력 · 출력)."""
+    c = cost_parts(info, input_tokens, output_tokens)
+    return c["total"] if c else None
 
 
 def tool_calls_of(steps: Iterable[Any]) -> int:
@@ -102,19 +147,75 @@ def usage_event(run: Mapping[str, Any], gateway_info: Mapping[str, Any] | None) 
         steps = []
     steps = steps if isinstance(steps, list) else []
     tin, tout = _int(usage.get("input_tokens")), _int(usage.get("output_tokens"))
+    think, cr, cw = _int(usage.get("reasoning_tokens")), _int(usage.get("cache_read_tokens")), _int(usage.get("cache_write_tokens"))
     calls = _int(usage.get("tool_calls"))
+    cost = cost_parts(gateway_info or {}, tin, tout, think, cr, cw)
     return {
         "run_id": run["id"], "started_at": run["started_at"], "finished_at": run["finished_at"], "status": status,
         "error_code": run["error_code"], "user_id": run["user_id"], "org_id": run["org_id"], "space_id": run["space_id"],
         "model": run["model"], "model_label": run["model_label"], "provider": run["provider"],
-        "input_tokens": tin, "output_tokens": tout, "reasoning_tokens": _int(usage.get("reasoning_tokens")),
+        "input_tokens": tin, "output_tokens": tout, "reasoning_tokens": think,
         "requests": _int(usage.get("requests")), "tool_calls": calls if calls is not None else tool_calls_of(steps),
-        "cost_usd": estimate_cost(gateway_info or {}, tin, tout), "duration_ms": _int(run["duration_ms"]),
+        "cost_usd": cost["total"] if cost else None, "duration_ms": _int(run["duration_ms"]),
+        # 캐시 토큰: 토큰을 아는 실행(성공)만 값 (모르면 NULL · 옛 실행 = 0 으로 센 적 없음)
+        "cache_read_tokens": (cr or 0) if tin is not None else None, "cache_write_tokens": (cw or 0) if tin is not None else None,
+        **{f"cost_{k}_usd": cost["parts"][k] if cost else None for k in KINDS},
+        "cost_estimated": int(cost["estimated"]) if cost else None,
     }
+
+
+def ensure_columns(db: sqlite3.Connection) -> list[str]:
+    """옛 v3 표에 나중 칸(ADDED_COLUMNS)이 없으면 더한다 → 더한 칸 이름 (이미 다 있으면 []). 몇 번 불러도 같은 결과.
+    SAVEPOINT = 트랜잭션 안(store.tx)에서도 · 밖(store.read)에서도 한 덩어리. 표가 아직 없으면(Store 가 만들기 전) 아무것도 안 한다."""
+    have = {r[1] for r in db.execute("PRAGMA table_info(usage_events)")}
+    missing = [(n, t) for n, t in ADDED_COLUMNS if n not in have]
+    if not have or not missing:
+        return []
+    db.execute("SAVEPOINT usage_columns")
+    try:
+        for name, kind in missing:
+            db.execute(f"ALTER TABLE usage_events ADD COLUMN {name} {kind}")
+        if "cost_input_usd" in {n for n, _ in missing}:
+            _split_old_costs(db)
+    except BaseException:
+        db.execute("ROLLBACK TO usage_columns")
+        db.execute("RELEASE usage_columns")
+        raise
+    db.execute("RELEASE usage_columns")
+    return [n for n, _ in missing]
+
+
+def _split_old_costs(db: sqlite3.Connection) -> None:
+    """칸을 더하기 전 줄 = 캐시 토큰을 모른다 → 그때 cost_usd 를 지금 가격 비율로 입력 · 출력 · 생각에 나눈다 (합은 그대로).
+    지금 가격을 모르면(None) 토큰 수 비율로 · 가격 0(무료)은 그대로 0 (그 종류에 옛 비용을 싣지 않는다).
+    cost_estimated = NULL: 캐시 토큰을 몰라 정확한지 아닌지 모른다 (0 = 정확으로 읽히지 않게 · 어림 문구에도 안 센다)."""
+    prices: dict[str, dict[str, Any]] = {}
+    for r in db.execute("SELECT gateway_id, gateway_info FROM model_exposure"):
+        try:
+            info = json.loads(r[1] or "{}")
+        except ValueError:
+            info = {}
+        prices[r[0]] = info if isinstance(info, dict) else {}
+    rows = db.execute(
+        "SELECT run_id, model, input_tokens, output_tokens, reasoning_tokens, cost_usd FROM usage_events WHERE cost_usd IS NOT NULL"
+    ).fetchall()
+    for run_id, model, tin, tout, think, cost in rows:
+        info = prices.get(model, {})
+        pin, pout = _price(info, "input_cost_per_token"), _price(info, "output_cost_per_token")
+        pin, pout = 1.0 if pin is None else pin, 1.0 if pout is None else pout
+        t = min(think or 0, tout or 0)
+        w = {"input": (tin or 0) * pin, "output": ((tout or 0) - t) * pout, "reasoning": t * pout}
+        total = sum(w.values()) or 1.0
+        db.execute(
+            "UPDATE usage_events SET cost_input_usd = ?, cost_output_usd = ?, cost_reasoning_usd = ?, cost_cache_read_usd = 0,"
+            " cost_cache_write_usd = 0, cost_estimated = NULL WHERE run_id = ?",
+            (*(round(cost * w[k] / total, 10) for k in ("input", "output", "reasoning")), run_id),
+        )
 
 
 def record(db: sqlite3.Connection, run_id: str) -> bool:
     """닫힌 실행 하나를 사용량에 (이미 있으면 그대로 = 한 번만). 가격 = 지금 model_exposure 스냅샷."""
+    ensure_columns(db)
     run = db.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
     if run is None:
         return False
@@ -225,6 +326,8 @@ _SUMS = (
     "COUNT(*) AS runs, SUM(u.status = 'ok') AS ok, SUM(u.status = 'error') AS errors, SUM(u.status = 'cancelled') AS cancelled,"
     " SUM(u.input_tokens) AS input_tokens, SUM(u.output_tokens) AS output_tokens, SUM(u.reasoning_tokens) AS reasoning_tokens,"
     " SUM(u.requests) AS requests, SUM(u.tool_calls) AS tool_calls, SUM(u.cost_usd) AS cost_usd, COUNT(u.cost_usd) AS cost_runs,"
+    " SUM(u.cache_read_tokens) AS cache_read_tokens, SUM(u.cache_write_tokens) AS cache_write_tokens, SUM(u.cost_estimated) AS cost_estimated_runs,"
+    + "".join(f" SUM(u.cost_{k}_usd) AS cost_{k}_usd," for k in KINDS) +
     " COUNT(DISTINCT u.user_id) AS active_users, CAST(AVG(u.duration_ms) AS INTEGER) AS avg_duration_ms"
 )
 _KEY: dict[Group, str] = {
@@ -236,18 +339,40 @@ _KEY: dict[Group, str] = {
 }
 
 
+def _usd(v: Any) -> float | None:
+    return round(float(v), 8) if v is not None else None
+
+
+_SORT: dict[str, Any] = {
+    "runs": lambda t: (-t["runs"], -t["tokens"]),
+    "tokens": lambda t: (-t["tokens"], -t["runs"]),
+    "cost": lambda t: (-(t["cost_usd"] or 0), -t["runs"]),
+}
+
+
 def _totals(row: Mapping[str, Any] | None) -> dict[str, Any]:
     r = dict(row) if row is not None else {}
     n = lambda k: int(r.get(k) or 0)  # noqa: E731
     tin, tout = n("input_tokens"), n("output_tokens")
     runs, errors = n("runs"), n("errors")
+    cr, cw, think = n("cache_read_tokens"), n("cache_write_tokens"), n("reasoning_tokens")
+    cost = _usd(r.get("cost_usd"))
     return {
         "runs": runs, "ok": n("ok"), "errors": errors, "cancelled": n("cancelled"),
         "error_rate": round(errors / runs, 4) if runs else 0.0,
-        "input_tokens": tin, "output_tokens": tout, "tokens": tin + tout, "reasoning_tokens": n("reasoning_tokens"),
+        "input_tokens": tin, "output_tokens": tout, "tokens": tin + tout, "reasoning_tokens": think,
+        "cache_read_tokens": cr, "cache_write_tokens": cw,
+        # 입력 중 캐시에서 읽은 비율 = 캐시 읽기 / 입력 전체 (입력 ⊇ 캐시 읽기 + 캐시 쓰기 · 캐시 쓰기도 분모에 = Anthropic 보고와 같은 뜻).
+        # 계획의 '캐시 읽기 / (입력 + 캐시 읽기)' 와 다르다: 여기 입력은 이미 캐시를 품어 그 식은 캐시 읽기를 두 번 센다
+        "cache_hit_rate": round(cr / tin, 4) if tin else 0.0,
+        # 겹치지 않는 토큰 묶음 (합 = tokens)
+        "tokens_by_kind": {"input": max(0, tin - cr - cw), "output": max(0, tout - think), "reasoning": think, "cache_read": cr, "cache_write": cw},
         "requests": n("requests"), "tool_calls": n("tool_calls"),
-        "cost_usd": round(float(r["cost_usd"]), 6) if r.get("cost_usd") is not None else None,
+        "cost_usd": cost,
+        # 종류별 비용 (합 ≈ cost_usd). 비용을 하나도 모르면 전부 None
+        "cost_by_kind": {k: (_usd(r.get(f"cost_{k}_usd")) or 0.0) if cost is not None else None for k in KINDS},
         "cost_runs": n("cost_runs"),  # 비용을 안 실행 수 (나머지 = 가격 모름 · 실패 · 취소)
+        "cost_estimated_runs": n("cost_estimated_runs"),  # 캐시 가격을 몰라 입력 가격으로 어림한 실행 수
         "active_users": n("active_users"), "avg_duration_ms": r.get("avg_duration_ms"),
     }
 
@@ -296,10 +421,12 @@ def _labels(db: sqlite3.Connection, group: Group, keys: list[str], w: Window, mo
 
 def summary(
     db: sqlite3.Connection, w: Window, f: Filters, group: Group = "day", *, limit: int = 50, model_labels: Mapping[str, str] | None = None,
-    series: bool = True,
+    series: bool = True, sort: Sort = "runs",
 ) -> dict[str, Any]:
     """기간 하나 = 합계 + 지난 같은 길이 기간 합계(증감) + 하루별 흐름(빈 날 = 0) + 묶음별 줄 (group != day).
-    series=False = 묶음 줄만 쓰는 곳(개요의 조직 · 모델 카드): 지난 기간 · 하루별 흐름을 건너뛴다 (previous None · series [])."""
+    series=False = 묶음 줄만 쓰는 곳(개요의 Top 5 카드): 지난 기간 · 하루별 흐름을 건너뛴다 (previous None · series []).
+    sort = 묶음 줄 순서 (runs | tokens | cost · 큰 것부터) → limit 으로 자른 나머지는 others 하나."""
+    ensure_columns(db)
     totals = _totals((_select(db, w, f, None) or [None])[0])
     previous = _totals((_select(db, w.previous, f, None) or [None])[0]) if series else None
     by_day = {r["k"]: _totals(r) for r in _select(db, w, f, "day")} if series else {}
@@ -311,7 +438,8 @@ def summary(
     }
     if group == "day":
         return out
-    rows = sorted(((r["k"], _totals(r)) for r in _select(db, w, f, group)), key=lambda kv: (-kv[1]["runs"], -kv[1]["tokens"], str(kv[0])))
+    rank = _SORT[sort]
+    rows = sorted(((r["k"], _totals(r)) for r in _select(db, w, f, group)), key=lambda kv: (*rank(kv[1]), str(kv[0])))
     shown, rest = rows[:limit], rows[limit:]
     labels = _labels(db, group, [k for k, _ in shown if k], w, model_labels or {})
     total_runs = totals["runs"] or 1
@@ -319,7 +447,10 @@ def summary(
         {"key": k, "label": None, "sub": None, **labels.get(k or "", {}), **t, "share": round(t["runs"] / total_runs, 4)} for k, t in shown
     ]
     if rest:
-        agg = {key: sum((t[key] or 0) for _, t in rest) for key in ("runs", "errors", "tokens", "input_tokens", "output_tokens", "tool_calls")}
+        keys = ("runs", "errors", "tokens", "input_tokens", "output_tokens", "tool_calls", "cache_read_tokens", "cache_write_tokens")
+        agg: dict[str, Any] = {key: sum((t[key] or 0) for _, t in rest) for key in keys}
+        costs = [t["cost_usd"] for _, t in rest if t["cost_usd"] is not None]
+        agg["cost_usd"] = round(sum(costs), 8) if costs else None
         out["others"] = {"count": len(rest), **agg, "share": round(agg["runs"] / total_runs, 4)}
     return out
 

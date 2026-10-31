@@ -3,8 +3,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useHash } from '../../app/hash';
 import { hrefOf, queryOf, type RouteId } from '../../app/routes';
 import { loadErrorOf, type LoadError } from '../../shared/http';
-import { getGatewayStatus, getStats, getUsage, type UsageFilter, type UsageGroup } from './api';
-import { GROUP_ORDER, PERIODS, type BreakdownGroup, type Period } from './copy';
+import { getGatewayStatus, getStats, getUsage, type UsageFilter, type UsageGroup, type UsageQuery } from './api';
+import { GROUP_ORDER, METRICS, PERIODS, type BreakdownGroup, type Metric, type Period } from './copy';
 
 export type Kept<T> = { data: T | null; error: LoadError | null; loading: boolean; reload: () => void };
 
@@ -40,8 +40,8 @@ export function useKept<T>(fetcher: (signal: AbortSignal) => Promise<T>, key: st
 
 const keyOf = (...parts: unknown[]) => JSON.stringify(parts);
 
-export function useUsage(days: number, group: UsageGroup, filter: UsageFilter = {}, limit = 50, series = true) {
-  return useKept((signal) => getUsage(days, group, filter, signal, limit, series), keyOf(days, group, filter, limit, series));
+export function useUsage(days: number, group: UsageGroup, filter: UsageFilter = {}, opts: UsageQuery = {}) {
+  return useKept((signal) => getUsage(days, group, filter, opts, signal), keyOf(days, group, filter, opts));
 }
 
 export function useGatewayStatus(days: number) {
@@ -52,7 +52,7 @@ export function useStats() {
   return useKept((signal) => getStats(signal), 'stats');
 }
 
-/* ── 주소 = 화면 상태 ('#/usage?days=30&group=space&org=o1') ── */
+/* ── 주소 = 화면 상태 ('#/usage?days=30&group=space&metric=cost&org=o1') ── */
 const FILTER_KEYS = ['org', 'space', 'user', 'model'] as const;
 
 export function usePeriodParam(route: RouteId, allowed: readonly number[] = PERIODS, fallback: number = allowed[0]) {
@@ -71,23 +71,26 @@ export function useUsageRoute() {
   const rawDays = Number(q.get('days'));
   const days: Period = (PERIODS as readonly number[]).includes(rawDays) ? (rawDays as Period) : 30;
   const group: BreakdownGroup = GROUP_ORDER.find((g) => g === q.get('group')) ?? 'org';
+  const metric: Metric = METRICS.find((m) => m === q.get('metric')) ?? 'calls';
   const filter: UsageFilter = {};
   FILTER_KEYS.forEach((k) => {
     const v = q.get(k);
     if (v) filter[k] = v;
   });
   // 바꾸기 = 주소 바꾸기 (replace = 뒤로 가기 기록을 쌓지 않는다 · 링크로 그대로 나눌 수 있다)
-  const set = (patch: { days?: number; group?: BreakdownGroup } & Partial<Record<(typeof FILTER_KEYS)[number], string | null>>) => {
-    const next = { days, group, ...filter, ...patch };
+  const set = (patch: UsageLink) => {
+    const next = { days, group, metric, ...filter, ...patch };
     window.location.replace(usageHref(next));
   };
-  return { days, group, filter, set, filtered: FILTER_KEYS.some((k) => filter[k]) };
+  return { days, group, metric, filter, set, filtered: FILTER_KEYS.some((k) => filter[k]) };
 }
 
-// 사용량 메뉴로 가는 링크 (개요 · 서랍 · 표가 쓴다). 기본값(30일 · 조직)은 주소에서 뺀다
-export function usageHref(p: { days?: number; group?: BreakdownGroup } & Partial<Record<(typeof FILTER_KEYS)[number], string | null>>) {
+export type UsageLink = { days?: number; group?: BreakdownGroup; metric?: Metric } & Partial<Record<(typeof FILTER_KEYS)[number], string | null>>;
+
+// 사용량 메뉴로 가는 링크 (개요 · 서랍 · 모델 자세히 · 표가 쓴다). 기본값(30일 · 조직 · 호출)은 주소에서 뺀다
+export function usageHref(p: UsageLink) {
   return hrefOf('usage', undefined, {
-    days: p.days === 30 ? null : p.days, group: p.group === 'org' ? null : p.group,
+    days: p.days === 30 ? null : p.days, group: p.group === 'org' ? null : p.group, metric: p.metric === 'calls' ? null : p.metric,
     org: p.org, space: p.space, user: p.user, model: p.model,
   });
 }

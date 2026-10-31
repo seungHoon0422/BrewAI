@@ -2,6 +2,7 @@ import { useId, useRef, useState, type ReactNode } from 'react';
 import {
   Button, Callout, Card, CardHeader, EmptyState, IconButton, KeyValue, LinkButton, PageHeader, ProviderIcon, Skeleton, Switch, providerLabel,
 } from '@brewai/ui';
+import { ModelUsage } from '../../usage/components/ModelUsage';
 import type { AdminModel, GatewayInfo } from '../api';
 import { COPY, LOAD_ERROR, SOURCE } from '../copy';
 import { ago, canExpose, canProbe, failed, fixFor, latency, neighbors, perM, providerName, tokens, type Dup } from '../derive';
@@ -15,6 +16,7 @@ import { DefaultBadge, DupBadge, NameEditor, SourceBadge, StateBadge } from './N
 // 모델 자세히 페이지 ('#/models/<gateway_id>' — 링크로 바로 · 뒤로 · 앞으로). 위 줄(← 모델 목록 · 세션)은 틀(App.tsx)이 그린다.
 // 머리 = 제공사 아이콘 · 보이는 이름(h1) / 실제 모델 이름(고정폭 · 옅게) · 딱지 · 오른쪽에 [노출] [기본 모델로 정하기] [연결 테스트].
 // 몸 = 두 칸 (≥1100 · 좁으면 한 칸): 왼쪽 = 사용자 앱(여기서 정하는 것) · 연결 / 오른쪽 = 게이트웨이 값(읽기 전용 · LiteLLM 에서 바꾼다).
+// 아래 = 사용량 (한 줄 가득 · features/usage ModelUsage — 캐시 토큰 · 종류별 비용 · Top 5 조직과 사용자)
 // 입력칸 = 표시 이름 바꿀 때 하나뿐 (가격 · 제공사 · 컨텍스트 입력칸 없음 — e2e admin.spec)
 export function ModelPage({ id, api, view }: ModelPanelProps & { id: string }) {
   const h1 = useRef<HTMLHeadingElement>(null);
@@ -77,6 +79,8 @@ export function ModelPage({ id, api, view }: ModelPanelProps & { id: string }) {
           <GatewayCard m={m} now={api.now} gateway={api.gateway} />
         </div>
       </div>
+
+      <ModelUsage id={m.id} />
     </div>
   );
 }

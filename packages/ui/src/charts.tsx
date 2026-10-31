@@ -282,10 +282,11 @@ export function BarList({ label, items, format = formatNumber, max, className }:
 /* ── 비중 막대 ──────────────────────────────────────── */
 export type ShareItem = { key: string; label: string; value: number; valueText?: string; href?: string; color?: VizColor; icon?: IconLike };
 
-export function ShareBar({ label, items, format = formatNumber, className }: {
+export function ShareBar({ label, items, format = formatNumber, legend = true, className }: {
   label: string;
   items: readonly ShareItem[]; // 순서 = 막대 왼쪽부터 · 범례 위부터
   format?: (v: number) => string;
+  legend?: boolean; // false = 범례를 눈에서만 숨김 (같은 값을 옆 표가 보여 줄 때 · 화면 낭독기에는 남는다)
   className?: string;
 }) {
   const [hover, setHover] = useState<number | null>(null);
@@ -323,7 +324,7 @@ export function ShareBar({ label, items, format = formatNumber, className }: {
           </span>
         )}
       </div>
-      <ul className="ui-share-legend" aria-label={label}>
+      <ul className={legend ? 'ui-share-legend' : 'ui-share-legend ui-sr'} aria-label={label}>
         {items.map((it, i) => {
           const inner = (
             <>

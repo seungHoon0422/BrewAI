@@ -708,9 +708,13 @@ class ChatRuntime:
             # 생각 토큰: OpenAI 형식 completion_tokens_details.reasoning_tokens (LiteLLM 이 Anthropic thinking 글자로 센다).
             # 글 없이 토큰만 있으면 = 생각은 했는데 내용을 안 보냄 (display omitted · redacted) → 화면이 그렇게 말한다
             reasoning_tokens = u.output_reasoning_tokens or int((u.details or {}).get("reasoning_tokens") or 0)
+            # 캐시 토큰 (입력 토큰 안에 들어 있다): 읽기 = prompt_tokens_details.cached_tokens · 쓰기 = LiteLLM 의 cache_creation_input_tokens (details)
+            details = u.details or {}
             activity.usage = {
                 "input_tokens": u.input_tokens, "output_tokens": u.output_tokens, "requests": u.requests, "tool_calls": u.tool_calls,
                 "reasoning_tokens": reasoning_tokens,
+                "cache_read_tokens": u.cache_read_tokens or int(details.get("cache_read_input_tokens") or 0),
+                "cache_write_tokens": u.cache_write_tokens or int(details.get("cache_creation_input_tokens") or 0),
             }
 
         # BrewAI 가 정한 값(CUSTOM value · REST)은 snake_case. AG-UI 자체 필드만 camelCase

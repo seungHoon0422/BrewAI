@@ -31,7 +31,11 @@
 //   병렬 (한 응답에 tool_calls 여럿 = conductor 가 동시에 돌린다): [fake:parallel] → current_time 서울 · 뉴욕 + unit_convert 68 F → C 를 한 번에
 //   여러 단계 (한 응답에 하나씩 차례로): [fake:chain] → current_time → date_calc(오늘부터 12-25 까지) → use_skill meeting-prep → 답
 // drop_params: 요청에 drop_params true 면 (LiteLLM 처럼) 모델이 지원 안 하는 reasoning_effort 를 400 대신 버린다
-// 등록 출처: GET /v1/model/info (LiteLLM 모양: data[{model_name, litellm_params, model_info:{id, db_model}}]) — db_model true = 관리 화면(DB)
+// 등록 출처: GET /v1/model/info (LiteLLM 모양: data[{model_name, litellm_params, model_info:{id, db_model, 가격}}]) — db_model true = 관리 화면(DB)
+//   model_info 의 캐시 가격 (cache_read_input_token_cost · cache_creation_input_token_cost) = conductor 가 캐시 비용을 셈 (/model_group/info 에는 없다)
+// 캐시 토큰 (usage · LiteLLM 모양, prompt_tokens 안에 들어 있다): Anthropic 모델 = 입력의 절반 읽기 + 4분의 1 쓰기
+//   (prompt_tokens_details.cached_tokens · cache_read_input_tokens · cache_creation_input_tokens) · OpenAI 모델 = 입력의 30% 읽기 (cached_tokens 만)
+//   [fake:cache-write] → OpenAI 모델도 입력의 4분의 1 을 캐시 쓰기로 (작은 모델은 쓰기 가격이 없다 = 관리자 사용량의 '어림' 흉내)
 // 테스트 조작 (Bearer 필요): POST /__fake/catalog {"late": true|false, "hide": ["fake-chat-large"], "broken": {"<모델>": "<FAILURES 이름>"}, "reset": true}
 //   → 카탈로그를 바꾼다 (새 모델 = 관리자 '후보', 숨긴 모델 = '사라짐', broken = 그 모델의 모든 채팅 호출이 그 실패). 응답 {"models": [id…]}
 import http from 'node:http';
@@ -86,6 +90,11 @@ const BASE_GROUPS = [
 ];
 // LiteLLM 에 나중에 등록되는 모델 (관리자 '후보' 흉내). provider = gemini → conductor 는 google 로 묶는다
 const LATE_GROUP = group({ id: 'fake-chat-late', providers: ['gemini'], maxIn: 1000000, maxOut: 8192, inCost: 1e-7, outCost: 4e-7, tools: true });
+// 캐시 가격 (USD/토큰 · /v1/model/info model_info). 작은 모델은 쓰기 가격 없음 (OpenAI 는 캐시 쓰기를 따로 받지 않는다) · late = 모름
+const CACHE_PRICES = {
+  'fake-chat-small': { cache_read_input_token_cost: 7.5e-8 },
+  'fake-chat-large': { cache_read_input_token_cost: 3e-7, cache_creation_input_token_cost: 3.75e-6 },
+};
 // 관리 화면(DB)에서 추가한 모델 = db_model true. 나머지 = config.yaml
 const DB_MODELS = new Set(['fake-chat-large', 'fake-chat-late']);
 const catalog = { late: process.env.FAKE_GATEWAY_LATE === '1', hide: new Set(), broken: new Map() };
@@ -292,11 +301,21 @@ function chunks(text, size = 6) {
   return out;
 }
 
-function usage(messages, reply, reasoning = 0) {
+function usage(messages, reply, reasoning = 0, info = null, cacheWrite = false) {
   const prompt = messages.reduce((n, m) => n + Array.from(textOf(m?.content)).length, 0);
   const completion = Array.from(reply).length + reasoning;
   const out = { prompt_tokens: prompt, completion_tokens: completion, total_tokens: prompt + completion };
   if (reasoning) out.completion_tokens_details = { reasoning_tokens: reasoning };
+  if (info?.providers.includes('anthropic')) {
+    const read = Math.floor(prompt / 2);
+    const write = Math.floor(prompt / 4);
+    out.prompt_tokens_details = { cached_tokens: read };
+    out.cache_read_input_tokens = read;
+    out.cache_creation_input_tokens = write;
+  } else if (info?.providers.includes('openai')) {
+    out.prompt_tokens_details = { cached_tokens: Math.floor((prompt * 3) / 10) };
+    if (cacheWrite) out.cache_creation_input_tokens = Math.floor(prompt / 4);
+  }
   return out;
 }
 
@@ -391,7 +410,7 @@ async function chatCompletions(req, res) {
       ...base,
       object: 'chat.completion',
       choices: [{ index: 0, message, logprobs: null, finish_reason: finish }],
-      usage: usage(messages, reply, reasoningTokens),
+      usage: usage(messages, reply, reasoningTokens, info, question.includes('[fake:cache-write]')),
     });
   }
 
@@ -437,7 +456,7 @@ async function chatCompletions(req, res) {
   }
   chunk({}, finish);
   if (body.stream_options?.include_usage) {
-    event({ ...base, object: 'chat.completion.chunk', choices: [], usage: usage(messages, reply, reasoningTokens) });
+    event({ ...base, object: 'chat.completion.chunk', choices: [], usage: usage(messages, reply, reasoningTokens, info, question.includes('[fake:cache-write]')) });
   }
   res.write('data: [DONE]\n\n');
   res.end();
@@ -484,7 +503,10 @@ const server = http.createServer(async (req, res) => {
         data: modelGroups().map((m) => ({
           model_name: m.model_group,
           litellm_params: { model: `${m.providers[0]}/${m.model_group}` },
-          model_info: { id: `fake-${m.model_group}`, db_model: DB_MODELS.has(m.model_group), mode: m.mode },
+          model_info: {
+            id: `fake-${m.model_group}`, db_model: DB_MODELS.has(m.model_group), mode: m.mode,
+            input_cost_per_token: m.input_cost_per_token, output_cost_per_token: m.output_cost_per_token, ...CACHE_PRICES[m.model_group],
+          },
         })),
       });
     }

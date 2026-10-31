@@ -11,11 +11,19 @@ const SPACE = KIND_LABEL.space;
 export const OVERVIEW_COPY = {
   period: '기간',
   toUsage: '사용량 자세히',
-  orgs: `${ORG}별 사용량`,
-  orgsHint: `호출 수, 눌러서 그 ${ORG} 사용량`,
-  orgsEmpty: `이 기간에 호출한 ${ORG}이 없어요`,
-  models: '모델별 비중',
-  modelsHint: '호출 수, 눌러서 모델 자세히',
+  // 흐름 (작게)
+  trend: '호출과 비용 추이',
+  trendHint: '하루별, 비용은 게이트웨이 가격 기준 추정',
+  // Top 5 (E2E: region 이름)
+  top: { org: `${ORG} Top 5`, user: '사용자 Top 5', model: '모델 Top 5', space: `${SPACE} Top 5` },
+  topHint: '호출 많은 순, 이름을 누르면 그 대상',
+  topEmpty: '이 기간에 기록이 없어요',
+  // 비용 분해 (E2E: region '비용 분해')
+  cost: '비용 분해',
+  costHint: '추정 비용을 토큰 종류와 모델로 나눠요',
+  costKinds: '토큰 종류별',
+  costModels: '모델별',
+  costModelsHint: '비용 많은 순',
   modelsOther: (n: number) => `기타 ${n}개`,
   // 게이트웨이 카드 (E2E: region '게이트웨이' · data-state)
   gateway: '게이트웨이',

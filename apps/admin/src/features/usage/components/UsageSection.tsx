@@ -10,7 +10,7 @@ const DAYS = 30;
 
 // 사용자 · 조직 · 스페이스 서랍의 '사용량' 칸 = 최근 30일 숫자 한 줄 · 하루별 호출 · 많이 쓴 모델 셋 · 사용량 메뉴(그 대상으로 거른) 링크
 export function UsageSection({ filter }: { filter: UsageFilter }) {
-  const usage = useUsage(DAYS, 'model', filter, 3);
+  const usage = useUsage(DAYS, 'model', filter, { limit: 3 });
   const d = usage.data;
   return (
     <Section title={C.section} hint={C.sectionHint(DAYS)}>

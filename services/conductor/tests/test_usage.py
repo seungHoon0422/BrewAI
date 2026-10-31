@@ -7,6 +7,7 @@ import sqlite3
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.messages import ModelMessage
 from pydantic_ai.models.function import AgentInfo, FunctionModel
@@ -221,3 +222,178 @@ def test_record_is_idempotent(make_api, h) -> None:
         assert usage.record(db, "nope") is False
     assert api.store.query("SELECT COUNT(*) FROM usage_events")[0][0] == 4
 
+
+
+# ── 캐시 토큰 · 종류별 비용 (비용 분해) ──
+
+CLAUDE_PRICES = {
+    "input_cost_per_token": 3e-6, "output_cost_per_token": 1.5e-5,
+    "cache_read_input_token_cost": 3e-7, "cache_creation_input_token_cost": 3.75e-6,
+}
+
+
+def _litellm_client(usage_body: dict) -> object:
+    """LiteLLM 스트림 흉내 (OpenAI chunk + 마지막 usage 조각) — 진짜 OpenAIChatModel 이 usage 를 읽는다."""
+    import httpx2
+    from openai import AsyncOpenAI
+
+    base = {"id": "chatcmpl-litellm", "created": 1761696000, "model": "claude-cache", "object": "chat.completion.chunk"}
+    chunks = [
+        base | {"choices": [{"index": 0, "delta": {"role": "assistant", "content": "답"}, "finish_reason": None}]},
+        base | {"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]},
+        base | {"choices": [], "usage": usage_body},
+    ]
+
+    def handler(req: httpx2.Request) -> httpx2.Response:
+        body = "".join(f"data: {json.dumps(c)}\n\n" for c in chunks) + "data: [DONE]\n\n"
+        return httpx2.Response(200, content=body.encode(), headers={"content-type": "text/event-stream"})
+
+    return AsyncOpenAI(
+        base_url="http://gateway.invalid/v1", api_key="sk-test-secret-0000", max_retries=0,
+        http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(handler)),
+    )
+
+
+def test_litellm_cache_tokens_are_recorded_and_priced_per_kind(make_api, h) -> None:
+    """LiteLLM usage: prompt_tokens_details.cached_tokens = 캐시 읽기 · cache_creation_input_tokens = 캐시 쓰기 (둘 다 prompt_tokens 안).
+    비용 = 캐시 아닌 입력 × 입력가 + 캐시 읽기 × 읽기가 + 캐시 쓰기 × 쓰기가 + (출력 − 생각) × 출력가 + 생각 × 출력가."""
+    body = {
+        "prompt_tokens": 1000, "completion_tokens": 200, "total_tokens": 1200,
+        "prompt_tokens_details": {"cached_tokens": 600}, "cache_creation_input_tokens": 100, "cache_read_input_tokens": 600,
+        "completion_tokens_details": {"reasoning_tokens": 50},
+    }
+    items = [*h.fixture_items(), h.group("claude-cache", ["anthropic"], **CLAUDE_PRICES)]
+    api = make_api(None, items, bootstrap_models=("claude-cache",), openai_client=_litellm_client(body))
+    events = api.chat("캐시 질문", model="claude-cache")
+    summary = next(e for e in events if e["type"] == "CUSTOM" and e["name"] == "brewai.run_summary")
+    assert summary["value"]["usage"] | {"cache_read_tokens": 600, "cache_write_tokens": 100} == summary["value"]["usage"]
+
+    row = dict(api.store.query("SELECT * FROM usage_events")[0])
+    assert (row["input_tokens"], row["output_tokens"], row["reasoning_tokens"]) == (1000, 200, 50)
+    assert (row["cache_read_tokens"], row["cache_write_tokens"], row["cost_estimated"]) == (600, 100, 0)
+    want = {"input": 300 * 3e-6, "cache_read": 600 * 3e-7, "cache_write": 100 * 3.75e-6, "output": 150 * 1.5e-5, "reasoning": 50 * 1.5e-5}
+    for k, v in want.items():
+        assert abs(row[f"cost_{k}_usd"] - v) < 1e-12, k
+    assert abs(row["cost_usd"] - sum(want.values())) < 1e-12
+
+    t = api.client.get("/api/admin/usage").json()["totals"]
+    assert t["tokens_by_kind"] == {"input": 300, "output": 150, "reasoning": 50, "cache_read": 600, "cache_write": 100}
+    assert sum(t["tokens_by_kind"].values()) == t["tokens"] == 1200
+    assert t["cache_hit_rate"] == 0.6 and (t["cache_read_tokens"], t["cache_write_tokens"]) == (600, 100)
+    assert abs(sum(t["cost_by_kind"].values()) - t["cost_usd"]) < 1e-7 and t["cost_estimated_runs"] == 0
+    by_model = api.client.get("/api/admin/usage", params={"group": "model", "model": "claude-cache"}).json()["groups"][0]
+    assert by_model["cache_read_tokens"] == 600 and by_model["cost_by_kind"]["cache_write"] == round(100 * 3.75e-6, 8)
+
+
+def test_cost_parts_math_and_missing_prices() -> None:
+    p = usage.cost_parts(CLAUDE_PRICES, 1000, 200, 50, 600, 100)
+    assert p is not None and p["estimated"] is False and set(p["parts"]) == set(usage.KINDS)
+    assert abs(p["total"] - sum(p["parts"].values())) < 1e-12
+    # 캐시 가격 모름 → 입력 가격으로 어림 (estimated) · 캐시 토큰이 없으면 어림 아님
+    plain = {"input_cost_per_token": 1e-6, "output_cost_per_token": 2e-6}
+    est = usage.cost_parts(plain, 1000, 10, 0, 600, 100)
+    assert est is not None and est["estimated"] is True and est["parts"]["cache_read"] == round(600 * 1e-6, 10)
+    assert abs(est["total"] - (1000 * 1e-6 + 10 * 2e-6)) < 1e-12  # 어림 = 전부 정가 입력
+    only_read = {**plain, "cache_read_input_token_cost": 1e-7}
+    assert usage.cost_parts(only_read, 100, 0, 0, 50, 0)["estimated"] is False  # type: ignore[index]
+    assert usage.cost_parts(only_read, 100, 0, 0, 50, 5)["estimated"] is True  # type: ignore[index]
+    assert usage.cost_parts(plain, 100, 10)["estimated"] is False  # type: ignore[index]
+    # 입력 · 출력 가격이나 토큰을 모르면 None · 캐시가 입력보다 크면 캐시 아닌 입력 = 0 · 생각은 출력보다 클 수 없다
+    assert usage.cost_parts({"output_cost_per_token": 1e-6}, 1, 1) is None and usage.cost_parts(plain, None, 1) is None
+    odd = usage.cost_parts(plain, 10, 5, 99, 30, 0)
+    assert odd is not None and odd["parts"]["input"] == 0 and odd["parts"]["output"] == 0 and odd["parts"]["reasoning"] == round(5 * 2e-6, 10)
+    assert usage.estimate_cost(plain, 100, 10) == round(100 * 1e-6 + 10 * 2e-6, 10)
+
+
+V3_OLD_TABLE = """
+DROP TABLE usage_events;
+CREATE TABLE usage_events (
+  run_id TEXT PRIMARY KEY, started_at TEXT NOT NULL, finished_at TEXT, status TEXT NOT NULL CHECK (status IN ('ok', 'error', 'cancelled')),
+  error_code TEXT, user_id TEXT, org_id TEXT, space_id TEXT, model TEXT NOT NULL, model_label TEXT NOT NULL, provider TEXT NOT NULL,
+  input_tokens INTEGER, output_tokens INTEGER, reasoning_tokens INTEGER, requests INTEGER, tool_calls INTEGER NOT NULL DEFAULT 0,
+  cost_usd REAL, duration_ms INTEGER
+);
+INSERT INTO model_exposure (gateway_id, sort_order, gateway_info, first_seen, last_seen)
+  VALUES ('fake-chat-small', 1, '{"input_cost_per_token": 1e-06, "output_cost_per_token": 2e-06}', '', '');
+INSERT INTO usage_events (run_id, started_at, status, model, model_label, provider, input_tokens, output_tokens, reasoning_tokens, cost_usd)
+  VALUES ('old-ok', '2026-10-30T00:00:00.000Z', 'ok', 'fake-chat-small', 'Small', 'openai', 100, 30, 10, 0.5);
+INSERT INTO model_exposure (gateway_id, sort_order, gateway_info, first_seen, last_seen)
+  VALUES ('free-in', 2, '{"input_cost_per_token": 0, "output_cost_per_token": 2e-06}', '', '');
+INSERT INTO usage_events (run_id, started_at, status, model, model_label, provider, input_tokens, output_tokens, reasoning_tokens, cost_usd)
+  VALUES ('old-free-in', '2026-10-29T00:00:00.000Z', 'ok', 'free-in', 'Free in', 'openai', 1000, 10, 0, 0.00002);
+INSERT INTO usage_events (run_id, started_at, status, model, model_label, provider)
+  VALUES ('old-err', '2026-10-30T00:00:01.000Z', 'error', 'fake-chat-small', 'Small', 'openai');
+"""
+
+
+def test_existing_v3_table_gets_new_columns_once(tmp_path) -> None:
+    """스키마 번호를 올리지 않는다: 옛 v3 표 = 칸이 없으면 더하고 (몇 번이든 같은 결과) · 옛 비용은 합을 지켜 나눈다."""
+    path = tmp_path / "conductor.sqlite3"
+    Store(path).close()
+    db = sqlite3.connect(path)
+    db.executescript(V3_OLD_TABLE)
+    db.close()
+    store = Store(path)  # 켤 때는 칸을 건드리지 않는다 (store.py 그대로) → 처음 읽거나 쓸 때
+    assert store.query("PRAGMA user_version")[0][0] == SCHEMA_VERSION == 3
+    with store.read() as conn:
+        added = usage.ensure_columns(conn)
+        assert added == [n for n, _ in usage.ADDED_COLUMNS]
+        assert usage.ensure_columns(conn) == []  # 두 번째 = 아무것도 안 함
+        out = usage.summary(conn, usage.window("2026-10-30", "2026-10-30"), usage.Filters())
+    cols = {r[1] for r in store.query("PRAGMA table_info(usage_events)")}
+    assert {n for n, _ in usage.ADDED_COLUMNS} <= cols
+    old = dict(store.query("SELECT * FROM usage_events WHERE run_id = 'old-ok'")[0])
+    parts = [old[f"cost_{k}_usd"] for k in usage.KINDS]
+    assert abs(sum(parts) - 0.5) < 1e-9 and old["cost_cache_read_usd"] == 0 and old["cache_read_tokens"] is None
+    # 지금 가격 비율: 입력 100 × 1e-6 : 출력 20 × 2e-6 : 생각 10 × 2e-6 = 100 : 40 : 20
+    assert abs(old["cost_input_usd"] - 0.5 * 100 / 160) < 1e-9 and abs(old["cost_reasoning_usd"] - 0.5 * 20 / 160) < 1e-9
+    assert old["cost_estimated"] is None  # 캐시를 몰라 정확한지 모른다 (0 = 정확 아님)
+    # 입력 가격 0 = 무료 → 옛 비용은 전부 출력 (0 을 1 로 바꿔 입력에 싣지 않는다)
+    free = dict(store.query("SELECT * FROM usage_events WHERE run_id = 'old-free-in'")[0])
+    assert free["cost_input_usd"] == 0 and abs(free["cost_output_usd"] - 0.00002) < 1e-12
+    err = dict(store.query("SELECT * FROM usage_events WHERE run_id = 'old-err'")[0])
+    assert err["cost_input_usd"] is None and err["cost_estimated"] is None
+    t = out["totals"]
+    assert t["runs"] == 2 and t["cost_usd"] == 0.5 and abs(sum(t["cost_by_kind"].values()) - 0.5) < 1e-7
+    assert t["cache_read_tokens"] == 0 and t["cache_hit_rate"] == 0.0
+    store.close()
+    again = Store(path)  # 다시 켜도 그대로
+    with again.read() as conn:
+        assert usage.ensure_columns(conn) == []
+    assert again.query("SELECT COUNT(*) FROM usage_events")[0][0] == 3
+    again.close()
+
+
+def test_usage_sort_by_cost_and_others_carry_cost(make_api, h) -> None:
+    api, b_id, *_ = setup(make_api, h)
+    by_cost = api.client.get("/api/admin/usage", params={"group": "model", "sort": "cost"}).json()["groups"]
+    assert [g["key"] for g in by_cost] == ["fake-chat-small", "fake-chat-large"]  # 큰 모델은 가격 모름 = 0 으로 뒤
+    by_tokens = api.client.get("/api/admin/usage", params={"group": "user", "sort": "tokens"}).json()["groups"]
+    assert by_tokens[0]["tokens"] >= by_tokens[1]["tokens"]
+    one = api.client.get("/api/admin/usage", params={"group": "model", "sort": "cost", "limit": 1}).json()
+    assert one["others"]["cost_usd"] is None and one["others"]["count"] == 1  # 나머지 = 큰 모델 (가격 모름)
+    assert api.client.get("/api/admin/usage", params={"sort": "nope"}).status_code == 422
+
+
+@pytest.mark.anyio
+async def test_catalog_reads_cache_prices_from_model_info(h) -> None:
+    import httpx2
+
+    from conductor.gateway import LiteLLMCatalog
+
+    def handler(req: httpx2.Request) -> httpx2.Response:
+        if req.url.path == "/v1/model/info":
+            return httpx2.Response(200, json={"data": [
+                {"model_name": "fake-chat-small", "model_info": {"db_model": False, "cache_read_input_token_cost": 7.5e-8}},
+                {"model_name": "fake-chat-large", "model_info": {"db_model": True, "cache_creation_input_token_cost": None}},
+                {"model_name": "fake-chat-large", "model_info": {"db_model": True, "cache_creation_input_token_cost": 3.75e-6}},
+                {"model_name": "fake-embed", "model_info": {"cache_read_input_token_cost": -1}},
+            ]})
+        return httpx2.Response(200, content=h.FIXTURE.read_bytes(), headers={"content-type": "application/json"})
+
+    cat = LiteLLMCatalog("http://gateway.invalid", "sk-test", client=httpx2.AsyncClient(transport=httpx2.MockTransport(handler)))
+    models = {m.id: m for m in await cat.list_models()}
+    assert (models["fake-chat-small"].cache_read_input_token_cost, models["fake-chat-small"].cache_creation_input_token_cost) == (7.5e-8, None)
+    assert models["fake-chat-large"].cache_creation_input_token_cost == 3.75e-6
+    assert models["fake-embed"].cache_read_input_token_cost is None  # 음수 = 모름
+    assert models["fake-chat-small"].row()["cache_read_input_token_cost"] == 7.5e-8  # model_exposure 스냅샷에 들어간다
