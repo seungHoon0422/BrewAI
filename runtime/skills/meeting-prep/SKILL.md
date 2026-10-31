@@ -1,7 +1,7 @@
 ---
 name: meeting-prep
 label: 회의 준비
-description: 회의 전에 안건 · 물어볼 질문 · 챙길 자료 체크리스트를 만든다. "회의 준비 도와줘", "미팅 전에 뭘 챙겨?" 같은 요청에.
+description: 회의 전에 안건, 물어볼 질문, 챙길 자료 체크리스트를 만든다. "회의 준비 도와줘", "미팅 전에 뭘 챙겨?" 같은 요청에.
 tools: [date_calc, current_time]
 ---
 # 회의 준비

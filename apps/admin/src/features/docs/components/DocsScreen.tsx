@@ -44,7 +44,7 @@ export default function DocsScreen() {
 
   return (
     <div className="docs">
-      {data.errors.length > 0 && <Callout tone="warn">{DOCS_COPY.unreadable(data.errors.join(' · '))}</Callout>}
+      {data.errors.length > 0 && <Callout tone="warn">{DOCS_COPY.unreadable(data.errors.join(', '))}</Callout>}
       <div className="ui-tabs" data-variant="line">
         <div className="ui-tablist ui-scroll" role="tablist" aria-label={DOCS_COPY.tabs} onKeyDown={onKeyDown}>
           {DOC_TABS.map((t, i) => (

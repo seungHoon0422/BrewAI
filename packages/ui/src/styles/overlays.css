@@ -14,6 +14,27 @@
 .ui-popover[data-placement="top-end"]{bottom:calc(100% + 6px);right:0}
 .ui-popover:focus-visible{outline:0}
 
+/* 고르기 목록 (select.tsx) — 최상위 층(popover="manual") · 자리 = 화면 좌표(select.tsx place) · 유리 면 */
+.ui-glass.ui-select-list{position:fixed;inset:auto;margin:0;z-index:var(--z-popover);box-sizing:border-box;width:max-content;min-width:120px;max-height:320px;
+  overflow:auto;padding:var(--space-1);border:1px solid var(--glass-border);border-radius:var(--radius-lg);color:var(--text);font-size:var(--fs-sm);
+  animation:ui-fade var(--dur-fast) var(--ease-out)}
+.ui-select-list::after{display:none} /* 스크롤하는 상자라 그라데이션 테두리 대신 1px 선 (팝오버와 같음) */
+.ui-select-list:focus-visible{outline:0}
+.ui-select-list[data-side="top"]{animation-name:ui-fade-in} /* 위로 열면 아래에서 올라오지 않게 (단추를 덮지 않는다) */
+.ui-select-opt{display:flex;align-items:center;gap:var(--space-2);min-height:var(--control-md);padding:4px 6px 4px 8px;border-radius:var(--radius-md);
+  white-space:nowrap;cursor:pointer;user-select:none}
+.ui-select-list[data-size="sm"] .ui-select-opt{min-height:var(--control-sm)}
+.ui-select-opt[data-active]{background:var(--surface-hover)}
+.ui-select-opt[aria-selected="true"]{font-weight:var(--fw-medium)}
+.ui-select-opt[aria-disabled]{opacity:.45;cursor:default}
+.ui-select-opt[aria-disabled][data-active]{background:transparent}
+.ui-select-opt>.ui-icon{flex:none;color:var(--text-muted)}
+.ui-select-opt-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.ui-select-opt-desc{margin-left:var(--space-3);font-size:var(--fs-xs);font-weight:var(--fw-regular);color:var(--text-muted);font-variant-numeric:tabular-nums}
+.ui-select-opt-check{display:grid;place-items:center;width:var(--icon-sm);flex:none}
+.ui-select-opt-check .ui-icon{color:var(--text)}
+@media (prefers-reduced-motion:reduce){.ui-select-list{animation:none}}
+
 /* 메뉴 */
 .ui-menu{display:grid;gap:1px}
 .ui-menu-heading{margin:6px 8px 3px;font-size:var(--fs-2xs);font-weight:var(--fw-semibold);color:var(--text-muted)}

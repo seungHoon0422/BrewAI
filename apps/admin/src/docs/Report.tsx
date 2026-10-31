@@ -23,7 +23,7 @@ export default function Report({ info }: { info: { title: string | null; bytes: 
   return (
     <>
       <Callout icon="receipt">
-        <b>{info.title ?? 'REPORT.html'}</b> · {Math.round(info.bytes / 1024)} KB · <code>/report</code> 가 이 파일을 갱신합니다. 링크는 새 탭에서 열립니다.
+        <b>{info.title ?? 'REPORT.html'}</b> ({Math.round(info.bytes / 1024)} KB). <code>/report</code> 가 이 파일을 갱신합니다. 링크는 새 탭에서 열립니다.
       </Callout>
       {failed ? (
         <p className="missing">보고서를 불러오지 못했습니다.</p>

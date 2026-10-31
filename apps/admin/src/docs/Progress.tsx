@@ -71,7 +71,7 @@ export default function Progress({ data }: { data: DocsData }) {
               </div>
               <div>
                 <dt>결정 대기</dt>
-                <dd>{h.pending.length === 0 ? <St tone="on">없음</St> : <St tone="warn">{h.pending.length}건 · 위 칸</St>}</dd>
+                <dd>{h.pending.length === 0 ? <St tone="on">없음</St> : <St tone="warn">{h.pending.length}건, 위 칸</St>}</dd>
               </div>
               {h.rows.map((row) => (
                 <div key={row.key}>
@@ -167,7 +167,7 @@ export default function Progress({ data }: { data: DocsData }) {
                     {p.criteria.length > 0 && (
                       <details open={p.state === 'now'}>
                         <summary>
-                          완료 기준 {p.criteria.length}개 · passes <code>{String(p.passes)}</code>
+                          완료 기준 {p.criteria.length}개, passes <code>{String(p.passes)}</code>
                         </summary>
                         <ul className="crit">
                           {p.criteria.map((c, i) => (

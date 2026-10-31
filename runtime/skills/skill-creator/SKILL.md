@@ -1,7 +1,7 @@
 ---
 name: skill-creator
 label: 스킬 만들기
-description: 자주 하는 일을 새 스킬(SKILL.md)로 만들고 싶을 때 초안을 함께 쓴다. 목적·언제 쓰는지·단계·결과 모양을 묻고 초안을 코드 블록으로 준다.
+description: 자주 하는 일을 새 스킬(SKILL.md)로 만들고 싶을 때 초안을 함께 쓴다. 목적, 언제 쓰는지, 단계, 결과 모양을 묻고 초안을 코드 블록으로 준다.
 tools: [text_stats]
 ---
 # 스킬 만들기

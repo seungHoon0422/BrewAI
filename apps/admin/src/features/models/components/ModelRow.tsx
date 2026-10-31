@@ -1,5 +1,5 @@
 import { useState, type DragEvent, type MouseEvent } from 'react';
-import { Checkbox, Icon, IconButton, ProviderIcon, Radio, Switch, flag } from '@brewai/ui';
+import { Checkbox, Icon, ProviderIcon, Radio, Switch, flag } from '@brewai/ui';
 import type { AdminModel } from '../api';
 import { COL_LABEL, COPY } from '../copy';
 import { canExpose, perM, providerName, tokens, type Dup } from '../derive';
@@ -16,12 +16,8 @@ export const ProviderName = ({ m }: { m: AdminModel }) => (
 // 비용 · 컨텍스트 = 숫자만 (단위는 머리 글 툴팁 · 표 아래 한 줄). 모르면 —
 const Num = ({ v, title }: { v: string | null; title?: string }) => (v ? <span className="ui-num" title={title}>{v}</span> : <span className="nil">—</span>);
 
-export function ModelRow({ m, groupStart, pos, prev, next, busy, test, onChange, onProbe, now, dup, checked, onCheck, onOpen, canDrag, canDrop, dragging, onDragStart, onDragEnd, onDrop }: {
+export function ModelRow({ m, busy, test, onChange, onProbe, now, dup, checked, onCheck, onOpen, canDrag, canDrop, dropBelow, dragging, onDragStart, onDragEnd, onDrop }: {
   m: AdminModel;
-  groupStart: boolean; // 제공사가 바뀌는 줄 (위에 선)
-  pos?: number;
-  prev?: AdminModel;
-  next?: AdminModel;
   busy: boolean;
   test: TestState | undefined;
   onChange: Change;
@@ -33,6 +29,7 @@ export function ModelRow({ m, groupStart, pos, prev, next, busy, test, onChange,
   onOpen: () => void;
   canDrag: boolean;
   canDrop: boolean;
+  dropBelow: boolean; // 아래로 끄는 중 = 이 줄 뒤에 놓인다 (표시 선 = 줄 아래)
   dragging: boolean;
   onDragStart: () => void;
   onDragEnd: () => void;
@@ -54,12 +51,13 @@ export function ModelRow({ m, groupStart, pos, prev, next, busy, test, onChange,
   } : {};
 
   return (
-    <tr data-model={m.id} data-provider={m.provider} data-group-start={flag(groupStart)} data-state={m.state} data-clickable="" data-selected={flag(checked)} data-busy={flag(busy)}
-      data-dragging={flag(dragging)} data-over={flag(over)} aria-busy={busy} onClick={onRowClick} {...dragProps}>
+    <tr data-model={m.id} data-provider={m.provider} data-state={m.state} data-clickable="" data-selected={flag(checked)} data-busy={flag(busy)}
+      data-dragging={flag(dragging)} data-over={flag(over)} data-below={flag(over && dropBelow)} aria-busy={busy} onClick={onRowClick} {...dragProps}>
       <td className="sel" data-col="select">
         <Checkbox aria-label={COPY.select(m.label)} checked={checked} onChange={onCheck} />
       </td>
-      <td className="ord" data-col="order" title={canDrag ? COPY.ordTitle(providerName(m), pos ?? '—') : COPY.ordLocked}>
+      {/* 순서 = 전체 자리 (숨김 · 후보 포함 · 사용자 앱 메뉴는 노출한 모델만 이 순서로) · 손잡이를 끌어 옮긴다 (키보드 · 한 칸씩 = 자세히 페이지) */}
+      <td className="ord" data-col="order" title={missing ? undefined : canDrag ? COPY.ordTitle(m.order) : COPY.ordLocked}>
         {missing ? '—' : (
           <span className="ordc">
             {canDrag && (
@@ -69,19 +67,15 @@ export function ModelRow({ m, groupStart, pos, prev, next, busy, test, onChange,
                 <Icon name="grip" size="sm" />
               </span>
             )}
-            <span className="num ui-num">{pos ?? '—'}</span>
-            <span className="mv">
-              <IconButton size="sm" icon="arrow-up" label={COPY.up(m.label)} disabled={busy || !prev} onClick={() => prev && onChange(m, { order: prev.order })} />
-              <IconButton size="sm" icon="arrow-down" label={COPY.down(m.label)} disabled={busy || !next} onClick={() => next && onChange(m, { order: next.order })} />
-            </span>
+            <span className="num ui-num">{m.order}</span>
           </span>
         )}
       </td>
       <td className="mprov" data-col="provider"><ProviderName m={m} /></td>
       <td className="mcell" data-col="model"><NameCell m={m} busy={busy} onChange={onChange} dup={dup} /></td>
-      <td className="gnum" data-col="context" data-align="end"><Num v={tokens(m.max_input_tokens)} /></td>
-      <td className="gnum" data-col="input" data-align="end"><Num v={perM(m.input_cost_per_token)} title={COPY.costTitle(COL_LABEL.input)} /></td>
-      <td className="gnum" data-col="output" data-align="end"><Num v={perM(m.output_cost_per_token)} title={COPY.costTitle(COL_LABEL.output)} /></td>
+      <td className="gnum" data-col="context"><Num v={tokens(m.max_input_tokens)} /></td>
+      <td className="gnum" data-col="input"><Num v={perM(m.input_cost_per_token)} title={COPY.costTitle(COL_LABEL.input)} /></td>
+      <td className="gnum" data-col="output"><Num v={perM(m.output_cost_per_token)} title={COPY.costTitle(COL_LABEL.output)} /></td>
       <td className="gcaps" data-col="caps"><Caps m={m} /></td>
       <td className="set" data-col="exposed">
         <Switch checked={m.exposed} aria-label={COPY.exposeSwitch(m.label)} title={exposeWhy ?? (m.exposed ? COPY.exposeOn : COPY.exposeOff)}

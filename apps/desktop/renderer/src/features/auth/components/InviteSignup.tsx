@@ -1,6 +1,6 @@
 // 초대 코드로 가입 — 1) 코드 → 미리보기(조직 · 초대한 사람 · 역할 · 스페이스 · 가린 이메일) 2) [Google로 가입] 또는 이메일 · 닉네임 · 비밀번호
 import { useState, type FormEvent } from 'react';
-import { Badge, Button, Callout, Card, Field, Icon, Input, PasswordInput, passwordStrength } from '@brewai/ui';
+import { Badge, Button, Callout, Card, Field, Icon, Input, Meta, PasswordInput, passwordStrength } from '@brewai/ui';
 import { tidyInvite, type InvitePreview } from '../api';
 import { AUTH, INVITE, dateText, errorText } from '../copy';
 import { previewCode, showView, signup, usePasswordMin } from '../hooks';
@@ -73,9 +73,11 @@ export function InviteSignup() {
       <Card variant="sunken" padding="md" className="auth-invite">
         <p className="auth-invite-org"><Icon name="building" size="sm" />{preview.org.name}</p>
         <p className="auth-sub">
-          {preview.inviter_name && <>{INVITE.invitedBy(preview.inviter_name)} · </>}
-          {INVITE.joinAs(INVITE.orgRole[preview.org_role])}
-          {preview.expires_at && <> · {INVITE.expires(dateText(preview.expires_at))}</>}
+          <Meta wrap items={[
+            preview.inviter_name && INVITE.invitedBy(preview.inviter_name),
+            INVITE.joinAs(INVITE.orgRole[preview.org_role]),
+            preview.expires_at && INVITE.expires(dateText(preview.expires_at)),
+          ]} />
         </p>
         {preview.spaces.length > 0 && (
           <p className="auth-invite-spaces" aria-label={INVITE.spaces}>
@@ -109,7 +111,6 @@ export function InviteSignup() {
       </form>
       <p className="auth-alt">
         <button type="button" className="auth-link" onClick={() => { setPreview(null); setError(null); }}>{INVITE.other}</button>
-        <span aria-hidden="true">·</span>
         <button type="button" className="auth-link" onClick={() => showView('login')}>{AUTH.back}</button>
       </p>
     </>

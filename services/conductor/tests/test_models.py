@@ -9,7 +9,9 @@ from pydantic_ai.messages import ModelMessage
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.models.test import TestModel
 
+from conductor.models import ORDER_META, ModelRegistry
 from conductor.providers import pretty_name, provider_of, providers_of
+from conductor.store import Store
 
 
 async def _ok(messages: list[ModelMessage], info: AgentInfo) -> AsyncIterator[str]:
@@ -81,7 +83,8 @@ def test_new_model_appears_later_as_candidate_and_missing_is_auto_hidden(make_ap
     c = api.client
     assert ids(c.get("/api/models").json()) == ["brewai-mock", "gpt-6.1-sol"]
     assert c.patch("/api/admin/models/gpt-6.1-sol", json={"is_default": True}).json()["is_default"] is True
-    assert ids(c.get("/api/models").json()) == ["gpt-6.1-sol", "brewai-mock"]  # 기본 먼저
+    # 기본은 표시만 · 제자리 (메뉴 순서 = 관리자 순서 그대로)
+    assert [(m["id"], m["is_default"]) for m in c.get("/api/models").json()] == [("brewai-mock", False), ("gpt-6.1-sol", True)]
 
     # LiteLLM 에서 gemini 를 추가하고 gpt 를 지웠다
     brewai, claude, _gpt, embed = _gateway(h)
@@ -127,7 +130,7 @@ def test_patch_rename_reorder_default_and_hide(make_api, h) -> None:
     assert row["order"] == 1
     assert ids(c.get("/api/admin/models").json()) == ["gpt-6.1-sol", "brewai-mock", "claude-sonnet-5-5", "text-embed"]
     assert c.patch("/api/admin/models/gpt-6.1-sol", json={"order": 99}).json()["order"] == 4  # 끝으로 (넘치면 끝)
-    assert ids(c.get("/api/models").json()) == ["brewai-mock", "claude-sonnet-5-5", "gpt-6.1-sol"]  # 기본 brewai-mock 먼저
+    assert ids(c.get("/api/models").json()) == ["brewai-mock", "claude-sonnet-5-5", "gpt-6.1-sol"]  # 관리자 순서 그대로
 
     assert c.patch("/api/admin/models/claude-sonnet-5-5", json={"is_default": True}).json()["is_default"] is True
     assert [m["id"] for m in c.get("/api/models").json() if m["is_default"]] == ["claude-sonnet-5-5"]  # 기본은 하나
@@ -308,3 +311,41 @@ def test_sync_interval_env() -> None:
     assert load_settings({**base, "MODEL_SYNC_INTERVAL_S": "0"}).model_sync_interval_s == 0.0
     assert load_settings({**base, "MODEL_SYNC_INTERVAL_S": "3"}).model_sync_interval_s == 10.0
     assert load_settings({**base, "MODEL_SYNC_INTERVAL_S": "x"}).model_sync_interval_s == 60.0
+
+
+def test_menu_order_is_the_admin_order_and_default_stays_in_place(make_api, h) -> None:
+    """순서 = 전체 하나 (제공사로 묶지 않음). 관리자 표 1 … N 을 거른 것 = 사용자 앱 메뉴. 기본 모델은 맨 위로 안 간다 · 모델 없이 대화 = 기본 모델."""
+    api = make_api(lambda _: TestModel(), _gateway(h), bootstrap_models=("brewai-mock", "claude-sonnet-5-5", "gpt-6.1-sol"))
+    c = api.client
+    admin = c.get("/api/admin/models").json()
+    assert [(r["id"], r["order"]) for r in admin] == [("brewai-mock", 1), ("claude-sonnet-5-5", 2), ("gpt-6.1-sol", 3), ("text-embed", 4)]
+    # gpt(openai) 를 claude(anthropic) 앞으로 = 제공사를 건너 옮긴다
+    assert c.patch("/api/admin/models/gpt-6.1-sol", json={"order": 2}).json()["order"] == 2
+    assert c.patch("/api/admin/models/claude-sonnet-5-5", json={"is_default": True}).json()["order"] == 3  # 기본이 돼도 제자리
+    menu = c.get("/api/models").json()
+    assert [(m["id"], m["is_default"]) for m in menu] == [("brewai-mock", False), ("gpt-6.1-sol", False), ("claude-sonnet-5-5", True)]
+    assert [r["id"] for r in c.get("/api/admin/models").json() if r["exposed"]] == ids(menu)
+    choice = ModelRegistry(api.store, api.catalog).resolve(None)  # 같은 DB 를 읽는 registry
+    assert choice is not None and choice.id == "claude-sonnet-5-5"  # 모델을 안 고른 대화 = 기본 모델 (메뉴 첫 줄이 아니라)
+
+
+def test_old_per_provider_order_is_migrated_once_to_the_global_order(h) -> None:
+    """예전 표 = 처음 나온 제공사끼리 모아 보였다 → 그 보이던 순서 그대로 1 … N 으로 굳힌다 (한 번만)."""
+    store = Store(":memory:")
+    catalog = h.MemoryCatalog(_gateway(h, h.group("claude-opus-5", ["anthropic"]), h.group("gone-model", ["openai"])))
+    with store.tx() as db:  # 예전 DB: 표시 없음 · sort_order 가 제공사를 오간다
+        for gid, order, status in [("brewai-mock", 1, "present"), ("claude-sonnet-5-5", 2, "present"), ("gone-model", 3, "missing"),
+                                   ("gpt-6.1-sol", 4, "present"), ("claude-opus-5", 5, "present"), ("text-embed", 6, "present")]:
+            db.execute(
+                "INSERT INTO model_exposure (gateway_id, sort_order, gateway_info, status, first_seen, last_seen) VALUES (?, ?, ?, ?, '', '')",
+                (gid, order, '{"providers": ["anthropic"]}' if gid.startswith("claude") else '{"providers": ["openai"]}', status),
+            )
+    registry = ModelRegistry(store, catalog)
+    # 보이던 순서: brewai(mock) → anthropic(sonnet · opus) → openai(gpt · embed) → 사라진 모델은 끝
+    assert [(r.gateway_id, r.sort_order) for r in registry.rows()] == [
+        ("brewai-mock", 1), ("claude-sonnet-5-5", 2), ("claude-opus-5", 3), ("gpt-6.1-sol", 4), ("text-embed", 5), ("gone-model", 6),
+    ]
+    assert store.get_meta(ORDER_META) == "global"
+    registry.patch("claude-opus-5", {"order": 1})
+    ModelRegistry(store, catalog)  # 다시 켜도 다시 섞지 않는다
+    assert [r.gateway_id for r in registry.rows()][:2] == ["claude-opus-5", "brewai-mock"]

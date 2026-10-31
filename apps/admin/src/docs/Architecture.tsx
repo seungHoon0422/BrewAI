@@ -41,7 +41,7 @@ const MAP: Item[] = [
     items: [node('React SPA', { line: 'console' }, [180, 385], { badge: { brand: 'react' }, st: { path: 'apps/admin/package.json', plan: 'P1-5' } })],
   },
   {
-    kind: 'zone', id: 'core', title: '코어 · conductor', tone: 'core', rect: [350, 40, 210, 400],
+    kind: 'zone', id: 'core', title: '코어 (conductor)', tone: 'core', rect: [350, 40, 210, 400],
     items: [
       node('conductor', { brand: 'fastapi' }, [455, 110], { badge: { brand: 'python' }, st: { path: 'services/conductor', plan: 'P1-1' } }),
       chip('① 능력 찾기', { line: 'search' }, [363, 176, 90, 52], { st: { plan: 'P3-1' } }),
@@ -85,7 +85,7 @@ const MAP: Item[] = [
     items: [
       node('GitHub', { brand: 'github' }, [730, 540]),
       node('GitHub Actions', { brand: 'githubactions' }, [860, 540]),
-      node('evals · E2E', { line: 'checks' }, [985, 540], { st: { path: 'evals/cases', plan: 'P0-2' } }),
+      node('evals, E2E', { line: 'checks' }, [985, 540], { st: { path: 'evals/cases', plan: 'P0-2' } }),
     ],
   },
 ];
@@ -94,23 +94,23 @@ const MAP: Item[] = [
 type Wire = { from: Pt; to: Pt; label?: string; lp?: Pt; start?: boolean; both?: boolean; sr: string };
 const WIRES: Wire[] = [
   { from: [62, 110], to: [157, 110], sr: '사용자 → 데스크톱 앱' },
-  { from: [202, 110], to: [349, 110], both: true, label: 'AG-UI · SSE', lp: [310, 102], sr: '데스크톱 앱 ⇄ conductor : AG-UI · SSE' },
+  { from: [202, 110], to: [349, 110], both: true, label: 'AG-UI, SSE', lp: [310, 102], sr: '데스크톱 앱 ⇄ conductor : AG-UI, SSE' },
   { from: [180, 208], to: [180, 158], label: '다운로드', lp: [188, 187], start: true, sr: '웹 랜딩 → 데스크톱 앱 : 설치본 다운로드' },
   { from: [62, 385], to: [157, 385], sr: '관리자 → 관리자 콘솔' },
   { from: [202, 385], to: [349, 385], label: '관리 API', lp: [310, 377], sr: '관리자 콘솔 → conductor : 관리 API' },
   { from: [560, 98], to: [717, 98], label: 'OpenAI 호환', lp: [600, 90], sr: 'conductor → (LLM_GATEWAY_URL) LiteLLM 또는 회사 게이트웨이 : OpenAI 호환 API' },
-  { from: [560, 228], to: [717, 228], label: 'OTLP trace', lp: [600, 220], sr: 'conductor → Langfuse : OTLP trace (user.id · session.id)' },
-  { from: [762, 98], to: [889, 98], label: 'API 키', lp: [865, 90], sr: 'LiteLLM → 모델 제공자 (Anthropic · OpenAI) : API 키' },
-  { from: [455, 440], to: [455, 518], label: 'MCP · 승인 후', lp: [463, 466], start: true, sr: 'conductor → MCP 서버 : MCP · 사람 승인 후' },
+  { from: [560, 228], to: [717, 228], label: 'OTLP trace', lp: [600, 220], sr: 'conductor → Langfuse : OTLP trace (user.id, session.id)' },
+  { from: [762, 98], to: [889, 98], label: 'API 키', lp: [865, 90], sr: 'LiteLLM → 모델 제공자 (Anthropic, OpenAI) : API 키' },
+  { from: [455, 440], to: [455, 518], label: 'MCP, 승인 후', lp: [463, 466], start: true, sr: 'conductor → MCP 서버 : MCP, 사람 승인 후' },
   { from: [622, 540], to: [708, 540], label: 'git push', lp: [672, 532], sr: '개발자 → GitHub : git push' },
   { from: [752, 540], to: [837, 540], label: 'CI', lp: [795, 532], sr: 'GitHub → GitHub Actions : CI' },
-  { from: [882, 540], to: [962, 540], label: '실행', lp: [922, 532], sr: 'GitHub Actions → evals · Playwright E2E : 실행' },
+  { from: [882, 540], to: [962, 540], label: '실행', lp: [922, 532], sr: 'GitHub Actions → evals, Playwright E2E : 실행' },
 ];
 
 const RULES: { title: string; body: ReactNode; src: { label: string; href?: string }[] }[] = [
   {
     title: '만들 것은 코어 4개뿐',
-    body: '나머지(게이트웨이 · 관측 · 레지스트리 · UI 규격 · UI 부품)는 기성품 · 표준. 실행 루프는 Pydantic AI를 adapter 1파일에 격리.',
+    body: '나머지(게이트웨이, 관측, 레지스트리, UI 규격, UI 부품)는 기성품이나 표준. 실행 루프는 Pydantic AI를 adapter 1파일에 격리.',
     src: [
       { label: 'ADR-0001', href: '#/docs/adr/0001' },
       { label: 'ADR-0002', href: '#/docs/adr/0002' },
@@ -118,7 +118,7 @@ const RULES: { title: string; body: ReactNode; src: { label: string; href?: stri
   },
   {
     title: '데스크톱은 키가 없다',
-    body: '게이트웨이 · Langfuse 키를 앱에 넣지 않는다. 데스크톱은 우리 API만 호출.',
+    body: '게이트웨이와 Langfuse 키를 앱에 넣지 않는다. 데스크톱은 우리 API만 호출.',
     src: [
       { label: 'AGENTS.md 제품 경계' },
       { label: 'ADR-0007', href: '#/docs/adr/0007' },
@@ -126,14 +126,14 @@ const RULES: { title: string; body: ReactNode; src: { label: string; href?: stri
   },
   {
     title: '모델은 게이트웨이에서만 등록',
-    body: '가격 · 컨텍스트 · provider 입력 화면을 만들지 않는다. 우리는 노출 여부 · 표시 이름 · 순서만.',
+    body: '가격, 컨텍스트, provider 입력 화면을 만들지 않는다. 우리는 노출 여부, 표시 이름, 순서만.',
     src: [{ label: 'ADR-0006', href: '#/docs/adr/0006' }],
   },
   {
     title: 'trace = Langfuse',
     body: (
       <>
-        로컬 Docker 셀프호스트 (Cloud 안 씀). 모든 LLM · 툴 · 에이전트 span 에 <code>user.id</code> · <code>session.id</code>. OTel GenAI semconv 는 버전 고정.
+        로컬 Docker 셀프호스트 (Cloud 안 씀). 모든 LLM, 툴, 에이전트 span 에 <code>user.id</code>, <code>session.id</code>. OTel GenAI semconv 는 버전 고정.
       </>
     ),
     src: [
@@ -166,7 +166,7 @@ export default function Architecture({ data }: { data: DocsData }) {
     const c = s.plan ? crit.get(s.plan) : undefined;
     const p = s.path ?? s.via;
     const on = p ? data.exists[p] : !!c?.passes;
-    const text = on ? '있음' : `예정 · ${s.plan}`;
+    const text = on ? '있음' : `예정 ${s.plan}`;
     return (
       <St tone={on ? 'on' : 'off'} title={on ? (p ? `${p} 있음` : c?.text) : c?.text}>
         <span className="sr">{text}</span>
@@ -286,7 +286,7 @@ export default function Architecture({ data }: { data: DocsData }) {
               <p className="src">
                 {r.src.map((s, i) => (
                   <span key={s.label}>
-                    {i > 0 && ' · '}
+                    {i > 0 && ', '}
                     {s.href ? <a href={s.href}>{s.label}</a> : s.label}
                   </span>
                 ))}

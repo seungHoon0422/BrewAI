@@ -125,7 +125,7 @@ function Part({ title, hint, actions, children, className }: { title: string; hi
   );
 }
 
-// 사용자 앱 = 여기서 정하는 것: 표시 이름(바꾸기 · 되돌리기) · 노출 · 기본 · 순서(같은 제공사 안 ↑↓)
+// 사용자 앱 = 여기서 정하는 것: 표시 이름(바꾸기 · 되돌리기) · 노출 · 기본 · 순서(전체 순서에서 한 칸 위 · 아래)
 function AppCard({ m, rows, dup, busy, api }: { m: AdminModel; rows: AdminModel[]; dup: Dup; busy: boolean; api: ModelsApi }) {
   const [editing, setEditing] = useState(false);
   const { at, total, prev, next } = neighbors(rows, m);
@@ -164,7 +164,7 @@ function AppCard({ m, rows, dup, busy, api }: { m: AdminModel; rows: AdminModel[
           <>
             <span className="dlab">{app.order}</span>
             <div className="drow dord">
-              <span title={COPY.orderIn(providerName(m))}><b className="ui-num">{at + 1}</b> / {total} · {providerName(m)}</span>
+              <span title={COPY.orderIn}><b className="ui-num">{at + 1}</b> / {total}</span>
               <IconButton size="sm" icon="arrow-up" label={COPY.moveUp} disabled={busy || !prev} onClick={() => prev && api.change(m, { order: prev.order })} />
               <IconButton size="sm" icon="arrow-down" label={COPY.moveDown} disabled={busy || !next} onClick={() => next && api.change(m, { order: next.order })} />
             </div>
@@ -186,7 +186,7 @@ function HealthCard({ m, test, now, gateway }: { m: AdminModel; test: TestState 
   // 응답 시간 = 방금 테스트한 그 결과가 아직 마지막 결과일 때만 (그 뒤 대화 오류 · 동기화로 바뀌었으면 옛 숫자를 보이지 않는다)
   const ms = test?.phase === 'done' && (test.at === m.last_ok_at || test.at === m.last_error_at) ? test.ms : null;
   const lastError = m.last_error_at
-    ? `${ago(m.last_error_at, now)}${m.last_error_code ? ` · ${fixFor(m, m.last_error_code).short}` : ''}`
+    ? `${ago(m.last_error_at, now)}${m.last_error_code ? `, ${fixFor(m, m.last_error_code).short}` : ''}`
     : h.none;
   return (
     <Part title={COPY.partHealth} hint={COPY.healthHint} className="mhealth">
@@ -231,7 +231,7 @@ function GatewayCard({ m, now, gateway }: { m: AdminModel; now: number; gateway:
           value: (
             <span className="dprov">
               <ProviderIcon provider={m.provider} size="sm" />
-              {[providerName(m), ...m.provider_ids.slice(1).map((p) => providerLabel(p))].join(' · ')}
+              {[providerName(m), ...m.provider_ids.slice(1).map((p) => providerLabel(p))].join(', ')}
               {m.family ? <span className="dhint">{COPY.familyOf(m.family)}</span> : null}
             </span>
           ),

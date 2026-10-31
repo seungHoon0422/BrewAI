@@ -5,6 +5,8 @@
   사라진 모델    = missing + 자동 숨김 + 기본 해제. 돌아와도 숨김 그대로 (관리자가 다시 켠다)
   첫 동기화      = bootstrap 모델(기본 brewai-mock: 키 없이 답함)만 노출 + 기본 → 새 PC 에서 바로 대화가 된다
   기본 모델      = is_default 인 노출 모델. 없으면 노출 순서 첫 모델이 기본 (API 의 is_default 는 이 '실제' 기본)
+  순서           = 전체 순서 하나 (sort_order · 제공사로 묶지 않는다). 관리자 표 1 … N = 사용자 앱 모델 메뉴 순서 그대로.
+                   기본 모델은 표시(is_default)만 하고 맨 위로 끌어올리지 않는다 (ADR-0006)
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ from .store import Store, now_iso
 
 State = Literal["exposed", "candidate", "hidden", "missing"]
 MAX_DISPLAY_NAME = 60
+ORDER_META = "model_order"  # 'global' = 전체 순서 하나로 굳힘 (_migrate_order)
 
 
 class ModelPatchError(Exception):
@@ -131,6 +134,29 @@ class ModelRegistry:
         self._bootstrap = tuple(dict.fromkeys([*([default_model] if default_model else []), *bootstrap]))
         self._default_model = default_model
         self._last: list[GatewayModel] | None = None
+        self._migrate_order()
+
+    def _migrate_order(self) -> None:
+        """한 번만: 예전 관리자 표(처음 나온 제공사끼리 모은 순서)를 전체 순서 1 … N 으로 굳힌다 → 관리자가 보던 순서 그대로.
+        게이트웨이에 있는 줄 = (제공사가 처음 나온 순서, sort_order) · 사라진 줄 = 그 뒤 (sort_order). 새 DB 는 표시만 남긴다."""
+        if self._store.get_meta(ORDER_META) == "global":
+            return
+        with self._store.tx() as db:
+            rows = [
+                _row(r) for r in db.execute("SELECT * FROM model_exposure ORDER BY status = 'missing', sort_order, gateway_id")
+            ]
+            rank: dict[str, int] = {}
+            for r in rows:
+                if r.status == "present":
+                    rank.setdefault(r.provider, len(rank))
+            present = [(i, r) for i, r in enumerate(rows) if r.status == "present"]
+            ordered = [r for _, r in sorted(present, key=lambda x: (rank[x[1].provider], x[0]))]
+            ordered += [r for r in rows if r.status != "present"]
+            db.executemany(
+                "UPDATE model_exposure SET sort_order = ? WHERE gateway_id = ?",
+                [(i, r.gateway_id) for i, r in enumerate(ordered, 1)],
+            )
+            Store.set_meta(db, ORDER_META, "global")
 
     async def refresh(self, *, fresh: bool = False) -> SyncResult | None:
         """카탈로그를 읽고 바뀌었으면 동기화. 캐시(30초)가 같은 목록을 주면 DB 를 건드리지 않는다."""
@@ -203,11 +229,8 @@ class ModelRegistry:
         return explicit or (shown[0].gateway_id if shown else None)
 
     def exposed(self) -> list[ExposureRow]:
-        """데스크톱 목록: 노출 · 채팅 모델만, 기본 모델 먼저 · 나머지는 관리자 순서."""
-        rows = self.rows()
-        default = self.default_id(rows)
-        shown = [r for r in rows if r.state == "exposed" and r.is_chat]
-        return sorted(shown, key=lambda r: r.gateway_id != default)  # 안정 정렬 = 순서 유지
+        """데스크톱 목록: 노출 · 채팅 모델만, 관리자 순서 그대로 (기본 모델도 제자리 · 표시는 is_default)."""
+        return [r for r in self.rows() if r.state == "exposed" and r.is_chat]
 
     def choice(self, gateway_id: str) -> ModelChoice:
         r = next(r for r in self.exposed() if r.gateway_id == gateway_id)
@@ -225,7 +248,8 @@ class ModelRegistry:
         """요청한 모델 → 노출된 모델. None = 기본. 없거나 숨김이면 None (숨긴 모델이 있는지도 알려 주지 않는다)."""
         shown = self.exposed()
         if requested is None:
-            return self.choice(shown[0].gateway_id) if shown else None
+            default = self.default_id()
+            return self.choice(default) if default else None
         return self.choice(requested) if any(r.gateway_id == requested for r in shown) else None
 
     def providers(self) -> list[dict[str, Any]]:

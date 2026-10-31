@@ -181,7 +181,7 @@ def test_chat_uses_a_skill_with_skill_step(make_api, h) -> None:
     assert seen["skill_result"]["name"] == "summarize" and "3줄" in seen["skill_result"]["instructions"]  # 본문은 그때 준다
     run = api.client.get("/api/runs").json()[0]
     assert [(s["name"], s["label"]) for s in run["steps"]] == [
-        ("skill:summarize", "스킬 · 요약"), ("tool:text_stats", "글자 수 세기"), ("writing", "답 쓰기"),
+        ("skill:summarize", "스킬: 요약"), ("tool:text_stats", "글자 수 세기"), ("writing", "답 쓰기"),
     ]
     parts = api.client.get("/api/threads/thread-1").json()["messages"][1]["parts"]
     card = parts[0]

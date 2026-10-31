@@ -1,5 +1,5 @@
-/* 모델 — 입력창 모델 버튼 · 유리 팝오버(목록 | 자세히) · 생각 깊이 · 이름 꼬리표. 토큰만 (ADR-0012).
-   관리자 콘솔 모델 화면과 같은 언어: 잉크 강조 · 색은 상태(경고 점 · 상태 글)에만 · 배지 = @brewai/ui Badge · 검색 = Input. */
+/* 모델 — 입력창 모델 버튼 · 유리 팝오버(한 칸: 모델 줄 → 생각 깊이) · 이름 꼬리표. 토큰만 (ADR-0012).
+   최소한: 줄 = 회사 아이콘 + 이름 (+ 고름 체크). 색은 상태(경고 점)에만. 검색 = Input (모델이 많을 때만). */
 
 /* 입력창 모델 버튼 */
 .mpick{position:relative;display:inline-flex;align-items:center;min-width:0}
@@ -10,70 +10,37 @@
 .mpick-btn:focus-visible{outline-offset:-2px}
 .mpick-btn>.ui-icon{color:var(--text-muted)}
 .mpick-btn .nm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.mpick-btn .eff{color:var(--text-muted);white-space:nowrap}
-/* 같은 이름의 다른 모델이 있을 때만 붙는 게이트웨이 id (입력창 버튼 · 답 아래 줄 · 진행 상황) */
-.mpick-btn:has(.mid){max-width:380px} /* 이름 + id 둘 다 읽히게 */
+.mpick-btn .eff{color:var(--text-muted);white-space:nowrap;margin-left:var(--space-0-5)} /* 생각 깊이 = 칸 나눔 (구분 기호 없음) */
+/* 같은 이름의 다른 모델이 있을 때 이름 꼬리표(ModelName)가 붙이는 게이트웨이 id (진행 상황 · 설정) */
 .mid{min-width:0;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:0 1 auto;
   font-family:var(--font-mono);font-size:var(--fs-xs);line-height:var(--lh-tight);color:var(--text-muted)}
 /* 기본 모델로 돌아갔다는 알림 (버튼 위에 잠깐 · Toast) */
 .mnotice{position:absolute;right:0;bottom:calc(100% + var(--space-2));width:max-content;max-width:320px;z-index:var(--z-toast)}
 
-/* 팝오버 = 유리 (ui-glass). 넓은 창 = 목록 | 자세히 두 칸, 좁은 창(<1040) = 한 칸 + 옆 카드 */
-.mpick-menu{position:absolute;right:-40px;bottom:calc(100% + var(--space-2-5));z-index:var(--z-popover);display:grid;grid-template-columns:320px;width:320px;
-  max-width:calc(100vw - 32px);max-height:min(520px,calc(100vh - 140px));border:1px solid var(--glass-border);border-radius:var(--radius-lg);
-  animation:ui-fade var(--dur-fast) var(--ease-out)}
+/* 팝오버 = 유리 (ui-glass) · 한 칸 */
+.mpick-menu{position:absolute;right:-40px;bottom:calc(100% + var(--space-2-5));z-index:var(--z-popover);display:flex;flex-direction:column;gap:var(--space-1);
+  width:260px;max-width:calc(100vw - 32px);max-height:min(460px,calc(100vh - 140px));padding:var(--space-1-5);
+  border:1px solid var(--glass-border);border-radius:var(--radius-lg);animation:ui-fade var(--dur-fast) var(--ease-out)}
 .mpick-menu::after{display:none} /* 스크롤하는 상자 = 그라데이션 테두리 대신 1px 선 (ui-popover 와 같음) */
-.mpick-menu[data-wide="true"]{grid-template-columns:minmax(0,1fr) 220px;width:560px}
-.mcol{display:flex;flex-direction:column;gap:var(--space-1);min-width:0;min-height:0;max-height:inherit;padding:var(--space-1-5)}
 .msearch{flex:none}
 .mrefresh{display:inline-grid}
-.mlist{min-height:0;flex:1;padding:0 0 var(--space-0-5)}
+.mlist{min-height:0;flex:1;padding:0 0 var(--space-0-5);border-radius:var(--radius-md)}
+.mlist:focus-visible{outline-offset:-2px}
 .mh{display:flex;align-items:center;gap:var(--space-1-5);margin:var(--space-2) var(--space-2) var(--space-0-5);font-size:var(--fs-xs);font-weight:var(--fw-semibold);color:var(--text-muted);line-height:var(--lh-base)}
-.mh .ui-provider-icon{color:var(--text-muted)}
 .mstate{display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap;margin:0;padding:var(--space-2-5) var(--space-2);color:var(--text-muted);font-size:var(--fs-sm)}
 
 /* 한 줄 (option) — 강조 = hover 면 · 고름 = 잉크 체크 */
-.mopt{display:grid;gap:1px;padding:var(--space-1-5) var(--space-2);border-radius:var(--radius-md);cursor:pointer;color:var(--text);min-width:0}
+.mopt{display:flex;align-items:center;gap:var(--space-2);min-height:var(--control-md);padding:0 var(--space-2);border-radius:var(--radius-md);cursor:pointer;color:var(--text);min-width:0}
 .mopt[data-active]{background:var(--surface-hover)}
-.mopt .l1{display:flex;align-items:center;gap:var(--space-1-5);min-width:0}
-.mopt .nm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-base)}
+.mopt .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-base)}
 .mopt .hit{font-weight:var(--fw-semibold)}
-.mopt .caps{margin-left:auto;display:inline-flex;align-items:center;gap:var(--space-0-5);flex:none}
-.mopt-ctx{font-size:var(--fs-xs);color:var(--text-muted);min-width:30px;text-align:right}
 .mopt .chk{width:var(--icon-sm);display:grid;place-items:center;flex:none;color:var(--text)}
-.mopt .l2{display:flex;align-items:center;gap:var(--space-1-5);min-width:0;padding-left:22px;font-family:var(--font-mono);font-size:var(--fs-xs);line-height:var(--lh-tight);
-  color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-/* 이름이 겹친 줄 = id 를 진하게 + 등록한 곳 배지 (config.yaml · LiteLLM 관리 화면) */
-.mopt .l2.dup{color:var(--text-2);font-weight:var(--fw-medium)}
-.mopt .l2 .src{font-family:var(--font-sans)}
-.mpick-menu:not([data-wide="true"]) .mopt .cap{display:none}
 
 /* 생각 깊이 (ui-segmented 모양) */
 .mdepth{padding:var(--space-2) var(--space-2) var(--space-0-5);border-top:1px solid var(--border-subtle)}
 .mdepth .mh{margin:0 0 var(--space-1-5)}
 .mdepth [role="radio"][aria-disabled="true"]{cursor:default}
 .msub,.mnote{margin:var(--space-1-5) var(--space-0-5) 0;font-size:var(--fs-xs);color:var(--text-muted)}
-.mpick-foot{font-size:var(--fs-xs);color:var(--text-muted);padding:var(--space-2) var(--space-2) var(--space-0-5);border-top:1px solid var(--border-subtle)}
-
-/* 자세히 (오른쪽 칸 · 좁은 창 = 왼쪽에 뜨는 카드) */
-.mdetail{min-width:0;padding:var(--space-3-5) var(--space-3-5) var(--space-3);border-left:1px solid var(--glass-border);overflow:auto;font-size:var(--fs-sm);color:var(--text-2)}
-/* 카드는 유리 팝오버의 자식이라 뒤를 흐릴 수 없다 (backdrop root) → 불투명 면으로 글이 겹치지 않게 */
-.mdetail.card{position:absolute;right:calc(100% + var(--space-2));bottom:0;width:260px;border:1px solid var(--border);border-radius:var(--radius-lg);
-  background:var(--surface);box-shadow:var(--shadow-md);animation:ui-fade var(--dur-fast) var(--ease-out)}
-.mdetail .dh{display:flex;align-items:center;gap:var(--space-2);min-width:0}
-.mdetail .dh b{font-size:var(--fs-md);font-weight:var(--fw-semibold);color:var(--text);overflow-wrap:anywhere}
-.mdetail .did{position:relative;display:flex;align-items:center;gap:var(--space-1);margin:var(--space-1-5) 0 var(--space-0-5);min-width:0}
-.mdetail code{font-size:var(--fs-xs);line-height:var(--lh-base);color:var(--text-muted);overflow-wrap:anywhere;min-width:0}
-.mdetail code.dup{color:var(--text-2)}
-.mdetail .copied{position:absolute;right:0;top:-24px;padding:var(--space-0-5) var(--space-2);border-radius:var(--radius-md);background:var(--accent);color:var(--on-accent);
-  font-size:var(--fs-xs);box-shadow:var(--shadow-md);animation:ui-fade var(--dur-fast) var(--ease-out)} /* 툴팁과 같은 잉크 */
-.dfam{margin:0 0 var(--space-2-5);color:var(--text-muted)}
-.mdetail dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:var(--space-1-5) var(--space-3);margin:0;padding-top:var(--space-2-5);border-top:1px solid var(--border-subtle)}
-.mdetail dl div{display:contents}
-.mdetail dt{color:var(--text-muted)}
-.mdetail dd{margin:0;color:var(--text);overflow-wrap:anywhere}
-.mdetail .warn dd::first-letter{color:var(--warn-dot)}
-.mdetail .dnote{margin-top:var(--space-2-5);padding:var(--space-2) var(--space-2-5);font-size:var(--fs-xs)}
 
 /* 이름 꼬리표 (ModelName) — 답 아래 줄(.by) · 진행 상황(.mtag) · 설정(.mval) */
 .mtag{display:inline-flex;align-items:center;gap:var(--space-1-5);min-width:0;max-width:280px;flex:none;color:var(--text-muted);font-size:var(--fs-sm);margin-top:var(--space-0-5)}

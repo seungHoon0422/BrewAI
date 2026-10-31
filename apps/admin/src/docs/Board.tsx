@@ -75,7 +75,7 @@ export default function Board({ data, sel }: { data: DocsData; sel: string | nul
   return (
     <>
       <div className="asks">
-        <AskGroup id="mine" icon="👤" title="내가 할 일" hint="사람만 할 수 있는 확인 · 실행" list={mine} of={of} here={here} />
+        <AskGroup id="mine" icon="👤" title="내가 할 일" hint="사람만 할 수 있는 확인과 실행" list={mine} of={of} here={here} />
         <AskGroup id="confirm" icon="❓" title="컨펌 필요" hint="Claude 가 정하기 전에 물어볼 것" list={confirm} of={of} here={here} />
       </div>
 
@@ -202,22 +202,22 @@ function AskItem({ a, card, here, inDrawer = false }: { a: Ask; card: Card | nul
       )}
       {a.due && (
         <p className="ask-due">
-          기한 · <Rich html={a.due} />
+          기한: <Rich html={a.due} />
         </p>
       )}
       <p className="ask-foot">
         {a.pc && (
           <span className="pc" data-here={a.pc === here ? '' : undefined}>
-            {a.pc} PC{a.pc === here ? ' · 지금 이 PC' : ''}
+            {a.pc} PC{a.pc === here ? ' (지금 이 PC)' : ''}
           </span>
         )}
         {card && !inDrawer && (
           <a href={cardHref(card.key)}>
-            {card.label} · {card.title}
+            {card.label}: {card.title}
             <Icon name="arrow-right" size="sm" />
           </a>
         )}
-        <span className="from">{a.from.join(' · ')}</span>
+        <span className="from">{a.from.join(', ')}</span>
       </p>
     </li>
   );
@@ -303,7 +303,7 @@ function Detail({
 
       <section className="dpart" aria-labelledby="d-check">
         <h3 id="d-check">
-          완료 기준 {c.progress ? <b className="hint">{checked}/{c.checklist.length}</b> : <span className="hint">{c.checklist.length}개 · 아직 판정 전</span>}
+          완료 기준 {c.progress ? <b className="hint">{checked}/{c.checklist.length}</b> : <span className="hint">{c.checklist.length}개, 아직 판정 전</span>}
         </h3>
         {c.checklist.length === 0 ? (
           <p className="hint">없음</p>
@@ -351,7 +351,7 @@ function Detail({
                   <li key={k}>
                     <a href={`#/docs/adr/${k}`}>
                       ADR-{k}
-                      {adrTitle(k) && ` · ${adrTitle(k)}`}
+                      {adrTitle(k) && `: ${adrTitle(k)}`}
                     </a>
                   </li>
                 ))}

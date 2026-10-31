@@ -3,13 +3,13 @@ import type { ScopePath } from '../scope';
 
 export const COPY = {
   title: 'UI 부품',
-  desc: '@brewai/ui 의 토큰과 부품 전부 — 다시 그릴 때 여기 한 곳에서 라이트 · 다크를 같이 본다.',
+  desc: '@brewai/ui 의 토큰과 부품 전부 — 다시 그릴 때 여기 한 곳에서 라이트와 다크를 같이 본다.',
   back: '관리자 콘솔로',
   themes: { both: '둘 다', light: '라이트', dark: '다크' },
   themeLabel: '테마',
   sections: {
-    color: '색', type: '글자', shape: '둥글기 · 그림자 · 유리', buttons: '버튼', inputs: '입력', choice: '고르기',
-    display: '배지 · 점 · 아바타', cards: '카드 · 알림 · 빈 상태', table: '표', overlays: '떠 있는 층', nav: '길 찾기', icons: '아이콘', wait: '기다림',
+    color: '색', type: '글자', shape: '둥글기, 그림자, 유리', buttons: '버튼', inputs: '입력', choice: '고르기',
+    display: '배지, 점, 아바타', cards: '카드, 알림, 빈 상태', table: '표', overlays: '떠 있는 층', nav: '길 찾기', icons: '아이콘', wait: '기다림',
   },
 } as const;
 

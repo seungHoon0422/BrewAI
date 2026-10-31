@@ -27,7 +27,7 @@ export function SettingsScreen() {
         <ul className="rows">
           <Row title={SETTINGS.currentModel} sub={SETTINGS.currentModelSub}>
             {model ? (
-              <span className="val mval" title={`${providerLabel(model.provider, model.provider_label)} · ${model.id}`}>
+              <span className="val mval" title={`${providerLabel(model.provider, model.provider_label)}, ${model.id}`}>
                 <ModelName model={model} showId={false} />
               </span>
             ) : (

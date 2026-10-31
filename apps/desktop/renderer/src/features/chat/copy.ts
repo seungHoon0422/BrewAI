@@ -27,7 +27,7 @@ export const FAILURE_TEXT: Record<Failure, string> = {
 export const DETAIL: Record<string, { text: string; hint: string; reasoningOff?: boolean }> = {
   provider_key_missing: {
     text: '이 모델의 API 키가 설정돼 있지 않아요',
-    hint: 'LiteLLM 관리 화면 › Models › 이 모델의 Credential 키 확인 (config.yaml 모델이면 .env 의 ANTHROPIC_API_KEY · OPENAI_API_KEY)',
+    hint: 'LiteLLM 관리 화면 › Models › 이 모델의 Credential 키 확인 (config.yaml 모델이면 .env 의 ANTHROPIC_API_KEY 또는 OPENAI_API_KEY)',
   },
   provider_key_invalid: {
     text: '이 모델의 API 키가 틀렸거나 권한이 없어요',
@@ -44,7 +44,7 @@ export const DETAIL: Record<string, { text: string; hint: string; reasoningOff?:
   },
   provider_bad_request: {
     text: '모델이 요청을 거절했어요',
-    hint: '생각 깊이를 끄고 다시 · 계속되면 다른 모델로',
+    hint: '생각 깊이를 끄고 다시 해 보고, 계속되면 다른 모델로',
     reasoningOff: true,
   },
   gateway_key_invalid: {
@@ -57,11 +57,11 @@ export const DETAIL: Record<string, { text: string; hint: string; reasoningOff?:
   },
   gateway_model_missing: {
     text: '게이트웨이에 이 모델이 없어요',
-    hint: 'LiteLLM 관리 화면 › Models 에 모델이 있는지 확인 · 지웠다면 다른 모델을 골라 주세요',
+    hint: 'LiteLLM 관리 화면 › Models 에 모델이 있는지 확인하고, 지웠다면 다른 모델을 골라 주세요',
   },
   gateway_budget_exceeded: {
     text: '게이트웨이 사용 한도(예산)를 넘었어요',
-    hint: 'LiteLLM 관리 화면 › Virtual Keys · Teams 의 Max Budget 확인',
+    hint: 'LiteLLM 관리 화면 › Virtual Keys 또는 Teams 의 Max Budget 확인',
   },
   provider_rate_limited: { text: '요청이 많아 모델이 잠시 막혔어요', hint: '잠시 뒤 다시 시도해 주세요' },
   provider_unavailable: { text: '모델 쪽 서버가 지금 응답하지 않아요', hint: '잠시 뒤 다시 시도해 주세요' },
@@ -74,7 +74,7 @@ export const detailText = (detail: string | null | undefined) =>
 // ── 단계 이름 · 지금 하는 일 (상태 줄 · 진행 상황 화면) ──
 // 문구는 시간으로만 고른다 (결정적 · 테스트가 본다). 무작위로 돌리지 않는다.
 
-// 단계 이름 → 화면 이름. 툴 이름은 /api/tools 의 label (계산기 · 현재 시각) · 스킬은 /api/skills 의 label (스킬 · 요약)
+// 단계 이름 → 화면 이름. 툴 이름은 /api/tools 의 label (계산기 · 현재 시각) · 스킬은 /api/skills 의 label (스킬: 요약)
 export function stepLabel(name: string, tools: Record<string, string>, skills: Record<string, string> = {}): string {
   if (name === 'thinking') return '생각';
   if (name === 'writing') return '답 쓰기';
@@ -84,7 +84,7 @@ export function stepLabel(name: string, tools: Record<string, string>, skills: R
   }
   if (name.startsWith('skill:')) {
     const skill = name.slice(6);
-    return `스킬 · ${skills[skill] ?? skill}`;
+    return `스킬: ${skills[skill] ?? skill}`;
   }
   return name;
 }
@@ -120,7 +120,7 @@ export function stepPhrase(name: string | null, inStepMs: number, tools: Record<
   return WAITING_PHRASE;
 }
 
-// 끝난 줄 요약 조각 (trace.ts 가 잇는다)
+// 끝난 줄 요약 조각 (trace.ts 가 모은다 · 화면은 조각마다 칸을 나눈다)
 export const TRACE = {
   thought: (t: string) => (t ? `${t} 동안 생각함` : '생각함'),
   noThink: '생각 없이 바로 답함',
@@ -136,12 +136,24 @@ export const TRACE = {
   thinkSilent: '모델이 생각 내용을 보내지 않았어요',
   noneLive: '아직 생각이나 도구 사용이 없어요',
   noneDone: '생각이나 도구 사용이 없었어요',
-  usage: (u: { requests: number; input_tokens: number | null; output_tokens: number | null; reasoning_tokens: number | null }) =>
+  tool: '도구',
+  // 패널 아래 사용량 = 칸 나눔 (가운뎃점 없이 · 화면이 칸마다 span 으로 띄운다)
+  usage: (u: { requests: number; input_tokens: number | null; output_tokens: number | null; reasoning_tokens: number | null }): string[] =>
     [
       `요청 ${u.requests}회`,
       u.input_tokens != null || u.output_tokens != null ? `토큰 입력 ${u.input_tokens ?? '—'} / 출력 ${u.output_tokens ?? '—'}` : '',
       u.reasoning_tokens ? `생각 토큰 ${u.reasoning_tokens}` : '',
-    ].filter(Boolean).join(' · '),
+    ].filter(Boolean),
+} as const;
+
+// 요약 조각을 한 줄 글로 (버튼 이름 · 화면 읽기 · 진행 상황). 화면은 조각마다 칸을 나눠 그린다
+export const joinParts = (parts: readonly string[]) => parts.filter(Boolean).join(', ');
+
+// 답 글 (마크다운)
+export const MD = {
+  code: '코드',
+  copyCode: '코드 복사',
+  copied: '복사했어요',
 } as const;
 
 // 도구 카드 (패널 안)
@@ -155,10 +167,10 @@ export const TOOL = {
   defaultTimezone: 'Asia/Seoul',
   days: (d: string) => `${d}일`,
   received: (n: number) => `${n}자 받음`,
-  skillLoaded: (lines: number | null) => `지침 불러옴${lines != null ? ` · ${lines}줄` : ''}`,
+  skillLoaded: (lines: number | null) => `지침 불러옴${lines != null ? ` (${lines}줄)` : ''}`,
   dayCount: (text: string, days: string) => `${text} (${days}일)`,
   textStats: (r: { characters: string; noSpaces: string; words: string; lines: string }) =>
-    `${r.characters}자 · 공백 빼고 ${r.noSpaces}자 · 단어 ${r.words} · ${r.lines}줄`,
+    `${r.characters}자, 공백 빼고 ${r.noSpaces}자, 단어 ${r.words}, ${r.lines}줄`,
 } as const;
 
 // 대화 화면 (홈 · 대화 · 입력창 · 실패)
@@ -170,31 +182,31 @@ export const CHAT = {
   placeholderLoading: '대화 기록을 불러오는 중이에요',
   loadingHistory: '대화 기록을 불러오는 중…',
   historyGone: '대화를 찾지 못했어요. 지워졌을 수 있어요',
-  historyFailed: (why: string) => `대화 기록을 불러오지 못했어요 · ${why}`,
+  historyFailed: (why: string) => `대화 기록을 불러오지 못했어요: ${why}`,
   retry: '다시 시도',
   retryNoThink: '생각 끄고 다시',
   input: '요청 입력',
   attach: '파일 첨부',
-  attachSoon: '파일 첨부 · 준비 중',
+  attachSoon: '파일 첨부 (준비 중)',
   voice: '음성 입력',
-  voiceSoon: '음성 입력 · 준비 중',
+  voiceSoon: '음성 입력 (준비 중)',
   send: '보내기',
   stop: '멈추기',
   connectApps: '앱 연결하기',
-  readOnly: (name: string) => `${name} 님이 공유한 대화예요 · 보기만 할 수 있어요`,
+  readOnly: (name: string) => `${name} 님이 공유한 대화예요. 보기만 할 수 있어요`,
   moveFailed: '옮기지 못했어요',
 } as const;
 
 export const SUGGESTIONS: readonly { icon: 'mail' | 'team' | 'calendar'; text: string; prompt: string; need?: string }[] = [
   { icon: 'mail', text: "'견적 요청' 메일에 답장 초안 쓰기", prompt: "'견적 요청' 메일에 답장 초안 써줘", need: '연결 필요' },
-  { icon: 'team', text: '노트북 3종 비교표 — 여럿이 나눠서 조사', prompt: '노트북 3종 가격·무게·배터리 비교표 만들어줘' },
+  { icon: 'team', text: '노트북 3종 비교표 — 여럿이 나눠서 조사', prompt: '노트북 3종 가격, 무게, 배터리 비교표 만들어줘' },
   { icon: 'calendar', text: '내일 10시 회의 자료 준비', prompt: '내일 10시 회의 자료 준비해줘', need: '연결 필요' },
 ];
 
 // 사이드바 최근 대화
 export const RECENT = {
   label: '최근', // e2e 계약 (list 이름)
-  more: (n: number) => `더 보기 · ${n}개`,
+  more: (n: number) => `더 보기 (${n}개)`,
   less: '접기',
   loading: '불러오는 중…',
   empty: '아직 대화가 없어요',

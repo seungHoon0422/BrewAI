@@ -1,7 +1,7 @@
 import { Button, Spinner, StatusDot, cx, type DotState } from '@brewai/ui';
 import type { AdminModel } from '../api';
 import { COPY } from '../copy';
-import { ago, canProbe, failed, fixFor, latency } from '../derive';
+import { ago, canProbe, failed, fixFor, latency, when } from '../derive';
 import type { Probe, TestState } from '../hooks';
 
 // tail = 뒤 꼬리 ('3분 전' · 방금 테스트했으면 '412ms'). result = 꼬리가 테스트 결과(응답 시간)인지 → 결과면 읽어 주고, 흐르는 시간이면 안 읽는다
@@ -15,17 +15,18 @@ export function healthLine(m: AdminModel, test: TestState | undefined, now: numb
   const at = bad ? m.last_error_at : m.last_ok_at;
   if (bad) {
     const err = m.last_error_code ? fixFor(m, m.last_error_code) : null;
-    return { health: 'error', dot: 'warn', text: err?.short ?? COPY.healthBad, tail: ago(at, now), title: err?.hint };
+    return { health: 'error', dot: 'warn', text: err?.short ?? COPY.healthBad, tail: ago(at, now, true), title: err?.hint ?? when(at) ?? undefined };
   }
   if (!at) return { health: 'unknown', dot: 'idle', text: COPY.healthUnknown, tail: null };
   const fresh = test?.phase === 'done' && test.ok && test.at === m.last_ok_at;
-  return { health: 'ok', dot: 'ok', text: COPY.healthOk, tail: fresh ? latency(test.ms) : ago(at, now), result: fresh, title: fresh ? COPY.okAt(ago(at, now) ?? '') : undefined };
+  return { health: 'ok', dot: 'ok', text: COPY.healthOk, tail: fresh ? latency(test.ms) : ago(at, now, true), result: fresh, title: fresh ? COPY.okAt(ago(at, now) ?? '') : when(at) ?? undefined };
 }
 
-// 점 + 글. live = 이 화면에서 테스트한 줄만 결과를 그 자리에서 읽어 준다 (role=status 는 화면 위 알림 줄 하나만).
+// 점 + 글 + 꼬리 (칸 나눔 = 여백). 칸이 좁으면 꼬리(시각)만 줄임표 · 이름(정상 · 오류)은 늘 보인다. 툴팁 = 시각 전체 · 고치는 곳
+// live = 이 화면에서 테스트한 줄만 결과를 그 자리에서 읽어 준다 (role=status 는 화면 위 알림 줄 하나만).
 // 흐르는 시간('2분 전')은 읽는 칸 밖 → 30초마다 · 다시 읽을 때마다 줄마다 읽어 대지 않는다
 export function HealthText({ line, live = false }: { line: Line; live?: boolean }) {
-  const tail = line.tail && <span className="tm"> · {line.tail}</span>;
+  const tail = line.tail && <>{' '}<span className="tm">{line.tail}</span></>;
   return (
     <span className="hl" data-health={line.health} title={line.title}>
       {line.dot ? <StatusDot size="sm" state={line.dot} /> : <Spinner size="xs" />}

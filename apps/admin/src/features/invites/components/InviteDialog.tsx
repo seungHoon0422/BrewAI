@@ -1,5 +1,5 @@
 import { useId } from 'react';
-import { Button, Callout, Checkbox, Dialog, Field, Input, Segmented, Select, Skeleton } from '@brewai/ui';
+import { Button, Callout, Checkbox, Dialog, Field, Input, Meta, Segmented, Select, Skeleton } from '@brewai/ui';
 import { OneTimeCode } from '../../../shared/components/OneTimeCode';
 import { COMMON_COPY } from '../../../shared/copy';
 import { left } from '../../../shared/format';
@@ -25,7 +25,7 @@ export function InviteDialog({ onClose, onCreated }: { onClose: () => void; onCr
       <Dialog open onClose={onClose} title={C.resultTitle} footer={<Button variant="primary" onClick={onClose}>{COMMON_COPY.close}</Button>}>
         <OneTimeCode code={result.code} label={C.resultLabel}>
           <p className="part-hint">
-            {C.resultSummary(result.invite.org_name, ORG_ROLE_TEXT[result.invite.org_role], result.invite.max_uses, left(result.invite.expires_at) ?? '')}
+            <Meta wrap items={C.resultSummary(result.invite.org_name, ORG_ROLE_TEXT[result.invite.org_role], result.invite.max_uses, left(result.invite.expires_at) ?? '')} />
           </p>
         </OneTimeCode>
       </Dialog>
@@ -48,7 +48,7 @@ export function InviteDialog({ onClose, onCreated }: { onClose: () => void; onCr
           {f.error && <Callout live tone="danger">{f.error}</Callout>}
           {f.orgs.length > 1 && (
             <Field label={roleLabel('tenant')}>
-              <Select options={f.orgs.map((o) => ({ value: o.id, label: o.name }))} value={f.org?.id ?? ''} onChange={(e) => f.pickOrg(e.target.value)} />
+              <Select options={f.orgs.map((o) => ({ value: o.id, label: o.name }))} value={f.org?.id ?? ''} onChange={f.pickOrg} />
             </Field>
           )}
           <Field label={C.roleField} hint={ORG_ROLE_HINT[f.role]}>
@@ -70,7 +70,7 @@ export function InviteDialog({ onClose, onCreated }: { onClose: () => void; onCr
               <Input type="number" inputMode="numeric" min={1} max={100} value={f.uses} onChange={(e) => f.setUses(e.target.value)} />
             </Field>
             <Field label={C.daysField}>
-              <Select options={DAYS} value={f.days} onChange={(e) => f.setDays(e.target.value)} />
+              <Select options={DAYS} value={f.days} onChange={f.setDays} />
             </Field>
           </div>
         </form>

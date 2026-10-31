@@ -54,7 +54,7 @@ export default function Stack({ data }: { data: DocsData }) {
               <td className="nw">
                 <code>{p.version}</code>
               </td>
-              <td>{p.workspaces.join(' · ')}</td>
+              <td>{p.workspaces.join(', ')}</td>
               <td className="from">{p.dev ? '개발' : '실행'}</td>
             </tr>
           ))}
@@ -66,7 +66,7 @@ export default function Stack({ data }: { data: DocsData }) {
               <td className="nw">
                 <code>{x.path}</code>
               </td>
-              <td>{x.exists ? <St tone="on">있음</St> : <St tone="off">예정{x.plan ? ` · ${x.plan}` : ''}</St>}</td>
+              <td>{x.exists ? <St tone="on">있음</St> : <St tone="off">예정{x.plan ? ` ${x.plan}` : ''}</St>}</td>
               <td>
                 {x.deps.length > 0
                   ? x.deps.map((d) => (
@@ -103,8 +103,8 @@ export default function Stack({ data }: { data: DocsData }) {
                 <b>{w.name}</b>
                 <code>{w.file.replace('.github/workflows/', '')}</code>
                 <span className="from">
-                  {w.on.join(' · ')}
-                  {w.runsOn && ` · ${w.runsOn}`}
+                  {w.on.join(', ')}
+                  {w.runsOn && `, ${w.runsOn}`}
                 </span>
               </div>
               <Table label={`${w.name} 단계`} cols={['단계', '실행']}>

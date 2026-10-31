@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
@@ -54,6 +54,24 @@ export async function goHash(page: Page, hash: string) {
 }
 
 // 가로로 넘친 px. 0 이하 = 가로 스크롤 없음
+// 공용 고르기 상자 (@brewai/ui Select = combobox 단추 + 최상위 층 listbox). 브라우저 select 가 아니라 selectOption 대신 이것.
+// 값(data-value) 또는 보이는 이름(줄 이름 칸 · 오른쪽 옅은 글 빼고)으로 고른다 → 목록이 닫힐 때까지 기다린다
+export const optionsOf = async (box: Locator) => {
+  const id = await box.getAttribute('aria-controls');
+  return box.page().locator(`[id="${id}"]`).getByRole('option');
+};
+export async function pickOption(box: Locator, pick: { value: string } | { label: string }) {
+  if ((await box.getAttribute('aria-expanded')) !== 'true') await box.click();
+  const options = await optionsOf(box);
+  const option = 'value' in pick
+    ? options.and(box.page().locator(`[data-value="${pick.value}"]`))
+    : options.filter({ has: box.page().locator('.ui-select-opt-label').getByText(pick.label, { exact: true }) });
+  await option.click();
+  await expect(box).toHaveAttribute('aria-expanded', 'false');
+}
+// 단추에 보이는 이름 (숨은 너비 잡이 글은 빼고)
+export const pickedText = (box: Locator) => box.locator('.ui-select-text');
+
 export function overflowX(page: Page) {
   return page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
 }

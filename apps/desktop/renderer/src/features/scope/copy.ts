@@ -33,11 +33,13 @@ export const SPACES = {
   org: KIND_LABEL.org,
   memberList: '멤버',
   addMember: '사람 찾기',
-  addMemberPlaceholder: '닉네임 · 이메일로 찾기',
+  addMemberPlaceholder: '닉네임이나 이메일로 찾기',
   noMatch: '찾는 사람이 없어요',
   notInOrg: `${KIND_LABEL.org}에 없는 사람은 BrewAI 담당자에게 초대를 요청하세요`,
   add: '넣기',
   remove: '빼기',
+  memberRole: (name: string) => `${name} 역할`,
+  removeMember: (name: string) => `${name} 빼기`,
   you: '나',
   save: '저장',
   saved: '저장했어요',
@@ -50,7 +52,7 @@ export const SPACES = {
   unarchive: '보관 풀기',
   archiveTitle: `이 ${S}를 보관할까요?`,
   archiveBody: '보관하면 새 대화를 시작할 수 없어요. 기록은 그대로 남아요',
-  memberOnly: `이름 · 공개 범위 · 멤버는 ${S} 운영 멤버만 바꿀 수 있어요`,
+  memberOnly: `이름, 공개 범위, 멤버는 ${S} 운영 멤버만 바꿀 수 있어요`,
   removed: `그 ${S}에 더 이상 들어갈 수 없어서 내 ${S}로 옮겼어요`,
 } as const;
 

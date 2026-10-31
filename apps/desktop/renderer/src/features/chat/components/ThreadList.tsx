@@ -1,5 +1,5 @@
 // 프로젝트 화면의 대화 목록 — 그 프로젝트의 내 대화 + 공유된 대화 (남의 것엔 닉네임). 누르면 그 대화
-import { Badge, Icon, Spinner } from '@brewai/ui';
+import { Badge, Icon, Meta, Spinner } from '@brewai/ui';
 import { ago } from '../../../lib/format';
 import { THREADS } from '../copy';
 import { useThreadList } from '../hooks';
@@ -17,7 +17,7 @@ export function ThreadList({ projectId, empty, onOpen }: { projectId: string; em
             <Icon name="chat" size="sm" />
             <span className="row-main">
               <b className="ui-ell">{t.title}</b>
-              <span className="row-sub">{[ago(t.updated_at), !t.mine && t.owner_name].filter(Boolean).join(' · ')}</span>
+              <Meta className="row-sub" items={[ago(t.updated_at), !t.mine && t.owner_name]} />
             </span>
             {t.visibility === 'shared' && <Badge size="sm">{THREADS.shared}</Badge>}
           </button>

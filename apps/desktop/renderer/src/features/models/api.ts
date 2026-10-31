@@ -1,4 +1,4 @@
-// 모델 목록 = GET /api/models (노출된 대화 모델만). 첫 항목 = 기본 모델 (is_default), 나머지는 관리자 순서.
+// 모델 목록 = GET /api/models (노출된 대화 모델만). 순서 = 관리자가 정한 전체 순서 그대로 (화면은 다시 묶거나 정렬하지 않는다).
 // 모델을 등록하는 화면 · 요청은 없다 (AGENTS.md) — 우리는 고르기만.
 import { isObj, json, num, str, strOrNull } from '../../lib/api';
 

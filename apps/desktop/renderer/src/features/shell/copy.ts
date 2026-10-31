@@ -7,13 +7,13 @@ export const SHELL = {
   nav: '메뉴', // e2e 계약 (레일 navigation 이름)
   sidebar: '사이드바',
   search: '검색',
-  searchSoon: '검색 · 준비 중',
+  searchSoon: '검색 (준비 중)',
   collapse: '사이드바 접기',
   newChat: '새 대화',
 } as const;
 
 export const PAGE = {
   soon: '준비 중',
-  needs: (what: string) => `필요 · ${what}`,
+  needs: (what: string) => `필요: ${what}`,
   sample: '예시',
 } as const;

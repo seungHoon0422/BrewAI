@@ -9,7 +9,7 @@
 //   FAKE_GATEWAY_LATE    1 = 처음부터 '늦게 추가되는 모델'(fake-chat-late, gemini)도 카탈로그에 둔다
 // 구현: GET /health/liveliness (인증 없음) · GET /model_group/info · GET /v1/models · POST /v1/chat/completions
 //       (stream / non-stream, OpenAI chunk 형식, stream_options.include_usage). 답은 결정적인 한국어 문장.
-//       답 끝에 ' · 이전 질문: <앞 user 메시지>' (멀티턴: conductor 가 기록을 보냈는지 E2E 가 본다)
+//       답 끝에 ', 이전 질문: <앞 user 메시지>' (멀티턴: conductor 가 기록을 보냈는지 E2E 가 본다)
 // 생각: 요청에 reasoning_effort 가 있으면 (생각 지원 모델만 — 아니면 LiteLLM 처럼 400) reasoning_content 조각을 먼저 흘린다.
 //   Anthropic 모델 = LiteLLM 1.106.2 가 Claude thinking 을 바꾼 모양 그대로 (llms/anthropic/chat/handler.py):
 //   thinking_delta → delta {content:"", reasoning_content, thinking_blocks:[{type:"thinking", thinking}], provider_specific_fields:{thinking_blocks}}
@@ -23,7 +23,9 @@
 //   실패 흉내 (LiteLLM 1.106.2 의 실제 status · type · 문구 — FAILURES 표): [fake:401] provider 키 없음 · [fake:key-invalid] provider 키 틀림
 //   · [fake:gateway-key] 게이트웨이 키 틀림(DB 모드) · [fake:model-404] provider 에 없는 모델 · [fake:reasoning-400] 생각 파라미터 거절
 //   · [fake:bad-request] provider 400 · [fake:openai-missing] OpenAI 키 없음(500 Missing credentials)
-//   [fake:think] → reasoning_effort 없이도 생각 조각 · [fake:system] → 답 끝에 ' · 지침: <system 메시지 마지막 줄>' (프로젝트 지침이 모델까지 갔는지)
+//   [fake:md] → 마크다운 답(제목 · 굵게 · 표 · 목록 · 코드 · 인용 · 링크)을 3글자씩 잘게 (흐르는 중 날것 문법이 안 보이는지 · chat-markdown.spec)
+//   [fake:md-big] → 다른 마크다운 답을 120글자씩 크게 (큰 조각으로 보내는 provider 흉내: 첫 조각도 펼쳐지는지 · 칸 안 <br> · 줄 넘는 굵게)
+//   [fake:think] → reasoning_effort 없이도 생각 조각 · [fake:system] → 답 끝에 ', 지침: <system 메시지 마지막 줄>' (프로젝트 지침이 모델까지 갔는지)
 //   툴 (적은 순서대로 하나씩 부른다 · 요청 tools 에 있을 때만): [fake:skill <이름>] → use_skill · [fake:convert <값> <단위> <단위>] → unit_convert
 //   · [fake:calc] <수식> → calculator (줄 끝까지가 수식, 없으면 12*(3+4)) · [fake:time] → current_time. 다 부르면 결과들로 답한다
 // drop_params: 요청에 drop_params true 면 (LiteLLM 처럼) 모델이 지원 안 하는 reasoning_effort 를 400 대신 버린다
@@ -169,12 +171,56 @@ const systemTail = (messages) =>
 function replyFor(model, messages) {
   const users = userTexts(messages);
   const question = users.at(-1) ?? '';
-  const prev = users.length > 1 ? ` · 이전 질문: ${users.at(-2).trim()}` : '';
-  const system = question.includes('[fake:system]') ? ` · 지침: ${systemTail(messages) || '(없음)'}` : '';
+  const prev = users.length > 1 ? `, 이전 질문: ${users.at(-2).trim()}` : '';
+  const system = question.includes('[fake:system]') ? `, 지침: ${systemTail(messages) || '(없음)'}` : '';
   return `안녕하세요! 가짜 게이트웨이(${model})가 답해요. 받은 질문: ${question.trim() || '(빈 메시지)'}${prev}${system}`;
 }
 
 const THOUGHT = '질문을 살펴보는 중이에요. 무엇을 묻는지 나눠 보고, 필요한 도구가 있는지 확인해요.';
+
+// [fake:md] 답 — 블록 종류마다 하나씩 (코드 안에는 | · ** 를 넣지 않는다: 스펙이 화면 글에서 날것 기호를 찾는다)
+const MD_REPLY = [
+  '## 노트북 비교',
+  '',
+  '세 제품을 **무게**와 *배터리* 기준으로 비교했어요. 설치는 `npm ci` 로 해요.',
+  '',
+  '| 모델 | 무게 | 배터리 |',
+  '| --- | ---: | :---: |',
+  '| **A14** | 1.2kg | 18시간 |',
+  '| B15 | 1.6kg | 12시간 |',
+  '| C13 | 1.1kg | 15시간 |',
+  '',
+  '- 가장 가벼운 모델: C13',
+  '- 배터리가 긴 모델: **A14**',
+  '',
+  '1. 무게를 먼저 봐요',
+  '2. 그다음 배터리를 봐요',
+  '',
+  '> 실제 무게는 구성에 따라 달라요.',
+  '',
+  '```js',
+  "const lightest = 'C13';",
+  '```',
+  '',
+  '---',
+  '',
+  '자세한 내용은 [제조사 문서](https://example.com/laptops)를 보세요.',
+].join('\n');
+
+// [fake:md-big] 답 — 첫 조각(120글자)이 첫 문단을 거의 다 담는다 · 줄을 넘는 굵게 · 표 칸의 <br> · 인라인 코드 안 &lt;
+const MD_BIG_REPLY = [
+  '큰 조각으로 오는 답이에요. 게이트웨이가 한 번에 백스무 글자씩 보내도 첫 문단이 한꺼번에 떨어지지 않고 천천히 펼쳐져야 해요. 이 문장은 일부러 길게 썼어요.',
+  '',
+  '**두 줄에',
+  '걸친 굵은 글**도 흐르는 중에 별표가 보이지 않아요.',
+  '',
+  '| 항목 | 설명 |',
+  '| --- | --- |',
+  '| 줄바꿈 | 첫 줄<br>둘째 줄 |',
+  '| 코드 | `&lt;div&gt;` 는 글자 그대로 |',
+  '',
+  '끝이에요.',
+].join('\n');
 
 // 툴 결과(role tool) 하나 → 한 문장. content = conductor(Pydantic AI) 가 보낸 JSON 문자열
 function sentenceFromTool(message) {
@@ -300,7 +346,9 @@ async function chatCompletions(req, res) {
   const anthropic = info.providers.includes('anthropic');
   const omitted = thinking && question.includes('[fake:omitted]');
   const reasoningTokens = thinking ? Array.from(THOUGHT).length : 0;
-  const reply = call ? '' : afterTool ? replyFromTools(messages) : replyFor(model, messages);
+  const mdBig = question.includes('[fake:md-big]');
+  const md = mdBig || question.includes('[fake:md]');
+  const reply = call ? '' : afterTool ? replyFromTools(messages) : mdBig ? MD_BIG_REPLY : md ? MD_REPLY : replyFor(model, messages);
   const toolCall = call && { index: 0, id: `call_fake_${messages.length}`, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args) } };
   const id = 'chatcmpl-fake';
   const base = { id, created: CREATED, model, system_fingerprint: null };
@@ -350,7 +398,7 @@ async function chatCompletions(req, res) {
       chunk({ tool_calls: [{ index: 0, function: { arguments: part } }] });
     }
   }
-  const parts = chunks(reply);
+  const parts = chunks(reply, mdBig ? 120 : md ? 3 : 6);
   for (const [i, part] of parts.entries()) {
     if (res.destroyed) return;
     if (i === 2 && question.includes('[fake:cut]')) return res.destroy(); // 중간 끊김

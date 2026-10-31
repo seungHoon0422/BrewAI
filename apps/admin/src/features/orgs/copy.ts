@@ -8,12 +8,12 @@ const S = KIND_LABEL.space;
 // 조직 역할 (사용자 · 초대 탭도 쓴다)
 export const ORG_ROLE_TEXT: Record<OrgRole, string> = { owner: '소유자', admin: '관리자', member: '멤버' };
 export const ORG_ROLE_HINT: Record<OrgRole, string> = {
-  owner: `${ORG} 설정 · 멤버 · 모든 공유 ${S}를 관리해요`,
-  admin: `멤버 · 공유 ${S}를 관리해요`,
+  owner: `${ORG} 설정, 멤버, 모든 공유 ${S}를 관리해요`,
+  admin: `멤버와 공유 ${S}를 관리해요`,
   member: `열린 ${S}에 들어가고 대화해요`,
 };
 
-export const orgMembershipText = (name: string, role: OrgRole) => `${name} · ${ORG_ROLE_TEXT[role]}`;
+export const orgMembershipText = (name: string, role: OrgRole) => `${name} (${ORG_ROLE_TEXT[role]})`;
 
 export const JOIN_TEXT: Record<JoinPolicy, string> = { invite: '초대 코드만', domain_auto: '초대 코드 + 회사 도메인' };
 
@@ -34,7 +34,7 @@ export const ORGS_COPY = {
   nameField: '이름',
   nameHint: `60자까지. 사용자 앱의 ${S} 고르기에 보여요.`,
   slugField: '짧은 주소 (선택)',
-  slugHint: '영문 소문자 · 숫자 · - . 비우면 이름에서 만들어요.',
+  slugHint: '영문 소문자, 숫자, - 만 써요. 비우면 이름에서 만들어요.',
   createBtn: '만들기',
   // 서랍
   partJoin: '가입 방식',
@@ -51,7 +51,7 @@ export const ORGS_COPY = {
   hdPlaceholder: 'example.com',
   saveJoin: '가입 방식 저장',
   membersCreate: `멤버도 공유 ${S}를 만들 수 있어요`,
-  membersCreateHint: '끄면 소유자 · 관리자만 만들어요.',
+  membersCreateHint: '끄면 소유자와 관리자만 만들어요.',
   membersTable: `${ORG} 멤버`,
   colMember: '사람',
   colRole: '역할',
@@ -63,7 +63,7 @@ export const ORGS_COPY = {
   disabled: '비활성',
   removeCol: '빼기',
   addLabel: '멤버 추가',
-  candidate: (name: string, email: string) => `${name} · ${email}`,
+  candidate: (name: string, email: string) => `${name} (${email})`,
   addPick: '사람 고르기',
   addRole: '역할',
   addBtn: '추가',
@@ -74,7 +74,7 @@ export const ORGS_COPY = {
     renamed: (name: string) => `이름을 ${name}(으)로 바꿨어요`,
     join: '가입 방식을 저장했어요',
     spacesOn: `멤버도 공유 ${S}를 만들 수 있어요`,
-    spacesOff: `소유자 · 관리자만 공유 ${S}를 만들어요`,
+    spacesOff: `소유자와 관리자만 공유 ${S}를 만들어요`,
     role: (name: string, role: string) => `${name} 님을 ${role}(으)로 바꿨어요`,
     added: (name: string) => `${name} 님을 멤버로 넣었어요`,
     removed: (name: string) => `${name} 님을 뺐어요`,

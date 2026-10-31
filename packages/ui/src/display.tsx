@@ -206,6 +206,25 @@ export function KeyValue({ items, variant = 'boxed', className }: { items: reado
   );
 }
 
+/* ── 한 줄에 사실 여러 개 (칸 나눔 = 여백. 가운뎃점 · 같은 구분 글자를 쓰지 않는다) ───── */
+export type MetaProps = Omit<HTMLAttributes<HTMLSpanElement>, 'children'> & {
+  items: readonly ReactNode[]; // 빈 값(null · false · '')은 건너뛴다
+  wrap?: boolean; // 기본 = 한 줄 (넘치면 마지막 칸이 말줄임)
+};
+
+export function Meta({ items, wrap, className, ...rest }: MetaProps) {
+  const shown = items.filter((x) => x !== null && x !== undefined && x !== false && x !== '');
+  if (!shown.length) return null;
+  return (
+    <span className={cx('ui-meta', className)} data-wrap={flag(wrap)} {...rest}>
+      {shown.map((x, i) => (
+        // 칸 사이 빈칸 = 글로 읽을 때(화면 낭독기 · 복사) 낱말이 붙지 않게. 보이는 간격은 CSS gap
+        <span key={i} className="ui-meta-item">{i > 0 && ' '}{x}</span>
+      ))}
+    </span>
+  );
+}
+
 /* ── 빈 상태 (무엇이 보일지 + 무엇이 있어야 하는지) ───── */
 export type EmptyStateProps = {
   title: ReactNode;

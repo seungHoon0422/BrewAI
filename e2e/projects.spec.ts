@@ -3,7 +3,7 @@ import { launchDesktop, poolUser, userApi, type Client, type Me, type NewUser } 
 import { expectHeading, shot } from './helpers';
 
 // 프로젝트 (조직 > 스페이스 > 프로젝트 > 대화): 지금 스페이스의 묶음 + 지침. 지침은 그 프로젝트 대화마다 시스템 프롬프트 뒤에 붙는다.
-// mock 게이트웨이 [fake:system] = 답 끝에 '· 지침: <system 마지막 줄>' → 지침이 모델까지 갔는지 본다.
+// mock 게이트웨이 [fake:system] = 답 끝에 ', 지침: <system 마지막 줄>' → 지침이 모델까지 갔는지 본다.
 // 사람 = 앨리스 (auth.ts POOL) · 내 스페이스에서 (프로젝트는 개인 스페이스에도 된다)
 const HOME_H1 = '무엇을 맡길까요?';
 const NAME = `주간 보고 ${Date.now().toString(36)}`;
@@ -74,7 +74,7 @@ test('사이드바 프로젝트 = 지금 스페이스의 프로젝트 · [+ 새 
 test('프로젝트 안에서 시작한 대화 = 그 프로젝트 · 지침이 모델까지 간다 · 경로 줄에 프로젝트', async () => {
   const answer = await ask(win, '[fake:system] 이번 주 숫자');
   await expectHeading(win, '[fake:system] 이번 주 숫자');
-  await expect(answer).toContainText(`· 지침: ${RULE}`);
+  await expect(answer).toContainText(`, 지침: ${RULE}`);
   await expect(crumbs(win)).toHaveCount(2);
   await expect(crumbs(win).nth(0)).toHaveAttribute('data-kind', 'space');
   await expect(crumbs(win).nth(1)).toHaveAttribute('data-kind', 'project');
@@ -93,7 +93,7 @@ test('프로젝트 밖 대화엔 지침이 없다 → 칩으로 프로젝트에 
   await expectHeading(win, HOME_H1);
   const answer = await ask(win, '[fake:system] 밖에서 묻기');
   await expectHeading(win, '[fake:system] 밖에서 묻기');
-  await expect(answer).toContainText('· 지침: ');
+  await expect(answer).toContainText(', 지침: ');
   await expect(answer).not.toContainText(RULE);
   await expect(crumbs(win)).toHaveCount(1); // 스페이스만 (프로젝트 없음)
 
@@ -104,7 +104,7 @@ test('프로젝트 밖 대화엔 지침이 없다 → 칩으로 프로젝트에 
   await expect(crumbs(win).nth(1)).toContainText(NAME);
   // 옮긴 뒤 묻는 말엔 지침이 붙는다 (서버가 대화의 프로젝트를 DB 에서 읽는다)
   const after = await ask(win, '[fake:system] 옮긴 뒤');
-  await expect(after).toContainText(`· 지침: ${RULE}`);
+  await expect(after).toContainText(`, 지침: ${RULE}`);
 
   const threads = await api.get<{ title: string; project_id: string | null; path: { kind: string }[] }[]>(`/api/threads?project=${projectId}`);
   const moved = threads.find((t) => t.title === '[fake:system] 밖에서 묻기')!;
@@ -123,7 +123,7 @@ test('설정 서랍: 지침을 바꾸면 다음 답부터 새 지침 · 두 번�
   await win.keyboard.press('Escape');
   const answer = await ask(win, '[fake:system] 새 지침 확인');
   await expectHeading(win, '[fake:system] 새 지침 확인');
-  await expect(answer).toContainText('· 지침: 항상 세 줄로 답한다.');
+  await expect(answer).toContainText(', 지침: 항상 세 줄로 답한다.');
 
   // 두 번째 프로젝트 (API) → 이 대화를 거기로
   const other = await api.post<{ id: string }>(`/api/spaces/${api.me.personal_space_id}/projects`, { name: OTHER });

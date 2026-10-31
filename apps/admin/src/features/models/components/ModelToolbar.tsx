@@ -1,4 +1,4 @@
-import { Button, Input, Segmented, Select, Toolbar, ToolbarSpacer } from '@brewai/ui';
+import { Button, Input, ProviderIcon, Segmented, Select, Toolbar, ToolbarSpacer } from '@brewai/ui';
 import { COPY, STATE_FILTERS, type StateFilter } from '../copy';
 import type { Counts, ProviderSummary } from '../derive';
 
@@ -25,9 +25,10 @@ export function ModelToolbar({
   onProbePicked: () => void;
   onClearSel: () => void;
 }) {
+  // 줄 = 아이콘 + 제공사 이름 · 오른쪽 옅은 글 = 노출 수 / 개수 (순서 = 표 줄에서 처음 나온 순서)
   const providerOptions = [
-    { value: 'all', label: COPY.allProviders(total) },
-    ...providers.map((p) => ({ value: p.id, label: COPY.providerOption(p.label, p.total, p.exposed) })),
+    { value: 'all', label: COPY.allProviders, description: COPY.providerCount(total) },
+    ...providers.map((p) => ({ value: p.id, label: p.label, icon: <ProviderIcon provider={p.id} size="sm" />, description: COPY.providerCount(p.total, p.exposed) })),
   ];
   const stateOptions = STATE_FILTERS.map((f) => ({
     value: f.value,
@@ -49,7 +50,7 @@ export function ModelToolbar({
       ) : (
         <div className="mfilters" role="group" aria-label={COPY.filters}>
           <Select className="mprov-pick" aria-label={COPY.providerFilter} options={providerOptions} value={provider}
-            onChange={(e) => onProvider(e.target.value)} />
+            onChange={onProvider} />
           <ToolbarSpacer />
           <Segmented size="sm" label={COPY.stateGroup} options={stateOptions} value={stateFilter} onChange={onStateFilter} className="mseg" />
         </div>

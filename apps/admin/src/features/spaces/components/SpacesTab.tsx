@@ -25,8 +25,8 @@ export default function SpacesTab() {
       key: 'visibility', header: C.colVisibility,
       cell: (s) => <Badge size="sm" variant="outline" title={VISIBILITY_HINT[s.visibility]}>{VISIBILITY_TEXT[s.visibility]}</Badge>,
     },
-    { key: 'members', header: C.colMembers, align: 'end', cell: (s) => <span className="ui-num">{s.member_count}</span> },
-    { key: 'projects', header: C.colProjects, align: 'end', hideBelow: 'md', cell: (s) => <span className="ui-num">{s.project_count}</span> },
+    { key: 'members', header: C.colMembers, cell: (s) => <span className="ui-num">{s.member_count}</span> },
+    { key: 'projects', header: C.colProjects, hideBelow: 'md', cell: (s) => <span className="ui-num">{s.project_count}</span> },
     {
       key: 'state', header: C.colState, hideBelow: 'lg',
       cell: (s) => <Badge dot size="sm" tone={s.archived_at ? 'neutral' : 'ok'}>{s.archived_at ? C.archived : C.active}</Badge>,
@@ -45,7 +45,7 @@ export default function SpacesTab() {
           onChange={(e) => view.setQuery(e.target.value)} className="part-search" />
         {view.orgs.length > 1 && (
           <Select size="sm" aria-label={C.orgFilter} options={[{ value: '', label: C.allOrgs(roleLabel('tenant')) }, ...view.orgs]}
-            value={view.org} onChange={(e) => view.setOrg(e.target.value)} />
+            value={view.org} onChange={view.setOrg} />
         )}
         <Switch size="sm" label={C.showArchived} checked={view.archived} onCheckedChange={view.setArchived} />
         <ToolbarSpacer />

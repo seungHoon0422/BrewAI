@@ -32,7 +32,7 @@ export default function InvitesTab() {
       key: 'spaces', header: C.colSpaces, hideBelow: 'lg',
       cell: (i) => (i.spaces.length ? i.spaces.map((s) => s.name).join(', ') : <Muted>{C.noSpaces}</Muted>),
     },
-    { key: 'uses', header: C.colUses, align: 'end', cell: (i) => <span className="ui-num">{C.uses(i.uses, i.max_uses)}</span> },
+    { key: 'uses', header: C.colUses, cell: (i) => <span className="ui-num">{C.uses(i.uses, i.max_uses)}</span> },
     { key: 'expires', header: C.colExpires, hideBelow: 'md', cell: (i) => (i.status === 'active' ? left(i.expires_at) : <Muted>{ago(i.expires_at)}</Muted>) },
     { key: 'by', header: C.colBy, hideBelow: 'lg', cell: (i) => i.created_by_name ?? <Muted>{COMMON_COPY.none}</Muted> },
     { key: 'state', header: C.colState, cell: (i) => <Badge dot size="sm" tone={STATUS_TONE[i.status]}>{STATUS_TEXT[i.status]}</Badge> },

@@ -98,7 +98,7 @@ def test_registry_builds_pydantic_ai_tools() -> None:
     assert [step_label(s) for s in ("thinking", "tool:calculator", "tool:current_time", "writing", "tool:mcp_x", "tool:unit_convert")] == [
         "생각", "계산기", "현재 시각", "답 쓰기", "mcp_x", "단위 변환",
     ]
-    assert step_label("skill:summarize", {"summarize": "요약"}) == "스킬 · 요약" and step_label("skill:x") == "스킬 · x"
+    assert step_label("skill:summarize", {"summarize": "요약"}) == "스킬: 요약" and step_label("skill:x") == "스킬: x"
     assert toolset.tools["unit_convert"].function_schema.json_schema["required"] == ["value", "from_unit", "to_unit"]
     op = toolset.tools["date_calc"].function_schema.json_schema["properties"]["operation"]
     assert op["enum"] == ["diff", "add_days", "weekday"]

@@ -29,10 +29,10 @@ export function Missing({ file }: { file: string }) {
 export function Sources({ files }: { files: string[] }) {
   return (
     <p className="docs-src">
-      출처 ·{' '}
+      출처:{' '}
       {files.map((f, i) => (
         <span key={f}>
-          {i > 0 && ' · '}
+          {i > 0 && ', '}
           <code>{f}</code>
         </span>
       ))}

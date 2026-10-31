@@ -96,9 +96,9 @@ export function SpaceSheet({ space, open, onClose }: { space: Space; open: boole
                   {m.implicit ? <span className="person-role">{SPACES.implicit}</span>
                     : manage && !self ? (
                       <>
-                        <Select size="sm" aria-label={`${SPACES.role[m.role]} · ${m.display_name}`} value={m.role} options={ROLE_OPTIONS} disabled={busy}
-                          onChange={(e) => void run(() => addMember(space.id, m.user_id, e.target.value as SpaceRole), members.reload)} />
-                        <IconButton icon="close" size="sm" label={`${SPACES.remove} · ${m.display_name}`} disabled={busy}
+                        <Select size="sm" aria-label={SPACES.memberRole(m.display_name)} value={m.role} options={ROLE_OPTIONS} disabled={busy}
+                          onChange={(v) => void run(() => addMember(space.id, m.user_id, v as SpaceRole), members.reload)} />
+                        <IconButton icon="close" size="sm" label={SPACES.removeMember(m.display_name)} disabled={busy}
                           onClick={() => void run(() => dropMember(space.id, m.user_id), members.reload)} />
                       </>
                     ) : <span className="person-role">{SPACES.role[m.role]}</span>}

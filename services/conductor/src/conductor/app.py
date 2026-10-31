@@ -426,8 +426,8 @@ def create_app(
     @user.get("/api/models")
     async def list_models() -> list[ModelOut]:
         await registry.refresh()  # 카탈로그 캐시(30초)가 바뀌었을 때만 DB 동기화
-        shown = registry.exposed()
-        default = shown[0].gateway_id if shown else None
+        shown = registry.exposed()  # 관리자 순서 그대로 (기본 모델도 제자리)
+        default = registry.default_id()
         health = store.model_health()
         return [_model_out(r, default, health.get(r.gateway_id)) for r in shown]
 

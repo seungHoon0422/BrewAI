@@ -1,32 +1,18 @@
-// 모델 메뉴의 동작 (그리기와 따로) — 열기 · 닫기 · 검색 · 묶음 · 강조 줄 · 키보드 · 좁은 창 자세히 카드.
-// 키보드 (combobox): 검색칸에서 ↑↓ Home End = 이동(머리글 건너뜀 · 끝에서 돌아감) · Enter = 고르고 닫기 · Esc = 검색 지우기 → 닫기
+// 모델 메뉴의 동작 (그리기와 따로) — 열기 · 닫기 · (모델이 많을 때만) 검색 · 강조 줄 · 키보드.
+// 목록 = /api/models 순서 그대로 한 줄씩 (관리자 순서 · 묶음 머리 없음).
+// 키보드 (listbox · 검색칸이 있으면 combobox): ↑↓ Home End = 이동(끝에서 돌아감) · Enter = 고르고 닫기
+//   · 검색칸이 없으면 글자를 치면 그 글자로 시작하는 모델로 (type-ahead) · Esc = 검색 지우기 → 닫기
 //   · Tab = 생각 깊이 (←→ 로 바꾸기). 버튼에서 ↓/↑ = 열기. 바깥 누름 · 포커스가 밖으로 = 닫기
 // 목록은 열 때마다 다시 읽는다 → 관리자가 방금 숨긴 모델은 바로 빠진다 (P2-1).
 import { useEffect, useId, useRef, useState, type FocusEvent, type KeyboardEvent } from 'react';
 import { providerLabel } from '@brewai/ui';
-import { useMedia } from '../../lib/hooks';
 import type { Model } from './api';
 import { clearModelNotice, effectiveModel, loadModels, pickModel, useModelState } from './hooks';
 
-export type Group = { provider: string; label: string; models: Model[] };
-export type Opt = { key: string; model: Model; sec: 'recent' | 'all' };
-
 const norm = (s: string) => s.normalize('NFC').toLowerCase();
-const RECENT_SHOWN = 3;
-const WIDE = '(min-width: 1040px)'; // 넓은 창 = 두 칸 (목록 · 자세히), 좁은 창 = 한 칸 + 옆 카드
+export const SEARCH_MIN = 9; // 모델이 이보다 많을 때만 검색칸
 const NOTICE_MS = 8000;
-const CARD_DELAY_MS = 300;
-
-// 회사별 묶음 = 목록에 처음 나온 순서 (기본 모델이 맨 앞 · 나머지는 관리자 순서). 묶음 안 순서도 그대로 (안정)
-function groups(list: Model[]): Group[] {
-  const out: Group[] = [];
-  for (const m of list) {
-    const g = out.find((x) => x.provider === m.provider);
-    if (g) g.models.push(m);
-    else out.push({ provider: m.provider, label: providerLabel(m.provider, m.provider_label), models: [m] });
-  }
-  return out;
-}
+const TYPEAHEAD_MS = 600;
 
 // 검색어와 맞는 곳 (굵게 그릴 범위) — 없으면 null
 export function hitRange(text: string, q: string): [number, number] | null {
@@ -38,57 +24,50 @@ export function hitRange(text: string, q: string): [number, number] | null {
 export function useModelPicker() {
   const models = useModelState((s) => s.models);
   const current = useModelState(effectiveModel);
-  const recentIds = useModelState((s) => s.recentModels);
   const notice = useModelState((s) => s.modelNotice);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const [active, setActive] = useState<string | null>(null); // 강조한 줄 (Opt.key)
+  const [active, setActive] = useState<string | null>(null); // 강조한 줄 (모델 id)
   const [refreshing, setRefreshing] = useState(false);
-  const [card, setCard] = useState<string | null>(null); // 좁은 창: 자세히 카드를 띄운 줄
-  const wide = useMedia(WIDE);
   const wrap = useRef<HTMLSpanElement>(null);
   const button = useRef<HTMLButtonElement>(null);
   const input = useRef<HTMLInputElement>(null);
-  const hover = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const typed = useRef<{ text: string; at: number }>({ text: '', at: 0 });
   const uid = useId();
-  const q = norm(query.trim());
+  const searchable = models.list.length >= SEARCH_MIN;
+  const q = searchable ? norm(query.trim()) : '';
 
-  const match = (m: Model) =>
-    !q || [m.label, m.id, providerLabel(m.provider, m.provider_label), m.family ?? ''].some((x) => norm(x).includes(q));
+  // 검색 = 이름 · 회사 (게이트웨이 id 는 화면에 없으니 찾는 말에도 넣지 않는다)
+  const match = (m: Model) => !q || [m.label, providerLabel(m.provider, m.provider_label)].some((x) => norm(x).includes(q));
   const shown = models.list.filter(match);
-  const recent = q ? [] : recentIds.map((id) => models.list.find((m) => m.id === id)).filter((m): m is Model => !!m).slice(0, RECENT_SHOWN);
-  const grouped = groups(shown);
-  const recentOpts: Opt[] = recent.map((m) => ({ key: `r:${m.id}`, model: m, sec: 'recent' }));
-  const groupOpts = grouped.map((g) => ({ ...g, opts: g.models.map((m): Opt => ({ key: `m:${m.id}`, model: m, sec: 'all' })) }));
-  const opts: Opt[] = [...recentOpts, ...groupOpts.flatMap((g) => g.opts)];
-  const activeOpt = opts.find((o) => o.key === active) ?? null;
-  const optId = (key: string) => `${uid}-o-${opts.findIndex((o) => o.key === key)}`;
+  const activeModel = shown.find((m) => m.id === active) ?? null;
+  const optId = (id: string) => `${uid}-o-${models.list.findIndex((m) => m.id === id)}`;
 
   const close = (refocus: boolean) => {
     setOpen(false);
     setQuery('');
-    setCard(null);
     if (refocus) button.current?.focus();
   };
   const openMenu = () => {
     setOpen(true);
     setQuery('');
-    setActive(current ? `m:${current.id}` : null);
+    setActive(current?.id ?? null);
     setRefreshing(true);
     void loadModels().finally(() => setRefreshing(false)); // 최신 목록 (관리자가 방금 숨긴 모델은 빠진다)
   };
   const toggle = () => (open ? close(false) : openMenu());
 
-  // 열리면 검색칸으로 (바로 입력)
+  // 열리면 검색칸(있으면) 또는 목록으로 (바로 키보드)
   useEffect(() => {
-    if (open) input.current?.focus();
-  }, [open]);
+    if (open) (input.current ?? list.current)?.focus();
+  }, [open, searchable]);
 
   // 강조한 줄이 목록에서 빠지면(숨김 · 검색) 고른 모델 → 첫 줄로
   useEffect(() => {
-    if (!open || opts.some((o) => o.key === active)) return;
-    const sel = current && opts.find((o) => o.key === `m:${current.id}`);
-    setActive((sel || opts[0])?.key ?? null);
+    if (!open || shown.some((m) => m.id === active)) return;
+    const sel = current && shown.find((m) => m.id === current.id);
+    setActive((sel || shown[0])?.id ?? null);
   });
 
   // 강조한 줄이 보이게
@@ -123,10 +102,6 @@ export function useModelPicker() {
     return () => clearTimeout(t);
   }, [notice]);
 
-  useEffect(() => () => {
-    if (hover.current) clearTimeout(hover.current);
-  }, []);
-
   const pick = (m: Model) => {
     pickModel(m.id);
     close(true);
@@ -138,40 +113,41 @@ export function useModelPicker() {
       if (!open) openMenu();
     }
   };
-  const onSearchKey = (e: KeyboardEvent<HTMLInputElement>) => {
-    const i = opts.findIndex((o) => o.key === active);
+  // 검색칸 · 목록이 같이 쓴다
+  const onListKey = (e: KeyboardEvent<HTMLElement>) => {
+    const i = shown.findIndex((m) => m.id === active);
     const move = (to: number) => {
       e.preventDefault();
-      if (!opts.length) return;
-      const next = opts[(to + opts.length) % opts.length].key;
-      setActive(next);
-      if (!wide) setCard(next); // 키보드 = 자세히 카드를 바로
+      if (!shown.length) return;
+      setActive(shown[(to + shown.length) % shown.length].id);
     };
     if (e.key === 'ArrowDown') move(i < 0 ? 0 : i + 1);
-    else if (e.key === 'ArrowUp') move(i < 0 ? opts.length - 1 : i - 1);
+    else if (e.key === 'ArrowUp') move(i < 0 ? shown.length - 1 : i - 1);
     else if (e.key === 'Home') move(0);
-    else if (e.key === 'End') move(opts.length - 1);
-    else if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+    else if (e.key === 'End') move(shown.length - 1);
+    else if ((e.key === 'Enter' || (e.key === ' ' && !searchable)) && !e.nativeEvent.isComposing) {
       e.preventDefault();
-      if (activeOpt) pick(activeOpt.model);
+      if (activeModel) pick(activeModel);
     } else if (e.key === 'Escape' && query) {
       e.preventDefault();
       e.stopPropagation(); // 먼저 검색만 지운다 (닫기는 다음 Esc)
       setQuery('');
+    } else if (!searchable && e.key.length === 1 && !e.altKey && !e.ctrlKey && !e.metaKey && e.key !== ' ') {
+      // type-ahead: 잇달아 친 글자로 시작하는 다음 모델
+      const now = Date.now();
+      const text = (now - typed.current.at < TYPEAHEAD_MS ? typed.current.text : '') + norm(e.key);
+      typed.current = { text, at: now };
+      // 같은 글자를 거듭 치면 그 글자로 시작하는 모델을 차례로 (ff → f 의 다음)
+      const key = /^(.)\1+$/u.test(text) ? Array.from(text)[0] : text;
+      const from = Math.max(0, key === text && text.length > 1 ? i : i + 1); // 이어 치는 중이면 지금 줄부터 다시 본다
+      const order = [...shown.slice(from), ...shown.slice(0, from)];
+      const hit = order.find((m) => norm(m.label).startsWith(key));
+      if (hit) setActive(hit.id);
     }
   };
   // 포커스가 팝오버 밖으로 나가면(Tab) 닫는다
   const onBlur = (e: FocusEvent) => {
     if (open && e.relatedTarget && !wrap.current?.contains(e.relatedTarget as Node)) close(false);
-  };
-  const onRowHover = (key: string) => {
-    setActive(key);
-    if (wide) return;
-    if (hover.current) clearTimeout(hover.current);
-    hover.current = setTimeout(() => setCard(key), CARD_DELAY_MS);
-  };
-  const onRowLeave = () => {
-    if (hover.current) clearTimeout(hover.current);
   };
   const clearSearch = () => {
     setQuery('');
@@ -179,12 +155,10 @@ export function useModelPicker() {
   };
 
   return {
-    models, current, notice, open, query, setQuery, q, refreshing, wide,
-    refs: { wrap, button, input },
+    models, current, notice, open, query, setQuery, q, refreshing, searchable,
+    refs: { wrap, button, input, list },
     ids: { pop: `${uid}-pop`, list: `${uid}-list`, opt: optId },
-    shown, recentOpts, groupOpts, activeOpt,
-    detail: activeOpt?.model ?? current, // 넓은 창 오른쪽 칸 = 강조한 줄
-    card: !wide && card ? opts.find((o) => o.key === card)?.model ?? null : null,
-    toggle, close, pick, clearSearch, onButtonKey, onSearchKey, onBlur, onRowHover, onRowLeave,
+    shown, active: activeModel,
+    toggle, close, pick, clearSearch, onButtonKey, onListKey, onBlur, hover: setActive,
   };
 }

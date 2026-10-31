@@ -1,6 +1,6 @@
 // 진행 상황 — 지금 하는 일(이 창의 진행 중인 실행 · 단계가 실시간으로) + 최근 실행 (GET /api/runs).
 // 팀(총괄 → 담당 → 도구) 그래프는 서브에이전트가 생기는 P4 에서. 지금은 실행 하나 = 단계 줄 (생각 → 도구 → 답 쓰기).
-import { Button, Callout, Icon, LinkButton, Spinner, StatusDot, providerLabel } from '@brewai/ui';
+import { Button, Callout, Icon, LinkButton, Meta, Spinner, StatusDot, providerLabel } from '@brewai/ui';
 import { href } from '../../../app/menu';
 import { openChat } from '../../../app/navigate';
 import { ago, seconds } from '../../../lib/format';
@@ -72,10 +72,10 @@ function LiveRunRow({ l }: { l: LiveRun }) {
         <button className="row-link" type="button" onClick={() => openChat(l.threadId)} title={ACTIVITY.openChat}>
           <b className="ui-ell">{l.title}</b>
         </button>
-        <span className="row-sub">
-          <span className="doing">{tracePhrase(a, now, tools, skills).text}</span>
-          <span aria-hidden="true"> · {seconds(now - a.startedAt)}</span>
-        </span>
+        <Meta className="row-sub" items={[
+          <span className="doing">{tracePhrase(a, now, tools, skills).text}</span>,
+          <span aria-hidden="true">{seconds(now - a.startedAt)}</span>,
+        ]} />
         <Steps steps={a.steps} live now={now - a.startedAt} tools={tools} skills={skills} />
       </div>
       {a.model && <ModelTag model={a.model} reasoning={a.reasoning} />}
@@ -89,7 +89,7 @@ function RunItem({ r }: { r: RunRow }) {
     r.status === 'error' || r.status === 'cancelled' ? runErrorText(r.error_code) : st.label,
     seconds(r.duration_ms),
     ago(r.started_at),
-  ].filter(Boolean).join(' · ');
+  ];
   return (
     <li className="row" data-run={r.id} data-status={r.status}>
       <StatusDot state={st.dot} />
@@ -97,7 +97,7 @@ function RunItem({ r }: { r: RunRow }) {
         <button className="row-link" type="button" onClick={() => openChat(r.thread_id)} title={ACTIVITY.openChat}>
           <b className="ui-ell">{r.thread_title}</b>
         </button>
-        <span className="row-sub"><span className="ui-sr">{st.label} · </span>{sub}</span>
+        <span className="row-sub"><span className="ui-sr">{st.label}, </span><Meta items={sub} /></span>
         <Steps steps={r.steps} />
       </div>
       <ModelTag model={{ id: r.model, label: r.model_label, provider: r.provider, provider_label: r.provider_label }} reasoning={r.reasoning} />
@@ -128,7 +128,7 @@ function ModelTag({ model, reasoning }: { model: { id: string; label: string; pr
   const think = reasoningTag(reasoning);
   const name = `${model.label}${model.label !== model.id ? ` (${model.id})` : ''}`;
   return (
-    <span className="mtag" title={`${providerLabel(model.provider, model.provider_label)} · ${name}${think ? ` · ${think}` : ''}`}>
+    <span className="mtag" title={[providerLabel(model.provider, model.provider_label), name, think].filter(Boolean).join(', ')}>
       <ModelName model={model} />
     </span>
   );

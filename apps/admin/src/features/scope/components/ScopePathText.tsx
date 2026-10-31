@@ -9,7 +9,7 @@ export function ScopePathText({ path }: { path: ScopePath }) {
       {path.map((c, i) => {
         const icon = kindIcon(c.kind);
         return (
-          <span key={`${c.kind}:${c.id}`} className="scope-crumb" title={`${kindLabel(c.kind) ?? c.kind} · ${c.name}`}>
+          <span key={`${c.kind}:${c.id}`} className="scope-crumb" title={`${kindLabel(c.kind) ?? c.kind}: ${c.name}`}>
             {i > 0 && <Icon name="chevron-right" size="xs" className="scope-sep" />}
             {icon && <Icon name={icon} size="xs" />}
             <span className="ui-ell">{c.name}</span>

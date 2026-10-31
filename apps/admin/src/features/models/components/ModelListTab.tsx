@@ -3,7 +3,7 @@ import { EmptyTable } from '../../../shared/components/EmptyTable';
 import type { AdminModel } from '../api';
 import { COPY, LOAD_ERROR } from '../copy';
 import { tabHref } from '../route';
-import { COL_LABELS, providerName } from '../derive';
+import { COL_LABELS } from '../derive';
 import type { ModelsApi, ModelView } from '../hooks';
 import { ModelTable } from './ModelTable';
 import { ModelToolbar } from './ModelToolbar';
@@ -15,10 +15,10 @@ export function ModelListTab({ api, view }: ModelPanelProps) {
   const { state, rows } = api;
   const ready = state.kind === 'ok';
 
-  // 끌어서 순서 바꾸기 (전체 보기에서만 · 같은 제공사 안에서만 · 키보드는 ↑↓ 버튼)
+  // 끌어서 순서 바꾸기 (전체 보기에서만 · 아무 줄 사이로 · 한 칸씩 = 자세히 페이지 버튼). 놓은 줄 자리로 간다 (그 줄은 한 칸 밀린다)
   const reorder = (src: AdminModel, target: AdminModel) => {
-    if (src.id === target.id || target.status === 'missing' || target.provider !== src.provider) return;
-    void api.change(src, { order: target.order }, COPY.done.moved(src.label, providerName(src), view.posOf.get(target.id) ?? ''));
+    if (src.id === target.id || target.status === 'missing' || src.status === 'missing') return;
+    void api.change(src, { order: target.order }, COPY.done.moved(src.label, target.order));
   };
 
   return (

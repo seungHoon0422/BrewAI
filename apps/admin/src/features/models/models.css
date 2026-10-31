@@ -24,14 +24,11 @@
 .mtable tbody tr[data-busy] td{opacity:.55}
 .mtable tbody tr[data-dragging]{opacity:.5}
 .mtable tbody tr[data-over] td{box-shadow:inset 0 2px 0 var(--focus)}
-/* 같은 제공사가 이어지는 줄 사이 = 옅은 선 · 제공사가 바뀌는 줄 위 = 보통 선 (묶음 머리줄 없이도 경계가 보인다) */
-.mtable tbody tr[data-group-start]:not(:first-child)>td{border-top:1px solid var(--border)}
-
+.mtable tbody tr[data-over][data-below] td{box-shadow:inset 0 -2px 0 var(--focus)}
 .mtable th.sel,.mtable td.sel{width:28px;padding-right:0}
-.mtable .ord{width:84px;white-space:nowrap}
+.mtable .ord{width:56px;white-space:nowrap}
 .ordc{display:inline-flex;align-items:center;gap:var(--space-0-5)}
-.ordc .num{min-width:14px;font:var(--fw-semibold) var(--fs-xs)/1 var(--font-mono);color:var(--text-2);text-align:right}
-.mv{display:inline-flex}
+.ordc .num{min-width:14px;font:var(--fw-semibold) var(--fs-xs)/1 var(--font-mono);color:var(--text-2)}
 .grip{display:inline-grid;place-items:center;width:14px;height:var(--control-sm);color:var(--text-faint);cursor:grab;opacity:.5}
 .mtable tr:hover .grip{opacity:1}
 
@@ -67,10 +64,11 @@
 .mtable td.set{width:1%;white-space:nowrap}
 .hcell{display:grid;gap:2px;min-width:0;justify-items:start}
 .hrow{display:flex;align-items:center;gap:var(--space-2);min-width:0}
-.hl{display:inline-flex;align-items:center;gap:var(--space-1-5);min-width:0;font-size:var(--fs-xs);color:var(--text-2);white-space:nowrap}
+.hl{display:inline-flex;align-items:center;gap:var(--space-1-5);min-width:0;overflow:hidden;font-size:var(--fs-xs);color:var(--text-2);white-space:nowrap}
 .hl[data-health="error"]{color:var(--warn-text)}
 .hl[data-health="unknown"],.hl[data-health="running"]{color:var(--text-muted)}
-.hl .tm{color:var(--text-muted);font-variant-numeric:tabular-nums}
+.hl .ht{flex:none} /* 이름은 줄이지 않는다 */
+.hl .tm{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--text-muted);font-variant-numeric:tabular-nums} /* 꼬리(시각)만 줄임표 */
 .hl .ui-spinner,.hl .ui-dot{flex:none}
 .hprobe.ui-btn{flex:none}
 .hfix{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;max-width:240px;font-size:var(--fs-2xs);line-height:var(--lh-tight);color:var(--text-muted)}
@@ -204,7 +202,7 @@
   .mtable [data-col="model"]{padding-left:var(--space-3)}
   .mtable .mcell{min-width:0;max-width:none}
   .mtable .hl .tm,.mtable .hfix{display:none}
-  .mtable .hl .ht{min-width:0}
+  .mtable .hl .ht{flex:0 1 auto;min-width:0}
   .mtable .nedit-btn,.mtable .nrevert{display:none} /* 이름 바꾸기 = 자세히 페이지에서 */
   .mbar .msearch{flex:1 1 100%}
   .mfilters{flex:1 1 100%}

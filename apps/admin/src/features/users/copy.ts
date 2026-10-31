@@ -14,7 +14,7 @@ export const STATUS_TEXT: Record<UserStatus, string> = { active: '활성', disab
 export const ROLE_TEXT: Record<InstanceRole, string> = { admin: '관리자', user: '사용자' };
 
 export const USERS_COPY = {
-  tabs: `사용자·${ORG} 탭`,
+  tabs: `사용자와 ${ORG} 탭`,
   people: '사용자',
   invites: '초대',
   // 표
@@ -22,7 +22,7 @@ export const USERS_COPY = {
   colUser: '사용자',
   colLastSeen: '마지막 접속',
   colStatus: '상태',
-  search: '닉네임 · 이메일 검색',
+  search: '닉네임이나 이메일 검색',
   count: (n: number) => `${n}명`,
   empty: '아직 사용자가 없어요',
   emptyHow: '초대 탭에서 코드를 만들어 보내면 데스크톱 앱에서 가입해요.',
@@ -40,20 +40,20 @@ export const USERS_COPY = {
   nameField: '닉네임',
   nameHint: '1~40자. 다른 사람과 같아도 돼요. 사람이 보이는 곳마다 이 이름이 나와요.',
   adminSwitch: '관리자 콘솔 권한',
-  adminHint: `켜면 이 콘솔에 로그인해 사용자 · ${ORG} · 모델을 관리할 수 있어요.`,
+  adminHint: `켜면 이 콘솔에 로그인해 사용자, ${ORG}, 모델을 관리할 수 있어요.`,
   selfHint: '내 계정은 여기서 비활성화하거나 관리자 권한을 뺄 수 없어요.',
   disable: '비활성화',
   enable: '다시 활성화',
-  disabledNote: `비활성 계정은 로그인할 수 없어요. 대화 · ${S}는 그대로 남아 있어요.`,
+  disabledNote: `비활성 계정은 로그인할 수 없어요. 대화와 ${S}는 그대로 남아 있어요.`,
   disableTitle: (name: string) => `${name} 님을 비활성화할까요?`,
-  disableBody: `로그인한 모든 기기에서 바로 로그아웃되고, 다시 활성화할 때까지 로그인할 수 없어요. 대화 · ${S}는 그대로 남아요.`,
+  disableBody: `로그인한 모든 기기에서 바로 로그아웃되고, 다시 활성화할 때까지 로그인할 수 없어요. 대화와 ${S}는 그대로 남아요.`,
   revoke: '모든 기기에서 로그아웃',
   revokeHint: '계정은 그대로 두고 로그인한 기기만 끊어요.',
   resetBtn: '재설정 코드 만들기',
   resetHint: '비밀번호를 잊은 사용자에게 전해 주세요. 데스크톱 앱 로그인 화면 › 비밀번호 재설정에 넣으면 새 비밀번호를 정해요.',
   resetGoogleOnly: 'Google 로만 로그인하는 계정이에요. 코드를 쓰면 비밀번호 로그인도 생겨요.',
   resetLabel: '비밀번호 재설정 코드',
-  resetExpires: (left: string) => `${left} · 한 번만 쓸 수 있어요. 쓰면 그 사용자의 모든 세션이 끊겨요.`,
+  resetExpires: (left: string) => `${left}. 한 번만 쓸 수 있어요. 쓰면 그 사용자의 모든 세션이 끊겨요.`,
   done: {
     disabled: (name: string) => `${name} 님을 비활성화했어요`,
     enabled: (name: string) => `${name} 님을 다시 활성화했어요`,

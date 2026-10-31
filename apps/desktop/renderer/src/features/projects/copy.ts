@@ -25,7 +25,7 @@ export const PROJECTS = {
   descriptionPlaceholder: '무엇을 위한 곳인지 한 줄로',
   instructions: '지침',
   instructionsPlaceholder: '예: 표로 답한다. 숫자는 출처를 붙인다',
-  instructionsHint: `이 ${P} 대화마다 시스템 프롬프트 뒤에 붙어요 · BrewAI 기본 규칙(도구 · 승인)이 먼저예요`,
+  instructionsHint: `이 ${P} 대화마다 시스템 프롬프트 뒤에 붙어요. BrewAI 기본 규칙(도구, 승인)이 먼저예요`,
   count: (n: number, max: number) => `${n.toLocaleString()} / ${max.toLocaleString()}자`,
   hasInstructions: '지침 있음',
   by: (name: string) => `${name} 님이 만듦`,

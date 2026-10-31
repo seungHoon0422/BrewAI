@@ -1,6 +1,7 @@
 // 생각 · 도구 상태 줄(.trace-line) = 유리 알약 하나 + 누르면 펼치는 유리 패널. 글은 trace.ts · 문구는 copy.ts.
 // 흐르는 동안 '질문을 살펴보는 중 → 계산하는 중 → 답을 다듬는 중' (글이 반짝이는 그라데이션),
-// 끝나면 '1.2초 동안 생각함 · 계산기 1회' (생각 깊이를 켰는데 모델이 건너뛰면 '생각 없이 바로 답함').
+// 끝나면 '1.2초 동안 생각함' '계산기 1회' 조각을 칸 나눔으로 (가운뎃점 없음 · 생각 글이 없으면 시간 없이 '생각함').
+// 패널 = 나온 순서대로 생각 블록(조용한 글 · 왼쪽 선)과 도구 블록(카드: 이름 · 입력 · 결과 · 상태)이 확실히 다르게.
 // 생각 글과 도구 카드는 줄을 눌러야 보인다 (기본 접힘 · 흐르는 중에도). 색 점으로 상태를 나누지 않는다 — 글 · 아이콘 · 움직임으로만.
 import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Icon, type IconName } from '@brewai/ui';
@@ -8,8 +9,9 @@ import { seconds } from '../../../lib/format';
 import { reduceMotion, useNow, useThrottled } from '../../../lib/hooks';
 import { useSkillLabels, useToolLabels } from '../../skills/hooks';
 import { TRACE } from '../copy';
-import { isLive, type Answer, type ReasoningPart, type ToolPart } from '../model';
-import { thought, tracePhrase, usedTools } from '../trace';
+import { Markdown } from '../markdown/render';
+import { isLive, type Answer, type ReasoningPart } from '../model';
+import { thought, thoughtParts, tracePhrase, usedTools } from '../trace';
 import { ToolCard } from './ToolCard';
 
 const ANNOUNCE_MS = 2000;
@@ -26,6 +28,7 @@ export function TraceView({ a }: { a: Answer }) {
   const failed = a.status === 'failed';
   const phase = failed ? 'stopped' : t.phase;
   const step = failed ? 'stopped' : t.step;
+  const parts = failed ? [TRACE.stopped] : t.parts;
   const text = failed ? TRACE.stopped : t.text;
   const elapsed = live ? now - a.startedAt : null;
   const glyph: GlyphKind = phase === 'live' ? 'live' : phase === 'stopped' ? 'stop' : thought(a) ? 'think' : usedTools(a) ? 'tool' : 'done';
@@ -46,7 +49,7 @@ export function TraceView({ a }: { a: Answer }) {
         aria-expanded={open} aria-controls={panelId} aria-label={text} title={open ? TRACE.closeTitle : TRACE.openTitle}
         onClick={() => setOpen((v) => !v)}>
         <TraceGlyph kind={glyph} />
-        <TraceText text={text} live={phase === 'live'} />
+        <TraceText parts={parts} text={text} live={phase === 'live'} />
         {elapsed != null && <span className="tm ui-num" aria-hidden="true">{seconds(elapsed)}</span>}
         <span className="chev" aria-hidden="true"><Icon name="chevron-down" size="xs" /></span>
       </button>
@@ -71,8 +74,8 @@ function TraceGlyph({ kind }: { kind: GlyphKind }) {
   return <span className="glyph" aria-hidden="true"><Icon name={GLYPH[kind]} size="sm" /></span>;
 }
 
-// 글: 흐르는 동안 반짝이는 그라데이션 · 바뀔 때 겹쳐 사라짐(160ms) · 폭은 200ms 동안 이어진다
-function TraceText({ text, live }: { text: string; live: boolean }) {
+// 글: 흐르는 동안 반짝이는 그라데이션 · 바뀔 때 겹쳐 사라짐(160ms) · 폭은 200ms 동안 이어진다 · 조각 = 칸 나눔
+function TraceText({ parts, text, live }: { parts: string[]; text: string; live: boolean }) {
   const ref = useRef<HTMLSpanElement>(null);
   const prev = useRef<number | null>(null);
   useLayoutEffect(() => {
@@ -97,28 +100,35 @@ function TraceText({ text, live }: { text: string; live: boolean }) {
   }, [text]);
   return (
     <span ref={ref} className={live ? 'trace-txt run' : 'trace-txt'} aria-hidden="true">
-      <span key={text} className="ph">{text}</span>
+      <span key={text} className="ph">
+        {parts.map((p, i) => <span key={i} className="seg">{p}</span>)}
+      </span>
     </span>
   );
 }
 
 function TracePanel({ a, now }: { a: Answer; now: number }) {
-  const items = a.parts.filter((p): p is ReasoningPart | ToolPart => p.kind !== 'text');
+  const thinking = new Set<Answer['parts'][number]>(thoughtParts(a));
+  const items = a.parts.filter((p) => p.kind === 'tool' || thinking.has(p));
   const live = isLive(a);
   // 생각 토큰은 있는데 글이 안 왔다 = 모델이 생각 내용을 보내지 않았다 (display omitted · redacted)
   const silent = !live && !items.some((p) => p.kind === 'reasoning') && (a.usage?.reasoning_tokens ?? 0) > 0;
-  const foot = !live && a.usage ? TRACE.usage(a.usage) : '';
+  const foot = !live && a.usage ? TRACE.usage(a.usage) : [];
   return (
     <>
-      {silent && <ThinkBlock p={{ kind: 'reasoning', id: 'silent', text: '', live: false, ms: null, at: 0 }} now={now} />}
+      {(items.length > 0 || silent) && (
+        <ol className="tp-list">
+          {silent && <li><ThinkBlock p={{ kind: 'reasoning', id: 'silent', text: '', live: false, ms: null, at: 0 }} now={now} /></li>}
+          {items.map((p) => <li key={p.id}>{p.kind === 'reasoning' ? <ThinkBlock p={p} now={now} /> : p.kind === 'tool' ? <ToolCard p={p} /> : null}</li>)}
+        </ol>
+      )}
       {items.length === 0 && !silent && <p className="tp-none">{live ? TRACE.noneLive : TRACE.noneDone}</p>}
-      {items.map((p) => (p.kind === 'reasoning' ? <ThinkBlock key={p.id} p={p} now={now} /> : <ToolCard key={p.id} p={p} />))}
-      {foot && <p className="tp-foot ui-num">{foot}</p>}
+      {foot.length > 0 && <p className="tp-foot ui-num">{foot.map((f) => <span key={f}>{f}</span>)}</p>}
     </>
   );
 }
 
-// 생각 글: 흐르는 동안 끝에 붙어 내려간다 (사용자가 위로 올리면 멈춤 · 24px 안이면 다시 붙음)
+// 생각 블록 = 조용한 글 (왼쪽 선 · 흐린 글색). 흐르는 동안 끝에 붙어 내려간다 (사용자가 위로 올리면 멈춤 · 24px 안이면 다시 붙음)
 function ThinkBlock({ p, now }: { p: ReasoningPart; now: number }) {
   const body = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
@@ -135,14 +145,14 @@ function ThinkBlock({ p, now }: { p: ReasoningPart; now: number }) {
     setScrolled(el.scrollTop > 2);
   };
   return (
-    <section className="tp-think" data-live={p.live}>
+    <section className="tp-think" data-kind="think" data-live={p.live}>
       <h4 className="tp-h">
         <Icon name="think" size="sm" />{TRACE.think}
-        {ms != null && <span className="tm ui-num">{seconds(ms)}</span>}
+        {ms != null && ms >= 100 && <span className="tm ui-num">{seconds(ms)}</span>}
       </h4>
       <div ref={body} className="tp-body ui-scroll" tabIndex={0} data-scrolled={scrolled} onScroll={onScroll} aria-label={TRACE.thinkBody}>
-        {p.text ? p.text : p.live ? '…' : <span className="tp-empty">{TRACE.thinkSilent}</span>}
-        {p.live && <span className="caret" aria-hidden="true">▍</span>}
+        {p.text ? <Markdown text={p.text} live={p.live} smooth={false} /> : p.live ? '…' : <span className="tp-empty">{TRACE.thinkSilent}</span>}
+        {p.live && !p.text && <span className="caret" aria-hidden="true">▍</span>}
       </div>
     </section>
   );

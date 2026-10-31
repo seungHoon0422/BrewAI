@@ -1,7 +1,7 @@
 ---
 name: compare-table
 label: 비교표 만들기
-description: 여러 후보(제품·요금제·도구·장소 등)를 기준별로 나란히 비교하는 표를 만든다. "비교해 줘", "뭐가 나아?" 같은 요청에.
+description: 여러 후보(제품, 요금제, 도구, 장소 등)를 기준별로 나란히 비교하는 표를 만든다. "비교해 줘", "뭐가 나아?" 같은 요청에.
 tools: [unit_convert, calculator]
 ---
 # 비교표 만들기

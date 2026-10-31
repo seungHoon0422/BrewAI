@@ -1,4 +1,4 @@
-// 모델 상태 = 목록 · 고른 모델 · 생각 깊이 · 최근 고른 모델. 대화(chat/hooks.ts)가 보낼 때 여기서 읽는다.
+// 모델 상태 = 목록 · 고른 모델 · 생각 깊이. 대화(chat/hooks.ts)가 보낼 때 여기서 읽는다.
 // 이 기기의 선택만 기억한다 (localStorage). 저장소가 막혀 있어도 화면은 그대로 돈다.
 import { useMemo } from 'react';
 import { failureOf, type Failure, type Reasoning } from '../../lib/api';
@@ -11,7 +11,6 @@ export type ModelState = {
   pickModel: string | null; // 사용자가 고른 모델 (null = 기본 모델)
   reasoning: Reasoning; // 사용자가 고른 생각 깊이 (모델이 지원할 때만 보낸다)
   modelNotice: string | null; // 고른 모델이 사라져 기본으로 돌아갔을 때 한 줄
-  recentModels: string[]; // 최근 고른 모델 id (새 것이 앞 · 모델 메뉴 '최근 사용')
 };
 
 const PREF_KEY = 'brewai.chat.prefs';
@@ -31,29 +30,12 @@ function writePrefs(s: ModelState) {
     localStorage.setItem(PREF_KEY, JSON.stringify({ model: s.pickModel, reasoning: s.reasoning }));
   } catch {}
 }
-const RECENT_KEY = 'brewai.chat.prefs.recent';
-const RECENT_MAX = 5; // 메뉴엔 목록에 아직 있는 것 3개까지
-function readRecent(): string[] {
-  try {
-    const raw = JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]') as unknown;
-    return Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string').slice(0, RECENT_MAX) : [];
-  } catch {
-    return [];
-  }
-}
-function writeRecent(ids: string[]) {
-  try {
-    localStorage.setItem(RECENT_KEY, JSON.stringify(ids));
-  } catch {}
-}
-
 const prefs = readPrefs();
 const store = createStore<ModelState>({
   models: loading(),
   pickModel: prefs.model,
   reasoning: prefs.reasoning,
   modelNotice: null,
-  recentModels: readRecent(),
 });
 
 export const useModelState = store.use;
@@ -92,10 +74,8 @@ export const loadModels = single(async () => {
 
 export function pickModel(id: string) {
   store.set((s) => {
-    const recentModels = [id, ...s.recentModels.filter((x) => x !== id)].slice(0, RECENT_MAX);
-    const next = { ...s, pickModel: id, modelNotice: null, recentModels };
+    const next = { ...s, pickModel: id, modelNotice: null };
     writePrefs(next);
-    writeRecent(recentModels);
     return next;
   });
 }

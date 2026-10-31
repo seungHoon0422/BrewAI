@@ -156,7 +156,7 @@ def _eval(node: ast.AST) -> int | float:
             return _check(func(*args))
         except (ValueError, OverflowError, ZeroDivisionError, TypeError) as e:  # log(x, 1) = ZeroDivisionError
             raise _CalcError("math_domain", f"{node.func.id} 에 쓸 수 없는 값이에요.") from e
-    raise _CalcError("unsupported", "숫자, + - * / // % **, 괄호, sqrt·log·sin 같은 함수만 쓸 수 있어요.")
+    raise _CalcError("unsupported", "숫자, + - * / // % **, 괄호, sqrt, log, sin 같은 함수만 쓸 수 있어요.")
 
 
 def _format(value: int | float) -> str:
@@ -377,7 +377,7 @@ def date_calc(
             "weeks": weeks, "remaining_days": rest,
             "text": f"{abs(n)}일 {'뒤' if n > 0 else '전' if n < 0 else '(같은 날)'}" if n else "같은 날",
         }
-    return {"error": "bad_operation", "message": "operation 은 diff · add_days · weekday 중 하나예요."}
+    return {"error": "bad_operation", "message": "operation 은 diff, add_days, weekday 중 하나예요."}
 
 
 # ── text_stats ────────────────────────────────────────────────────────────────────
@@ -462,5 +462,5 @@ def step_label(step: str, skill_labels: dict[str, str] | None = None) -> str:
         return tool_label(step.removeprefix("tool:"))
     if step.startswith("skill:"):
         name = step.removeprefix("skill:")
-        return f"스킬 · {(skill_labels or {}).get(name, name)}"
+        return f"스킬: {(skill_labels or {}).get(name, name)}"
     return STEP_LABELS.get(step, step)

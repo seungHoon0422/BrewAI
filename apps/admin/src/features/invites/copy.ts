@@ -51,7 +51,7 @@ export const INVITES_COPY = {
   createBtn: '코드 만들기',
   resultTitle: '초대 코드를 만들었어요',
   resultLabel: '초대 코드',
-  resultSummary: (org: string, role: string, uses: number, left: string) => `${org} · ${role} · ${uses}명까지 · ${left}`,
+  resultSummary: (org: string, role: string, uses: number, left: string) => [org, role, `${uses}명까지`, left] as const, // 칸 나눔 = <Meta>
   done: { revoked: '초대 코드를 취소했어요' },
 } as const;
 

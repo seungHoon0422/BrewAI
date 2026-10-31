@@ -30,8 +30,8 @@ export function OrgMembers({ orgId, onChanged }: { orgId: string; onChanged: () 
       cell: (m) => (
         <Select size="sm" aria-label={C.roleOf(m.display_name)} title={ORG_ROLE_HINT[m.role]} options={ROLE_OPTIONS} value={m.role}
           disabled={api.busy !== null}
-          onChange={(e) => {
-            const next = toOrgRole(e.target.value);
+          onChange={(v) => {
+            const next = toOrgRole(v);
             void api.setRole(m.user_id, next, C.done.role(m.display_name, ORG_ROLE_TEXT[next]));
           }} />
       ),
@@ -55,8 +55,8 @@ export function OrgMembers({ orgId, onChanged }: { orgId: string; onChanged: () 
         void api.setRole(pick, role, C.done.added(picked.name)).then((ok) => ok && setPick(''));
       }}>
         <Select size="sm" aria-label={C.addPick} placeholder={candidates.length ? C.addPick : C.addNone} options={candidates} value={pick}
-          disabled={!candidates.length || api.busy !== null} onChange={(e) => setPick(e.target.value)} className="part-grow" />
-        <Select size="sm" aria-label={C.addRole} options={ROLE_OPTIONS} value={role} onChange={(e) => setRole(toOrgRole(e.target.value))} />
+          disabled={!candidates.length || api.busy !== null} onChange={setPick} className="part-grow" />
+        <Select size="sm" aria-label={C.addRole} options={ROLE_OPTIONS} value={role} onChange={(v) => setRole(toOrgRole(v))} />
         <Button size="sm" type="submit" icon="plus" disabled={!picked || api.busy !== null}>{C.addBtn}</Button>
       </form>
 

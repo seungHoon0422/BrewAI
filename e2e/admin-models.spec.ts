@@ -1,10 +1,10 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
 import { adminApi, userApi, type Client } from './auth';
 import { ADMIN_URL, GATEWAY, GATEWAY_KEY } from './env';
-import { overflowX, shot } from './helpers';
+import { optionsOf, overflowX, pickOption, pickedText, shot } from './helpers';
 
 // 관리자 '모델' = conductor /api/admin/models (mock 게이트웨이 /model_group/info 를 동기화한 model_exposure, ADR-0006)
-// 모델 등록은 LiteLLM 에서만. 여기서 바꾸는 것 = 노출 · 표시 이름 · 순서 · 기본 모델. 표 한 장 · 제공사(provider) = 칸.
+// 모델 등록은 LiteLLM 에서만. 여기서 바꾸는 것 = 노출 · 표시 이름 · 순서 · 기본 모델. 표 한 장 · 제공사(provider) = 칸 · 순서 = 전체 하나 (= 사용자 앱 메뉴 순서).
 // 화면 = 탭 둘: 모델 목록(#/models) · 모델 추가(#/models/add = 등록 순서 안내 · 동기화 · 후보 확인) + 모델 자세히 페이지(#/models/<id>).
 // 처음 상태(E2E conductor = 메모리 DB): fake-chat-small(OpenAI) · fake-chat-large(Anthropic) 노출, fake-embed(OpenAI, 임베딩) 숨김.
 // 바꾼 값은 테스트마다 되돌린다 (desktop 스펙도 같은 conductor 를 쓴다). 새 모델(P2-2) 테스트는 '사라짐' 줄을 남겨서 맨 끝에 둔다.
@@ -22,7 +22,15 @@ const h1 = (page: Page) => page.getByRole('heading', { level: 1 });
 const testBtn = (page: Page, label: string) => page.getByRole('button', { name: `연결 테스트 — ${label}` });
 const exposeSwitch = (page: Page, label: string) => page.getByRole('switch', { name: `노출 — ${label}` });
 const tabs = (page: Page) => page.getByRole('tablist', { name: '모델 화면 탭' });
-const providerFilter = (page: Page) => page.getByRole('combobox', { name: '제공사 필터' });
+const providerFilter = (page: Page) => page.getByRole('combobox', { name: '제공사 필터' }); // 공용 고르기 상자 (@brewai/ui Select)
+// 제공사 고르기 상자를 열어 줄 글을 읽고 닫는다 (줄 = 이름 + 오른쪽 옅은 글)
+async function providerOptions(page: Page) {
+  await providerFilter(page).click();
+  const texts = (await (await optionsOf(providerFilter(page))).allTextContents()).map((t) => t.replace(/\s+/g, ' ').trim());
+  await page.keyboard.press('Escape');
+  await expect(providerFilter(page)).toHaveAttribute('aria-expanded', 'false');
+  return texts;
+}
 const stateSeg = (page: Page) => page.getByRole('radiogroup', { name: '상태' });
 const stateCount = (page: Page, label: string) => stateSeg(page).getByRole('radio', { name: label }).locator('.mseg-n');
 const candList = (page: Page) => page.getByRole('list', { name: '확인할 후보' });
@@ -58,11 +66,14 @@ test('mock 게이트웨이 모델이 표에 뜬다 (채팅 = 노출 · 순서, �
   await expect(table(page).getByRole('columnheader')).toHaveText(COLS);
   const rows = rowsOf(page);
   await expect(rows).toHaveCount(3);
-  // 표 한 장 (묶음 머리줄 없음) · 줄 순서 = 처음 나온 제공사끼리 모아서 (사용자 앱 메뉴와 같은 규칙): OpenAI(1 · 3) → Anthropic(2)
-  expect(await rows.evaluateAll((trs) => trs.map((tr) => tr.getAttribute('data-model')))).toEqual(['fake-chat-small', 'fake-embed', 'fake-chat-large']);
-  await expect(table(page).locator('tr.grp')).toHaveCount(0);
-  await expect(row(page, 'fake-chat-large')).toHaveAttribute('data-group-start', ''); // 제공사가 바뀌는 줄 = 위에 선
-  await expect(row(page, 'fake-embed')).not.toHaveAttribute('data-group-start', '');
+  // 표 한 장 (묶음 머리줄 없음) · 줄 순서 = 전체 순서 하나 (제공사로 묶지 않음 = 사용자 앱 메뉴 순서) · 순서 숫자 = 1 … N
+  expect(await rows.evaluateAll((trs) => trs.map((tr) => tr.getAttribute('data-model')))).toEqual(['fake-chat-small', 'fake-chat-large', 'fake-embed']);
+  await expect(rows.locator('td[data-col="order"] .num')).toHaveText(['1', '2', '3']);
+  await expect(table(page).locator('tr.grp, tr[data-group-start]')).toHaveCount(0);
+  await expect(table(page).getByRole('button', { name: /^(위로|아래로)/ })).toHaveCount(0); // ↑↓ 없음 (끌기 · 한 칸씩 = 자세히 페이지)
+  // 머리 · 칸 모두 왼쪽 맞춤 (숫자 · 비용도)
+  const aligns = await table(page).locator('th, td').evaluateAll((els) => [...new Set(els.map((e) => getComputedStyle(e).textAlign))]);
+  expect(aligns.every((a) => a === 'left' || a === 'start'), aligns.join()).toBe(true);
 
   const small = row(page, 'fake-chat-small');
   await expect(cell(page, 'fake-chat-small', 'order')).toContainText('1');
@@ -89,7 +100,7 @@ test('mock 게이트웨이 모델이 표에 뜬다 (채팅 = 노출 · 순서, �
   await expect(cell(page, 'fake-chat-small', 'caps').locator('.mcap[data-cap="tools"]')).toHaveAttribute('title', /도구 호출/);
 
   const large = row(page, 'fake-chat-large');
-  await expect(cell(page, 'fake-chat-large', 'order').locator('.num')).toHaveText('1'); // 순서 = 제공사 안 자리 (전체 sort_order 2 가 아니라)
+  await expect(cell(page, 'fake-chat-large', 'order').locator('.num')).toHaveText('2'); // 순서 = 전체 자리 (제공사 안 자리가 아니라)
   await expect(cell(page, 'fake-chat-large', 'provider').locator('svg')).toHaveAttribute('data-provider', 'anthropic');
   await expect(large.locator('.chip')).toHaveCount(0);
   await expect(cell(page, 'fake-chat-large', 'input')).toHaveText('$3');
@@ -98,48 +109,87 @@ test('mock 게이트웨이 모델이 표에 뜬다 (채팅 = 노출 · 순서, �
   await expect(cell(page, 'fake-chat-large', 'caps').getByRole('img', { name: '생각' })).toBeVisible();
 
   const embed = row(page, 'fake-embed');
-  await expect(cell(page, 'fake-embed', 'order').locator('.num')).toHaveText('2');
+  await expect(cell(page, 'fake-embed', 'order').locator('.num')).toHaveText('3');
   await expect(embed.locator('.chip')).toHaveCount(0);
   await expect(embed).toHaveAttribute('data-state', 'hidden');
   await expect(exposeSwitch(page, 'fake-embed')).toBeDisabled(); // 대화 모델이 아니라 노출 못 함
   await expect(page.getByRole('radio', { name: '기본 모델 — fake-embed' })).toBeDisabled();
   expect(await caps(page, 'fake-embed')).toEqual(['embedding']);
-  await expect(cell(page, 'fake-embed', 'caps').locator('.mcap')).toHaveAttribute('title', '임베딩 모델 · 대화에 안 씀');
+  await expect(cell(page, 'fake-embed', 'caps').locator('.mcap')).toHaveAttribute('title', '임베딩 모델, 대화에 안 씀');
   // 연결 칸 = 점 + 결과 + 보이는 글 버튼 [테스트] (대화 모델만)
   await expect(testBtn(page, 'fake-chat-small')).toHaveText('테스트');
   await expect(cell(page, 'fake-embed', 'health').getByRole('button')).toHaveCount(0);
 
-  // 요약 카드 대신 = 상태 거르개 옆 개수 · 제공사 고르기 상자 (제공사 · 개수 · 노출 수, 순서 = 표 줄 순서)
+  // 요약 카드 대신 = 상태 거르개 옆 개수 · 제공사 고르기 상자 (줄 = 아이콘 + 제공사 · 오른쪽 = 노출 수 / 개수, 순서 = 표에서 처음 나온 순서)
   await expect(page.locator('.mstat')).toHaveCount(0);
   await expect(stateCount(page, '전체')).toHaveText('3');
   await expect(stateCount(page, '노출')).toHaveText('2');
   await expect(stateCount(page, '후보')).toHaveText('0');
   await expect(stateCount(page, '숨김')).toHaveText('1');
   await expect(stateCount(page, '문제 있음')).toHaveText(/^\d+$/); // 앞 스펙의 대화 실패가 남아 있을 수 있다
-  await expect(providerFilter(page).locator('option')).toHaveText(['전체 제공사 · 3개', 'OpenAI · 2개 · 노출 1', 'Anthropic · 1개 · 노출 1']);
-  await expect(providerFilter(page)).toHaveValue('all');
+  await expect(providerFilter(page)).toHaveAttribute('data-value', 'all');
+  await expect(pickedText(providerFilter(page))).toHaveText('전체 제공사');
+  await expect(page.locator('select')).toHaveCount(0); // 브라우저 기본 고르기 상자 없음 (공용 Select)
+  await providerFilter(page).click();
+  const opts = await optionsOf(providerFilter(page));
+  await expect(opts).toHaveText(['전체 제공사 3개', 'OpenAI 노출 1/2', 'Anthropic 노출 1/1']);
+  await expect(opts.nth(1).locator('svg[data-provider]')).toHaveAttribute('data-provider', 'openai');
+  await expect(opts.first()).toHaveAttribute('aria-selected', 'true');
+  await page.screenshot({ path: shot('admin-models-provider-select') });
+  await page.keyboard.press('Escape');
+  await expect(opts).toHaveCount(0);
   await expect(tabs(page).getByRole('tab', { name: '모델 추가' }).locator('.ui-tab-count')).toHaveCount(0); // 확인할 후보 없음
   await page.screenshot({ path: shot('admin-models-live'), fullPage: true });
 });
 
-test('제공사 필터 (고르기 상자): 고르면 그 제공사 모델만 · 전체로 돌아온다', async ({ page }) => {
+test('제공사 필터 (공용 고르기 상자): 고르면 그 제공사 모델만 · 전체로 돌아온다 · 키보드 (↓ · End · Enter · Esc · 글자)', async ({ page }) => {
   await page.goto('/#/models');
   const rows = rowsOf(page);
+  const filter = providerFilter(page);
   await expect(rows).toHaveCount(3);
-  await providerFilter(page).selectOption('openai');
+  await pickOption(filter, { value: 'openai' });
   await expect(rows).toHaveCount(2);
   await expect(row(page, 'fake-chat-large')).toHaveCount(0);
-  await providerFilter(page).selectOption({ label: 'Anthropic · 1개 · 노출 1' });
+  await expect(pickedText(filter)).toHaveText('OpenAI');
+  await pickOption(filter, { label: 'Anthropic' });
   await expect(rows).toHaveCount(1);
   await expect(row(page, 'fake-chat-large')).toHaveCount(1);
-  await providerFilter(page).selectOption('all');
+  await pickOption(filter, { value: 'all' });
   await expect(rows).toHaveCount(3);
+  // 바깥을 누르면 닫힌다 (값 그대로)
+  await filter.click();
+  await expect(filter).toHaveAttribute('aria-expanded', 'true');
+  await page.locator('.ui-page-title, h1').first().click();
+  await expect(filter).toHaveAttribute('aria-expanded', 'false');
+
+  // 키보드: 포커스는 늘 단추에 · 가리키는 줄 = aria-activedescendant
+  await filter.focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(filter).toHaveAttribute('aria-expanded', 'true');
+  const opts = await optionsOf(filter);
+  await expect(opts.first()).toHaveAttribute('data-active', '');
+  await page.keyboard.press('End');
+  await expect(filter).toHaveAttribute('aria-activedescendant', (await opts.last().getAttribute('id'))!);
+  await page.keyboard.press('Enter');
+  await expect(filter).toHaveAttribute('data-value', 'anthropic');
+  await expect(filter).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Escape'); // 닫기만
+  await expect(filter).toHaveAttribute('aria-expanded', 'false');
+  await expect(filter).toHaveAttribute('data-value', 'anthropic');
+  await page.keyboard.press('o'); // 글자 = 그 글자로 시작하는 줄 (열면서 가리킨다)
+  await expect(filter).toHaveAttribute('aria-expanded', 'true');
+  await page.keyboard.press('Enter');
+  await expect(filter).toHaveAttribute('data-value', 'openai');
+  await expect(rows).toHaveCount(2);
+  await pickOption(filter, { value: 'all' });
 });
 
 test('탭 = 주소(#/models · #/models/add): 뒤로 · 앞으로 · 화살표 키 · 탭을 옮겨도 거르개는 그대로', async ({ page }) => {
   await page.goto('/#/models');
   await expect(rowsOf(page)).toHaveCount(3);
-  await providerFilter(page).selectOption('openai');
+  await pickOption(providerFilter(page), { value: 'openai' });
   await expect(rowsOf(page)).toHaveCount(2);
   const tab = (name: string) => tabs(page).getByRole('tab', { name });
   await tab('모델 추가').click();
@@ -148,7 +198,7 @@ test('탭 = 주소(#/models · #/models/add): 뒤로 · 앞으로 · 화살표 �
   await page.goBack();
   await expect(page).toHaveURL(/#\/models$/);
   await expect(tab('모델 목록')).toHaveAttribute('aria-selected', 'true');
-  await expect(providerFilter(page)).toHaveValue('openai'); // 거르개는 탭 밖 (ModelsScreen) 에 있다
+  await expect(providerFilter(page)).toHaveAttribute('data-value', 'openai'); // 거르개는 탭 밖 (ModelsScreen) 에 있다
   await expect(rowsOf(page)).toHaveCount(2);
   await page.goForward();
   await expect(tab('모델 추가')).toHaveAttribute('aria-selected', 'true');
@@ -172,7 +222,7 @@ test('노출 끄기 → 사용자 앱 목록(/api/models)에서 빠진다 → �
     await expect(sw).toHaveAttribute('aria-checked', 'false');
     await expect(row(page, 'fake-chat-large')).toHaveAttribute('data-state', 'hidden');
     await expect(stateCount(page, '노출')).toHaveText('1');
-    await expect(providerFilter(page).locator('option[value="anthropic"]')).toHaveText('Anthropic · 1개 · 노출 0');
+    expect(await providerOptions(page)).toContain('Anthropic 노출 0/1');
     expect((await userModels()).map((m) => m.id)).toEqual(['fake-chat-small']);
     await sw.click();
     await expect(sw).toHaveAttribute('aria-checked', 'true');
@@ -214,31 +264,37 @@ test('표시 이름: 연필 → 입력 → Enter 저장 (사용자 앱 이름도
   }
 });
 
-test('순서: 아래로 · 위로 (사용자 앱 메뉴 순서) · 기본 모델: 라디오', async ({ page }) => {
+test('순서: 손잡이를 끌어 옮긴다 (전체 순서 하나 · 제공사를 건너도 = 사용자 앱 메뉴 순서) · 기본 모델: 라디오 (메뉴에서 제자리)', async ({ page }) => {
   await page.goto('/#/models');
   const ids = () => rowsOf(page).evaluateAll((trs) => trs.map((tr) => tr.getAttribute('data-model')));
+  const nums = rowsOf(page).locator('td[data-col="order"] .num');
   try {
-    // ↑↓ = 같은 제공사 안에서 옮긴다 (small ↔ embed). 제공사 순서는 처음 나온 제공사 순서를 따른다
-    await expect(page.getByRole('button', { name: '위로 — fake-chat-small' })).toBeDisabled(); // 제공사 안 맨 위
-    await page.getByRole('button', { name: '아래로 — fake-chat-small' }).click(); // small 3번 → large(1) 가 맨 앞 제공사
-    await expect.poll(ids).toEqual(['fake-chat-large', 'fake-embed', 'fake-chat-small']);
-    await expect(row(page, 'fake-chat-large').locator('td.ord')).toContainText('1');
-    await page.getByRole('button', { name: '위로 — fake-chat-small' }).click();
-    await expect.poll(ids).toEqual(['fake-chat-large', 'fake-chat-small', 'fake-embed']);
+    await expect.poll(ids).toEqual(['fake-chat-small', 'fake-chat-large', 'fake-embed']);
+    await expect(cell(page, 'fake-chat-large', 'order')).toHaveAttribute('title', '전체 2번째. 사용자 앱 메뉴는 노출한 모델만 이 순서로 보여요. 손잡이를 끌어 옮겨요');
+    // embed(OpenAI) 를 맨 위 줄에 놓는다 → 그 자리로 · 숫자는 다시 1 … N
+    await row(page, 'fake-embed').locator('.grip').dragTo(row(page, 'fake-chat-small'));
+    await expect.poll(ids).toEqual(['fake-embed', 'fake-chat-small', 'fake-chat-large']);
+    await expect(page.getByRole('status')).toContainText('순서를 바꿨어요: fake-embed → 1번');
+    await expect(nums).toHaveText(['1', '2', '3']);
+    // 아래로 끌면 놓은 줄 뒤로 (small → large 위에 놓음 = large 다음)
+    await row(page, 'fake-chat-small').locator('.grip').dragTo(row(page, 'fake-chat-large'));
+    await expect.poll(ids).toEqual(['fake-embed', 'fake-chat-large', 'fake-chat-small']);
+    // 사용자 앱 메뉴 = 노출한 모델을 같은 순서로 · 기본(small)은 표시만 (맨 위로 안 간다)
+    expect((await userModels()).map((m) => [m.id, m.is_default])).toEqual([['fake-chat-large', false], ['fake-chat-small', true]]);
 
-    // 기본 모델 = 사용자 앱 목록 첫 항목
     await page.getByRole('radio', { name: '기본 모델 — fake-chat-large' }).check();
-    await expect(page.getByRole('status')).toContainText('기본 모델을 바꿨어요 · fake-chat-large');
+    await expect(page.getByRole('status')).toContainText('기본 모델을 바꿨어요: fake-chat-large');
     await expect(row(page, 'fake-chat-large').locator('.dflt')).toHaveText('기본');
     await expect(row(page, 'fake-chat-small').locator('.dflt')).toHaveCount(0);
-    const list = await userModels();
-    expect(list.map((m) => [m.id, m.is_default])).toEqual([['fake-chat-large', true], ['fake-chat-small', false]]);
+    expect((await userModels()).map((m) => [m.id, m.is_default])).toEqual([['fake-chat-large', true], ['fake-chat-small', false]]);
     await page.getByRole('radio', { name: '기본 모델 — fake-chat-small' }).check();
     await expect(row(page, 'fake-chat-small').locator('.dflt')).toHaveText('기본');
+    await expect.poll(ids).toEqual(['fake-embed', 'fake-chat-large', 'fake-chat-small']); // 기본이 돼도 표 자리 그대로
   } finally {
     await patch('fake-chat-small', { order: 1, is_default: true });
+    await patch('fake-embed', { order: 3 });
   }
-  expect((await userModels())[0].id).toBe('fake-chat-small');
+  expect((await userModels()).map((m) => m.id)).toEqual(['fake-chat-small', 'fake-chat-large']);
 });
 
 test('모델 추가 탭: 등록 순서 안내 · "LiteLLM 에서 추가" = LiteLLM Admin UI 새 탭 (등록은 거기서만) · 바꿀 수 없는 일은 서버가 막는다', async ({ page }) => {
@@ -321,9 +377,9 @@ test('개요: 게이트웨이 연결됨 · 노출 모델 수', async ({ page }) 
   await page.goto('/#/overview');
   await expect(gatewayCard(page)).toHaveAttribute('data-state', 'ok');
   await expect(gatewayCard(page).locator('.v')).toHaveText('연결됨');
-  await expect(gatewayCard(page).locator('.sub')).toHaveText('LiteLLM · 모델 3개 · 회사 2곳');
+  await expect(gatewayCard(page).locator('.sub')).toHaveText('LiteLLM, 모델 3개, 회사 2곳');
   await expect(exposedCard(page).locator('.v')).toHaveText('2');
-  await expect(exposedCard(page).locator('.sub')).toHaveText('후보 0 · 숨김 1');
+  await expect(exposedCard(page).locator('.sub')).toHaveText('후보 0, 숨김 1');
   await page.screenshot({ path: shot('admin-overview-live'), fullPage: true });
 });
 
@@ -360,8 +416,8 @@ test('연결 테스트: 그 자리에서 돌림표 → 정상 · 응답 시간 |
     await expect(exposeSwitch(page, 'fake-chat-small')).toBeEnabled(); // 줄은 잠그지 않는다
     release();
     await expect(small.locator('.hl')).toHaveAttribute('data-health', 'ok');
-    await expect(small.locator('.hl')).toHaveText(/^정상 · \d+ms$/); // 응답 시간 = conductor 가 잰 왕복 (duration_ms)
-    await expect(small.locator('.hl')).toHaveAttribute('title', '마지막 정상 · 방금');
+    await expect(small.locator('.hl')).toHaveText(/^정상 \d+ms$/); // 응답 시간 = conductor 가 잰 왕복 (duration_ms) · 칸 나눔 = 여백
+    await expect(small.locator('.hl')).toHaveAttribute('title', '마지막 정상: 방금');
     await expect(page.locator('.flash')).toHaveCount(0); // 결과는 그 자리에만 (위 알림 줄 없음)
     await page.unroute(`${MODELS_API}/fake-chat-small/test`);
 
@@ -369,7 +425,7 @@ test('연결 테스트: 그 자리에서 돌림표 → 정상 · 응답 시간 |
     await fakeCatalog({ broken: { 'fake-chat-large': '401' } });
     await testBtn(page, 'fake-chat-large').click();
     await expect(large.locator('.hl')).toHaveAttribute('data-health', 'error');
-    await expect(large.locator('.hl')).toHaveText('키 없음 · 방금');
+    await expect(large.locator('.hl')).toHaveText('키 없음 방금');
     // 고치는 곳 = 그 줄 둘째 줄 (두 줄까지 · 전체는 툴팁)
     await expect(large.locator('.hfix')).toHaveText('LiteLLM 관리 화면 › Models › 이 모델의 Credential 키 확인'); // 관리 화면에서 넣은 모델 = LiteLLM 에서
     await expect(large.locator('.conn')).not.toContainText('Missing'); // provider 문구는 conductor 로그에만
@@ -398,7 +454,7 @@ test('연결 테스트: 그 자리에서 돌림표 → 정상 · 응답 시간 |
     await page.reload();
     await expect(row(page, 'fake-chat-large').locator('.hl')).toHaveAttribute('data-health', 'error');
     await expect(row(page, 'fake-chat-small').locator('.hl')).toHaveAttribute('data-health', 'ok');
-    await expect(row(page, 'fake-chat-small').locator('.hl')).toHaveText('정상 · 방금');
+    await expect(row(page, 'fake-chat-small').locator('.hl')).toHaveText('정상 방금');
     // 임베딩 모델 = 대화 모델이 아니라 테스트 버튼 없음
     await expect(testBtn(page, 'fake-embed')).toHaveCount(0);
 
@@ -418,7 +474,7 @@ test('연결 테스트가 못 돌면 (conductor 꺼짐) 그 자리에 "conductor
   await testBtn(page, 'fake-chat-small').click();
   const hl = row(page, 'fake-chat-small').locator('.hl');
   await expect(hl).toHaveText('conductor 꺼짐');
-  await expect(hl).toHaveAttribute('title', 'fake-chat-small · conductor 에 연결할 수 없어요');
+  await expect(hl).toHaveAttribute('title', 'fake-chat-small: conductor 에 연결할 수 없어요');
   await page.unroute(`${MODELS_API}/fake-chat-small/test`);
   // conductor 가 돌아와 새 줄을 읽으면 (동기화 · 30초마다 다시 읽기) '꺼짐' 은 지우고 서버의 마지막 결과로
   await page.getByRole('button', { name: '동기화' }).click();
@@ -435,10 +491,10 @@ test('모두 테스트 · 고른 줄 테스트: 아직 안 써 본 키 없는 �
     await fakeCatalog({ broken: { 'fake-chat-small': 'openai-missing' } });
     await page.getByRole('button', { name: '모두 테스트' }).click();
     const alert = page.getByRole('alert');
-    await expect(alert).toContainText('2개 테스트 · 정상 1 · 실패 1: fake-chat-small (키 없음)');
+    await expect(alert).toContainText('2개 테스트, 정상 1, 실패 1: fake-chat-small (키 없음)');
     await expect(stateCount(page, '문제 있음')).toHaveText('1');
     await expect(row(page, 'fake-chat-small').locator('.hl')).toHaveAttribute('data-health', 'error');
-    await expect(row(page, 'fake-chat-large').locator('.hl')).toHaveText(/^정상 · \d+ms$/); // 줄마다 그 자리에
+    await expect(row(page, 'fake-chat-large').locator('.hl')).toHaveText(/^정상 \d+ms$/); // 줄마다 그 자리에
     // 등록한 곳 · 회사로 고치는 곳을 좁힌다 (config.yaml + OpenAI = .env 의 OPENAI_API_KEY) · LiteLLM 화면 링크 없음
     const fix = 'config.yaml 모델 — .env 의 OPENAI_API_KEY 확인 뒤 게이트웨이 다시 켜기 (npm run gateway)';
     await expect(row(page, 'fake-chat-small').locator('.hfix')).toHaveText(fix);
@@ -453,7 +509,7 @@ test('모두 테스트 · 고른 줄 테스트: 아직 안 써 본 키 없는 �
     await page.getByRole('checkbox', { name: '선택 — fake-chat-small' }).check();
     await page.getByRole('checkbox', { name: '선택 — fake-embed' }).check();
     await page.getByRole('toolbar', { name: '고른 모델' }).getByRole('button', { name: '연결 테스트' }).click();
-    await expect(page.getByRole('status')).toContainText('1개 테스트 · 모두 정상');
+    await expect(page.getByRole('status')).toContainText('1개 테스트, 모두 정상');
     await expect(row(page, 'fake-chat-small').locator('.hl')).toHaveAttribute('data-health', 'ok');
     await expect(stateCount(page, '문제 있음')).toHaveText('0');
     await expect(stateCount(page, '문제 있음')).not.toHaveClass(/bad/);
@@ -466,7 +522,7 @@ test('모두 테스트 · 고른 줄 테스트: 아직 안 써 본 키 없는 �
 test('검색 · 상태 필터 · 제공사 필터를 함께 쓴다 · 필터 지우기', async ({ page }) => {
   await page.goto('/#/models');
   const search = page.getByRole('searchbox', { name: '모델 검색' });
-  await expect(search).toHaveAttribute('placeholder', '이름 · ID 로 찾기');
+  await expect(search).toHaveAttribute('placeholder', '이름이나 ID 로 찾기');
   await search.fill('LARGE');
   await expect(rowsOf(page)).toHaveCount(1);
   await expect(row(page, 'fake-chat-large')).toHaveCount(1);
@@ -484,15 +540,15 @@ test('검색 · 상태 필터 · 제공사 필터를 함께 쓴다 · 필터 지
   await expect(seg.getByRole('radio', { name: '문제 있음' })).toHaveAttribute('aria-checked', 'true');
   await seg.getByRole('radio', { name: '노출' }).click();
   await expect(rowsOf(page)).toHaveCount(2);
-  // 전체 보기가 아니면 끌기 손잡이를 숨긴다 (↑↓ 는 그대로)
+  // 전체 보기가 아니면 끌기 손잡이를 숨긴다
   await expect(table(page).locator('.grip')).toHaveCount(0);
   await expect(cell(page, 'fake-chat-small', 'order')).toHaveAttribute('title', '전체 보기에서 순서를 바꿀 수 있어요');
   // 제공사 필터와 겹친다: 노출 + OpenAI = small 하나 · 필터 지우기 = 셋 다 처음으로
-  await providerFilter(page).selectOption('openai');
+  await pickOption(providerFilter(page), { value: 'openai' });
   await expect(rowsOf(page)).toHaveCount(1);
   await search.fill('nothing');
   await table(page).getByRole('button', { name: '필터 지우기' }).click();
-  await expect(providerFilter(page)).toHaveValue('all');
+  await expect(providerFilter(page)).toHaveAttribute('data-value', 'all');
   await expect(seg.getByRole('radio', { name: '전체' })).toHaveAttribute('aria-checked', 'true');
   await expect(rowsOf(page)).toHaveCount(3);
   await expect(table(page).locator('.grip')).toHaveCount(3); // 게이트웨이에 있는 줄마다 (사라짐 줄 빼고)
@@ -532,7 +588,7 @@ test('자세히 페이지: 줄을 누르면 #/models/<id> → 머리(이름 h1 �
     await expect(app.locator('.dlab')).toHaveText(['표시 이름', '노출', '기본', '순서']);
     await expect(app).toContainText('사용자 앱 모델 메뉴에 보여요');
     const gw = part(page, '게이트웨이 값');
-    await expect(gw).toContainText('읽기 전용 · 값은 LiteLLM 에서 바꿔요');
+    await expect(gw).toContainText('읽기 전용, 값은 LiteLLM 에서 바꿔요');
     const kv = gw.locator('.dkv');
     await expect(kv.locator('dt')).toHaveText(['제공사', '컨텍스트', '출력 한도', '입력 비용', '출력 비용', '기능', '등록한 곳', '처음 본 때', '마지막 본 때']);
     await expect(kv.locator('.ui-kv-row').filter({ hasText: '제공사' }).locator('dd svg')).toHaveAttribute('data-provider', 'anthropic');
@@ -559,16 +615,22 @@ test('자세히 페이지: 줄을 누르면 #/models/<id> → 머리(이름 h1 �
 
     // 기본 (머리) · 순서
     await head.getByRole('button', { name: '기본 모델로 정하기' }).click();
-    await expect(page.getByRole('status')).toContainText('기본 모델을 바꿨어요 · 큰 모델');
+    await expect(page.getByRole('status')).toContainText('기본 모델을 바꿨어요: 큰 모델');
     await expect(head.getByRole('button', { name: '기본 모델이에요' })).toBeDisabled();
     await expect(head.locator('.dflt')).toHaveText('기본');
-    await expect(app).toContainText('기본 모델 · 새 대화가 이 모델로 시작해요');
-    expect((await userModels())[0].id).toBe('fake-chat-large');
-    await expect(app.getByRole('button', { name: '위로 옮기기' })).toBeDisabled(); // Anthropic 에 하나뿐
+    await expect(app).toContainText('기본 모델, 새 대화가 이 모델로 시작해요');
+    // 기본은 표시만 · 메뉴에서 제자리 (순서 = 전체 순서)
+    expect((await userModels()).map((m) => [m.id, m.is_default])).toEqual([['fake-chat-small', false], ['fake-chat-large', true]]);
+    const ord = app.locator('.dord');
+    await expect(ord).toContainText('2 / 3'); // 전체 자리 (제공사와 상관없이)
+    await expect(app.getByRole('button', { name: '위로 옮기기' })).toBeEnabled();
+    await app.getByRole('button', { name: '아래로 옮기기' }).click();
+    await expect(ord).toContainText('3 / 3');
+    await expect(app.getByRole('button', { name: '아래로 옮기기' })).toBeDisabled(); // 맨 끝
 
     // 연결 테스트 (머리) → 결과는 머리 · 연결 카드 둘 다
     await head.getByRole('button', { name: '연결 테스트', exact: true }).click();
-    await expect(head.locator('.hl')).toHaveText(/^정상 · \d+ms$/);
+    await expect(head.locator('.hl')).toHaveText(/^정상 \d+ms$/);
     await expect(part(page, '연결').locator('.ui-kv-row').filter({ hasText: '응답 시간' }).locator('dd')).toHaveText(/^\d+ms$/);
     await expect(part(page, '연결').locator('.ui-kv-row').filter({ hasText: '마지막 정상' }).locator('dd')).toHaveText('방금');
 
@@ -576,7 +638,7 @@ test('자세히 페이지: 줄을 누르면 #/models/<id> → 머리(이름 h1 �
     const sw = head.getByRole('switch', { name: '노출' });
     await sw.click();
     await expect(sw).toHaveAttribute('aria-checked', 'false');
-    await expect(app).toContainText('숨김 · 사용자 앱에 안 보여요');
+    await expect(app).toContainText('숨김, 사용자 앱에 안 보여요');
     expect((await userModels()).map((m) => m.id)).toEqual(['fake-chat-small']);
     await expect(head.getByRole('button', { name: '기본 모델로 정하기' })).toBeDisabled(); // 노출한 모델만 기본
     await sw.click();
@@ -589,7 +651,7 @@ test('자세히 페이지: 줄을 누르면 #/models/<id> → 머리(이름 h1 �
     await expect(exposeSwitch(page, '큰 모델')).toHaveAttribute('aria-checked', 'true');
     await expect(page.getByRole('link', { name: '자세히 — 큰 모델' })).toBeFocused();
   } finally {
-    await patch('fake-chat-large', { display_name: null, exposed: true });
+    await patch('fake-chat-large', { display_name: null, exposed: true, order: 2 });
     await patch('fake-chat-small', { order: 1, is_default: true });
   }
 });
@@ -604,7 +666,7 @@ test('자세히 페이지 = 주소: 링크로 바로 열기 · 뒤로 · 앞으�
 
   // 목록 → 이름 링크 → 뒤로 = 목록 (거르개 그대로) → 앞으로 = 다시 페이지
   await page.goto('/#/models');
-  await providerFilter(page).selectOption('openai');
+  await pickOption(providerFilter(page), { value: 'openai' });
   await expect(rowsOf(page)).toHaveCount(2);
   const link = page.getByRole('link', { name: '자세히 — fake-chat-small' });
   await expect(link).toHaveAttribute('href', '#/models/fake-chat-small');
@@ -612,7 +674,7 @@ test('자세히 페이지 = 주소: 링크로 바로 열기 · 뒤로 · 앞으�
   await expect(h1(page)).toHaveText(['fake-chat-small']);
   await page.goBack();
   await expect(page).toHaveURL(/#\/models$/);
-  await expect(providerFilter(page)).toHaveValue('openai');
+  await expect(providerFilter(page)).toHaveAttribute('data-value', 'openai');
   await expect(rowsOf(page)).toHaveCount(2);
   await page.goForward();
   await expect(page).toHaveURL(/#\/models\/fake-chat-small$/);
@@ -629,8 +691,8 @@ test('자세히 페이지 = 주소: 링크로 바로 열기 · 뒤로 · 앞으�
   await expect(detail(page).locator('.mhead .mid')).toHaveText('vertex_ai/없는-모델');
   await detail(page).getByRole('link', { name: '모델 목록으로' }).click();
   await expect(page).toHaveURL(/#\/models$/);
-  await expect(providerFilter(page)).toHaveValue('openai'); // 같은 화면 안이라 거르개는 그대로
-  await providerFilter(page).selectOption('all');
+  await expect(providerFilter(page)).toHaveAttribute('data-value', 'openai'); // 같은 화면 안이라 거르개는 그대로
+  await pickOption(providerFilter(page), { value: 'all' });
   await expect(rowsOf(page)).toHaveCount(3);
   // 탭 이름은 길이 아니다 ('#/models/add' = 모델 추가 탭)
   await page.goto('/#/models/add');
@@ -669,14 +731,14 @@ test('여러 개 고르기: 노출 · 숨기기 한 번에 (대화 모델이 아
     await expect(bulk).toContainText('2개 선택됨');
     await expect(providerFilter(page)).toHaveCount(0); // 고르는 동안 필터 자리에 일괄 버튼
     await bulk.getByRole('button', { name: '숨기기' }).click();
-    await expect(page.getByRole('status')).toContainText('1개 숨김 · 1개는 이미 숨김');
+    await expect(page.getByRole('status')).toContainText('1개 숨김, 1개는 이미 숨김');
     await expect(exposeSwitch(page, 'fake-chat-large')).toHaveAttribute('aria-checked', 'false');
     await expect(bulk).toHaveCount(0); // 끝나면 선택이 풀린다
 
     await page.getByRole('checkbox', { name: '선택 — fake-chat-large' }).check();
     await page.getByRole('checkbox', { name: '선택 — fake-embed' }).check();
     await bulk.getByRole('button', { name: '노출' }).click();
-    await expect(page.getByRole('status')).toContainText('1개 노출 · 1개는 대화 모델이 아니라 건너뜀');
+    await expect(page.getByRole('status')).toContainText('1개 노출, 1개는 대화 모델이 아니라 건너뜀');
     await expect(exposeSwitch(page, 'fake-chat-large')).toHaveAttribute('aria-checked', 'true');
     await expect(exposeSwitch(page, 'fake-embed')).toHaveAttribute('aria-checked', 'false');
 
@@ -733,7 +795,7 @@ test('P2-2 LiteLLM 에 모델이 추가되면 후보 · 숨김으로만 뜬다 �
   try {
     await fakeCatalog({ late: true }); // LiteLLM Admin UI 에서 gemini 모델을 하나 추가한 것
     await page.getByRole('button', { name: '동기화' }).click();
-    await expect(page.getByRole('status')).toContainText('새 모델 1개 (후보 · 숨김)');
+    await expect(page.getByRole('status')).toContainText('새 모델 1개 (후보, 숨김)');
     const late = row(page, 'fake-chat-late');
     await expect(late.locator('.chip')).toHaveText('후보');
     await expect(cell(page, 'fake-chat-late', 'provider').locator('svg')).toHaveAttribute('data-provider', 'google');
@@ -741,7 +803,7 @@ test('P2-2 LiteLLM 에 모델이 추가되면 후보 · 숨김으로만 뜬다 �
     await expect(stateCount(page, '후보')).toHaveText('1');
     await expect(page.locator('.cand')).toContainText('새 모델 1개가 후보로 들어왔어요');
     await expect(tabs(page).getByRole('tab', { name: '모델 추가' }).locator('.ui-tab-count')).toHaveText('1'); // 할 일 = 탭 옆 숫자
-    await expect(providerFilter(page).locator('option[value="google"]')).toHaveText('Google · 1개 · 노출 0');
+    expect(await providerOptions(page)).toContain('Google 노출 0/1');
     expect((await userModels()).map((m) => m.id)).not.toContain('fake-chat-late');
     await page.screenshot({ path: shot('admin-models-candidate'), fullPage: true });
 
@@ -757,12 +819,12 @@ test('P2-2 LiteLLM 에 모델이 추가되면 후보 · 숨김으로만 뜬다 �
     await expect(page).toHaveURL(/#\/models\/fake-chat-late$/);
     await expect(detail(page).locator('.mhead .chip')).toHaveText('후보');
     await expect(detail(page).locator('.mhead').getByRole('switch', { name: '노출' })).toHaveAttribute('aria-checked', 'false');
-    await expect(part(page, '사용자 앱')).toContainText('후보 · 확인하고 노출을 켜면 사용자 앱에 보여요');
+    await expect(part(page, '사용자 앱')).toContainText('후보, 확인하고 노출을 켜면 사용자 앱에 보여요');
     await page.goBack();
     await expect(page).toHaveURL(/#\/models\/add$/);
     await page.screenshot({ path: shot('admin-models-add-candidate'), fullPage: true });
     await page.getByRole('button', { name: '노출하기 — fake-chat-late' }).click();
-    await expect(page.getByRole('status')).toContainText('fake-chat-late · 노출했어요');
+    await expect(page.getByRole('status')).toContainText('fake-chat-late 노출했어요');
     await expect(candList(page)).toHaveCount(0);
     await expect(page.getByText('확인할 후보가 없어요')).toBeVisible();
     const shown = (await userModels()).find((m) => m.id === 'fake-chat-late');

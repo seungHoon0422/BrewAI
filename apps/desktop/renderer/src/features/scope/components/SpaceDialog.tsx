@@ -57,7 +57,7 @@ export function SpaceDialog({ open, onClose }: { open: boolean; onClose: () => v
         {error && <Callout tone="danger" live>{error}</Callout>}
         {orgs.length > 1 && (
           <Field label={SPACES.org}>
-            <Select value={org} onChange={(e) => setOrgId(e.target.value)} options={orgs.map((o) => ({ value: o.id, label: o.name }))} />
+            <Select value={org} onChange={setOrgId} options={orgs.map((o) => ({ value: o.id, label: o.name }))} />
           </Field>
         )}
         <Field label={SPACES.name} required>
@@ -75,7 +75,7 @@ export function SpaceDialog({ open, onClose }: { open: boolean; onClose: () => v
               <li key={m.user_id} className="person">
                 <Avatar name={m.display_name} size="sm" />
                 <span className="person-main"><b className="ui-ell">{m.display_name}</b><span className="ui-ell">{m.email}</span></span>
-                <IconButton icon="close" size="sm" label={`${SPACES.remove} · ${m.display_name}`}
+                <IconButton icon="close" size="sm" label={SPACES.removeMember(m.display_name)}
                   onClick={() => setMembers((list) => list.filter((x) => x.user_id !== m.user_id))} />
               </li>
             ))}

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AdminApiError, isConductorDown, loadErrorOf, type LoadError } from '../../shared/http';
 import { getGateway, listAdminModels, patchModel, syncModels, testModel, type AdminModel, type GatewayInfo, type ModelPatch, type ProbeResult } from './api';
 import { COPY, LOAD_ERROR, PATCH_ERROR, syncText, type StateFilter } from './copy';
-import { canProbe, countsOf, dupIndex, errorOf, filterRows, orderRows, positions, providerSummary } from './derive';
+import { canProbe, countsOf, dupIndex, errorOf, filterRows, providerSummary } from './derive';
 
 type Load = { kind: 'loading' } | { kind: 'ok'; rows: AdminModel[] } | { kind: 'error'; error: LoadError };
 export type Flash = { kind: 'ok' | 'error'; text: string } | null;
@@ -207,7 +207,7 @@ export function useModels() {
       already > 0 ? COPY.done.bulkAlready(already, expose) : '',
       bad ? COPY.done.bulkFailed(bad) : '',
     ].filter(Boolean);
-    setFlash({ kind: bad ? 'error' : 'ok', text: parts.join(' · ') });
+    setFlash({ kind: bad ? 'error' : 'ok', text: parts.join(', ') });
   };
 
   const sync = async () => {
@@ -250,12 +250,11 @@ export function useModelView(rows: AdminModel[]) {
   const [dragId, setDragId] = useState<string | null>(null);
 
   const providers = useMemo(() => providerSummary(rows), [rows]);
-  const posOf = useMemo(() => positions(rows), [rows]);
   const dupOf = useMemo(() => dupIndex(rows), [rows]);
   const counts = useMemo(() => countsOf(rows), [rows]);
   // 거르던 제공사가 목록에서 사라지면 전체로
   const activeProvider = provider !== 'all' && !providers.some((p) => p.id === provider) ? 'all' : provider;
-  const visible = orderRows(filterRows(rows, { provider: activeProvider, state: stateFilter, query })); // 표 줄 = 제공사끼리 모은 순서
+  const visible = filterRows(rows, { provider: activeProvider, state: stateFilter, query }); // 표 줄 = 서버 순서 그대로 (전체 순서 하나)
 
   return {
     provider: activeProvider, setProvider,
@@ -263,7 +262,7 @@ export function useModelView(rows: AdminModel[]) {
     query, setQuery,
     clearFilters: () => { setQuery(''); setProvider('all'); setStateFilter('all'); },
     unfiltered: activeProvider === 'all' && stateFilter === 'all' && !query.trim(),
-    providers, posOf, dupOf, counts, visible,
+    providers, dupOf, counts, visible,
     selected,
     picked: rows.filter((r) => selected.has(r.id)),
     toggleSel: (id: string) => setSelected((s) => toggled(s, id)),

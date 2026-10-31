@@ -63,7 +63,7 @@ test('대화: 스킬 사용 카드 → 단위 변환 카드 → 답 · 단계 = 
   await expect(line).toHaveAttribute('data-step', /^(skill:compare-table|tool:unit_convert|writing|done)$/, { timeout: 15_000 });
   await expect(answer).toContainText("스킬 '비교표 만들기' 지침을 따랐어요. 변환 결과는 42.195 km = 26.21875746 mi예요.", { timeout: 30_000 });
   await expect(line).toHaveAttribute('data-step', 'done');
-  await expect(line.locator('.trace-txt')).toHaveText(/^스킬 사용 1회 · 단위 변환 1회 · \d+(\.\d)?초$/);
+  await expect(line.locator('.trace-txt .seg')).toHaveText(['스킬 사용 1회', '단위 변환 1회', /^\d+(\.\d)?초$/]); // 칸 나눔 (가운뎃점 없음)
   await expect(line).toHaveAttribute('data-glyph', 'tool'); // 생각 없이 도구만 = 렌치
   const texts = (await win.evaluate(() => (window as any).__texts)) as string[];
   expect(texts).toContain("'비교표 만들기' 스킬을 펼치는 중");
@@ -77,7 +77,7 @@ test('대화: 스킬 사용 카드 → 단위 변환 카드 → 답 · 단계 = 
   await expect(skill).toHaveAttribute('data-tool', 'use_skill');
   await expect(skill.locator('.th b')).toHaveText('스킬 사용');
   await expect(skill.locator('dl')).toContainText('스킬비교표 만들기');
-  await expect(skill.locator('dl')).toContainText(/결과지침 불러옴 · \d+줄/);
+  await expect(skill.locator('dl')).toContainText(/결과지침 불러옴 \(\d+줄\)/);
   await expect(skill.locator('dl')).not.toContainText('하지 않는 것'); // 지침 본문은 모델만 본다
   const conv = panel.getByRole('group', { name: '단위 변환 도구' });
   await expect(conv.locator('dl')).toContainText('변환42.195 km → mi');
@@ -87,7 +87,7 @@ test('대화: 스킬 사용 카드 → 단위 변환 카드 → 답 · 단계 = 
 
   // 다시 열어도 (서버 기록) 같은 카드 — 지침 본문 없이
   const runs = await api.get<{ thread_id: string; steps: { name: string; label: string }[] }[]>('/api/runs');
-  expect(runs[0].steps.map((s) => s.label)).toEqual(['스킬 · 비교표 만들기', '단위 변환', '답 쓰기']);
+  expect(runs[0].steps.map((s) => s.label)).toEqual(['스킬: 비교표 만들기', '단위 변환', '답 쓰기']);
   const thread = await api.get<{ messages: { parts?: { name?: string; result?: Record<string, unknown> }[] }[] }>(`/api/threads/${runs[0].thread_id}`);
   const card = thread.messages[1].parts?.[0];
   expect(card?.name).toBe('use_skill');

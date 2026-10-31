@@ -22,7 +22,7 @@ export function toolRows(p: ToolPart): ToolRow[] {
   else if (p.name === 'current_time') rows.push({ k: K.timezone, v: show(args?.timezone) || TOOL.defaultTimezone });
   else if (p.name === 'use_skill') rows.push({ k: K.skill, v: show(res?.label) || show(args?.name) || '…' });
   else if (p.name === 'unit_convert') rows.push({ k: K.convert, v: args ? `${show(args.value)} ${show(args.from_unit)} → ${show(args.to_unit)}` : p.argsText || '…', mono: true });
-  else if (p.name === 'date_calc') rows.push({ k: K.calc, v: args ? [show(args.operation), show(args.date), show(args.other_date), args.days != null ? TOOL.days(show(args.days)) : ''].filter(Boolean).join(' · ') : p.argsText || '…' });
+  else if (p.name === 'date_calc') rows.push({ k: K.calc, v: args ? [show(args.operation), show(args.date), show(args.other_date), args.days != null ? TOOL.days(show(args.days)) : ''].filter(Boolean).join(', ') : p.argsText || '…' });
   else if (p.name === 'text_stats') rows.push({ k: K.text, v: typeof args?.text === 'string' ? TOOL.received(Array.from(args.text).length) : '…' });
   else if (p.argsText || p.args !== undefined) rows.push({ k: K.input, v: p.args !== undefined ? show(p.args) : p.argsText, mono: true });
   if (p.status === 'running' || p.status === 'cancelled') return rows;

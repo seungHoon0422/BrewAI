@@ -15,7 +15,7 @@ export type Column<T> = {
   header: ReactNode;
   cell: (row: T, index: number) => ReactNode;
   sortable?: boolean;
-  align?: 'start' | 'center' | 'end';
+  align?: 'start' | 'center' | 'end'; // 기본 = 왼쪽 (머리 · 칸 · 숫자 모두). end = 줄 끝 동작 버튼 칸에만
   width?: string; // CSS 너비 (예: '76px' · '30%')
   hideBelow?: 'md' | 'lg'; // 좁은 창에서 숨김 (md < 760px · lg < 1100px)
   rowHeader?: boolean; // 이 칸이 줄 이름 (th scope=row · onRowClick 이 있으면 버튼)

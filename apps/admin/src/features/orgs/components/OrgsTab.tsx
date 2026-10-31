@@ -29,8 +29,8 @@ export default function OrgsTab() {
         </span>
       ),
     },
-    { key: 'members', header: C.colMembers, align: 'end', cell: (o) => <span className="ui-num">{o.member_count}</span> },
-    { key: 'spaces', header: C.colSpaces, align: 'end', hideBelow: 'md', cell: (o) => <span className="ui-num">{o.space_count}</span> },
+    { key: 'members', header: C.colMembers, cell: (o) => <span className="ui-num">{o.member_count}</span> },
+    { key: 'spaces', header: C.colSpaces, hideBelow: 'md', cell: (o) => <span className="ui-num">{o.space_count}</span> },
     { key: 'created', header: C.colCreated, hideBelow: 'lg', cell: (o) => dateText(o.created_at) },
   ];
 

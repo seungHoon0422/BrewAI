@@ -66,7 +66,7 @@ test.describe('conductor 켜짐', () => {
     const { log } = ui(win);
     await expect(log.locator('.msg.user')).toHaveText(['E2E 안녕', '두 번째']);
     // 멀티턴: conductor 가 저장한 앞 대화를 모델에 준다 → mock 답 끝에 앞 질문
-    await expect(log.locator('.msg.agent').last()).toContainText('받은 질문: 두 번째 · 이전 질문: E2E 안녕', { timeout: 15_000 });
+    await expect(log.locator('.msg.agent').last()).toContainText('받은 질문: 두 번째, 이전 질문: E2E 안녕', { timeout: 15_000 });
   });
 
   test('게이트웨이 오류는 안내 + 다시 시도', async () => {
@@ -85,7 +85,7 @@ test.describe('conductor 켜짐', () => {
     await expect(alert).toHaveAttribute('data-detail', 'provider_key_missing', { timeout: 15_000 });
     await expect(alert.locator('.ftxt')).toHaveText('이 모델의 API 키가 설정돼 있지 않아요');
     await expect(alert.locator('.fhint')).toContainText('LiteLLM 관리 화면 › Models › 이 모델의 Credential 키 확인');
-    await expect(alert.locator('.fmodel')).toHaveText('fake-chat-small · fake-chat-small'); // 어느 모델인지
+    await expect(alert.locator('.fmodel span')).toHaveText(['fake-chat-small', 'fake-chat-small']); // 어느 모델인지 (이름 · 게이트웨이 id 칸 나눔)
     await expect(alert).not.toContainText('Missing'); // provider 문구는 화면에 안 온다 (conductor 로그에만)
     await expect(alert.getByRole('button', { name: '생각 끄고 다시' })).toHaveCount(0); // 키 문제 = 생각과 무관
     await win.screenshot({ path: shot('desktop-error-hint'), animations: 'disabled' });

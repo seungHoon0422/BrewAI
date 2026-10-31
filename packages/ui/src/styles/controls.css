@@ -61,8 +61,8 @@
 .ui-input[data-size="lg"],.ui-select[data-size="lg"]{height:var(--control-lg);padding:0 12px}
 .ui-input:hover,.ui-select:hover{border-color:var(--border-strong)}
 .ui-input:focus-within,.ui-select:focus-within{border-color:var(--focus);box-shadow:0 0 0 1px var(--focus)}
-.ui-input input,.ui-select select{flex:1;min-width:0;height:100%;padding:0;border:0;outline:0;background:transparent;color:var(--text);font-size:var(--fs-sm)}
-.ui-input[data-size="lg"] input,.ui-select[data-size="lg"] select{font-size:var(--fs-base)}
+.ui-input input{flex:1;min-width:0;height:100%;padding:0;border:0;outline:0;background:transparent;color:var(--text);font-size:var(--fs-sm)}
+.ui-input[data-size="lg"] input{font-size:var(--fs-base)}
 .ui-input input::placeholder,.ui-textarea::placeholder{color:var(--text-muted)} /* 글 = muted (faint 는 아이콘 · 장식만 · 4.5:1) */
 .ui-input input::-webkit-search-cancel-button{cursor:pointer}
 .ui-input[data-invalid],.ui-select[data-invalid]{border-color:var(--danger)}
@@ -74,11 +74,20 @@
   background:transparent;color:var(--text-muted);cursor:pointer;flex:none}
 .ui-input-btn:hover{background:var(--surface-hover);color:var(--text)}
 .ui-input-btn:focus-visible{outline-offset:0}
-/* 고르기: 브라우저 화살표 대신 우리 꺾쇠 */
-.ui-select{padding-right:8px}
-.ui-select select{appearance:none;-webkit-appearance:none;cursor:pointer;padding-right:18px;margin-right:-18px}
-.ui-select .ui-icon{pointer-events:none;color:var(--text-faint)}
-.ui-select select:disabled{cursor:default}
+/* 고르기 단추 (select.tsx · 목록 = overlays.css .ui-select-list). 너비 = 가장 긴 이름 (숨은 sizer) · Field 안에서는 줄 가득 */
+.ui-select{display:inline-flex;max-width:100%;padding-right:8px;font:inherit;font-size:var(--fs-sm);color:var(--text);text-align:left;cursor:pointer}
+.ui-select[data-size="lg"]{font-size:var(--fs-base)}
+.ui-field .ui-select{display:flex;width:100%}
+.ui-select:disabled{cursor:default}
+.ui-select:focus-visible{outline:0} /* 고리 = 위 :focus-within 테두리 (입력과 같음) */
+.ui-select-value{display:grid;grid-template-columns:minmax(0,1fr);flex:1;min-width:0;overflow:hidden}
+.ui-select-shown,.ui-select-sizer>span{display:flex;align-items:center;gap:var(--space-1-5);min-width:0;white-space:nowrap}
+.ui-select-shown,.ui-select-sizer{grid-area:1/1}
+.ui-select-shown[data-placeholder]{color:var(--text-muted)}
+.ui-select-text{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.ui-select-sizer{display:grid;visibility:hidden;height:0;overflow:hidden}
+.ui-select-sizer>span{grid-area:1/1}
+.ui-select-chev{flex:none;pointer-events:none;color:var(--text-faint)}
 
 /* 비밀번호 강도 막대 — 길이만 본다 (색 = 상태 색: 짧음 danger · 쓸 수 있음 warn · 좋음 ok) */
 .ui-password{display:grid;gap:var(--space-1-5);min-width:0}

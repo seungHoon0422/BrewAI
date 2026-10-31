@@ -20,12 +20,12 @@ export const SKILLS = {
 // 안내 줄 = [앞 글, 굵게, 뒤 글] (shell Notes)
 export const SKILL_NOTES = [
   ['대화에서 "요약해 줘", "비교해 줘" 처럼 말하면 맞는 스킬을 골라 써요. 답 안에 ', '스킬 사용', ' 카드로 보여요.'],
-  ["새 스킬은 '스킬 만들기' 로 초안을 쓸 수 있어요. 저장·등록은 다음 단계에서 열려요."],
+  ["새 스킬은 '스킬 만들기' 로 초안을 쓸 수 있어요. 저장과 등록은 다음 단계에서 열려요."],
 ] as const;
 export const LIFECYCLE_NOTES = [['승인 전에는 격리된 곳에서만 실행돼요. 내 파일이나 계정에는 닿지 않아요.']] as const;
 
 export const SKILL_STEPS: readonly { title: string; text: string; gate?: boolean }[] = [
-  { title: '찾기·만들기', text: '카탈로그에서 찾거나 에이전트가 새로 작성' },
+  { title: '찾기와 만들기', text: '카탈로그에서 찾거나 에이전트가 새로 작성' },
   { title: '격리 테스트', text: '격리된 곳에서만 실행해 확인' },
   { title: '내 승인', text: '내가 허용해야 쓰기 시작', gate: true },
   { title: '사용', text: '필요할 때 대화에서 불러 씀' },

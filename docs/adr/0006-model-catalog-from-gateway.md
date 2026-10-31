@@ -9,6 +9,7 @@
   - `GatewayCatalogPort.list_models()` → 정규화된 모델 목록 (LiteLLMAdapter 우선)
   - DB: `gateway_model`(캐시, present/missing) · `model_exposure`(관리자 소유: 표시 이름·순서·켜짐·기본값) · `model_exposure_group` · `catalog_sync_run`
   - 새 모델은 '후보'로만 뜨고 기본 숨김. 게이트웨이에서 사라지면 missing 표시 후 자동 숨김.
+  - 순서 = 전체 하나(제공사로 묶지 않음). 사용자 앱 메뉴 = 관리자 순서 그대로, 기본 모델은 표시만 (맨 위로 안 올림 · 2026-11-01).
 - 키: P1 로컬은 config-only(master key, 개발 PC만). P2부터 Postgres + 서비스 전용 virtual key `svc-runtime` (카탈로그 읽기 = 호출 가능 목록과 일치).
 - LiteLLM 1.106.2 주의: `LITELLM_LOCAL_MODEL_COST_MAP=True` (원격 가격표 실패 시 기동 오류 회피) → 가격은 그 시점 스냅샷.
   `/model_group/info` 응답을 contract test fixture로 고정해 업그레이드 때 깨짐을 잡는다.

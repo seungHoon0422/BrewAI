@@ -26,8 +26,8 @@ const ui = (win: Page) => ({
   status: win.locator('.msg.agent .trace-line').last(), // 생각 · 도구 상태 줄 (유리 알약)
   recent: win.getByRole('list', { name: '최근' }),
 });
-// 모델 줄 = 회사별 묶음 쪽 (최근 사용 묶음에도 같은 모델이 있을 수 있다)
-const opt = (menu: Locator, id: string) => menu.locator(`[role="option"][data-sec="all"][data-model="${id}"]`);
+// 모델 줄 (한 줄씩 · 관리자 순서)
+const opt = (menu: Locator, id: string) => menu.locator(`[role="option"][data-model="${id}"]`);
 const depth = (menu: Locator, name: string) => menu.getByRole('radiogroup', { name: '생각 깊이' }).getByRole('radio', { name, exact: true });
 
 async function ask(win: Page, text: string) {
@@ -57,7 +57,7 @@ async function recordSteps(win: Page) {
     const note = () => {
       const act = [...document.querySelectorAll('.msg.agent .trace-line')].pop();
       const v = act?.getAttribute('data-step') ?? '';
-      const t = act?.querySelector('.trace-txt')?.textContent ?? '';
+      const t = act?.getAttribute('aria-label') ?? ''; // 줄 글 (조각을 쉼표로 이은 것 · 화면은 칸 나눔)
       if (steps.at(-1) !== v) steps.push(v);
       if (texts.at(-1) !== t) texts.push(t);
     };
@@ -84,66 +84,45 @@ test.describe('모델 · 생각 · 도구 · 상태 줄', () => {
   });
   test.afterAll(async () => app?.close());
 
-  test('모델 메뉴: 검색칸 · 회사별 묶음 · 기능 칩 · 자세히 · 생각 깊이 (지원 안 하는 모델은 못 고름)', async () => {
+  test('모델 메뉴: 회사 아이콘 + 이름 한 줄씩 (관리자 순서) · 생각 깊이 (지원 안 하는 모델은 못 고름)', async () => {
     await expect(ui(win).model).toHaveText('fake-chat-small');
     await expect(ui(win).model.locator('svg[data-provider="openai"]')).toHaveCount(1); // 버튼에도 회사 아이콘
     await expect(ui(win).model).toHaveAttribute('aria-haspopup', 'dialog');
     const menu = await openPicker(win);
-    // 열면 검색칸에 바로 입력 (combobox) · 강조 = 고른 모델
-    const search = menu.getByRole('combobox', { name: '모델 검색' });
-    await expect(search).toBeFocused();
-    await expect(search).toHaveAttribute('placeholder', '이름 또는 ID로 찾기');
+    // 모델이 적으면 검색칸 없이 목록에 바로 포커스 (listbox · 강조 = 고른 모델)
+    const list = menu.getByRole('listbox', { name: '모델' });
+    await expect(list).toBeFocused();
+    await expect(menu.getByRole('combobox')).toHaveCount(0);
     const small = opt(menu, 'fake-chat-small');
-    await expect(search).toHaveAttribute('aria-activedescendant', (await small.getAttribute('id'))!);
-    // 기본 모델(OpenAI)이 맨 위 묶음 → Anthropic
-    await expect(menu.locator('h6')).toHaveText(['OpenAI', 'Anthropic', '생각 깊이']);
-    await expect(menu.locator('h6 svg[data-provider]')).toHaveCount(2);
-    await expect(menu.locator('h6').nth(0).locator('svg')).toHaveAttribute('data-provider', 'openai');
-    await expect(menu.locator('h6').nth(1).locator('svg')).toHaveAttribute('data-provider', 'anthropic');
-    await expect(menu.getByRole('listbox', { name: '모델' }).getByRole('option')).toHaveCount(2);
+    await expect(list).toHaveAttribute('aria-activedescendant', (await small.getAttribute('id'))!);
+    // 묶음 머리 없음 (h6 = 생각 깊이만) · 줄 = 아이콘 + 이름 (id · 기능 · 컨텍스트 · 기본 배지 · 자세히 없음)
+    await expect(menu.locator('h6')).toHaveText(['생각 깊이']);
+    await expect(list.getByRole('option')).toHaveCount(2);
     await expect(small).toHaveAttribute('aria-selected', 'true');
     await expect(small).toHaveAccessibleName('fake-chat-small');
-    await expect(small).toContainText('기본');
-    await expect(small.locator('.cap')).toHaveText(['도구', '이미지']);
-    await expect(small.locator('.mopt-ctx')).toHaveText('128K');
-    await expect(opt(menu, 'fake-chat-large').locator('.cap')).toHaveText(['생각', '도구', '이미지']);
+    await expect(small).toHaveText('fake-chat-small');
+    await expect(opt(menu, 'fake-chat-large').locator('svg[data-provider="anthropic"]')).toHaveCount(1);
+    await expect(menu.locator('.mdetail, .cap, .mopt-ctx, .l2')).toHaveCount(0);
+    await expect(menu).not.toContainText('최근 사용');
     await expect(menu.getByRole('option', { name: /fake-embed/ })).toHaveCount(0); // 임베딩 = 대화 모델 아님
-    // 자세히 (넓은 창 = 오른쪽 칸): 출처 = LiteLLM model_info.db_model (mock: small = config.yaml)
-    const detail = menu.locator('.mdetail');
-    await expect(detail).toContainText('fake-chat-small');
-    await expect(detail).toContainText('컨텍스트128K');
-    await expect(detail).toContainText('출처config.yaml');
-    await expect(detail).toContainText('상태확인 전');
     // fake-chat-small 은 생각을 지원하지 않는다 → 생각 깊이 셋 다 못 고름 (끄기에 고정)
     await expect(menu.getByRole('radiogroup', { name: '생각 깊이' })).toHaveAttribute('aria-disabled', 'true');
     for (const name of ['끄기', '보통', '깊게']) await expect(depth(menu, name)).toHaveAttribute('aria-disabled', 'true');
     await expect(depth(menu, '끄기')).toHaveAttribute('aria-checked', 'true');
     await expect(menu).toContainText('이 모델은 생각 깊이를 고를 수 없어요');
-    await expect(menu).toContainText('허용된 모델만 보여요');
     await win.screenshot({ path: shot('desktop-model-menu'), animations: 'disabled' }); // 메뉴 fade(.14s) 끝난 모습
     await closePicker(win);
     await expect(ui(win).model).toBeFocused(); // Esc = 닫고 버튼으로
   });
 
-  test('검색: 이름 · ID · 회사로 거른다 · 맞는 게 없으면 안내 · Esc 는 검색부터 지운다', async () => {
+  test('글자를 치면 그 글자로 시작하는 모델로 (type-ahead) · Esc = 닫기', async () => {
     const menu = await openPicker(win);
-    const search = menu.getByRole('combobox', { name: '모델 검색' });
-    await search.fill('anthro'); // 회사 이름
-    await expect(menu.getByRole('option')).toHaveCount(1);
-    await expect(opt(menu, 'fake-chat-large')).toHaveAttribute('data-active', 'true'); // 첫 줄로 강조가 옮겨 간다
-    await search.fill('LARGE'); // 대소문자 무시
-    await expect(opt(menu, 'fake-chat-large').locator('.hit').first()).toHaveText('large');
-    await search.fill('없는모델');
-    await expect(menu.getByRole('option')).toHaveCount(0);
-    await expect(menu).toContainText("'없는모델'에 맞는 모델이 없어요");
-    await menu.getByRole('button', { name: '검색 지우기' }).click();
-    await expect(search).toHaveValue('');
-    await expect(menu.getByRole('option')).toHaveCount(2);
-    await search.fill('small');
-    await win.keyboard.press('Escape'); // 1) 검색만 지운다
-    await expect(search).toHaveValue('');
-    await expect(menu).toBeVisible();
-    await win.keyboard.press('Escape'); // 2) 닫고 버튼으로
+    await expect(opt(menu, 'fake-chat-small')).toHaveAttribute('data-active', 'true');
+    await win.keyboard.press('f'); // 다음 'f…' = large
+    await expect(opt(menu, 'fake-chat-large')).toHaveAttribute('data-active', 'true');
+    await win.keyboard.press('f'); // 다시 'f' = 차례로 돌아 small
+    await expect(opt(menu, 'fake-chat-small')).toHaveAttribute('data-active', 'true');
+    await win.keyboard.press('Escape');
     await expect(menu).toHaveCount(0);
     await expect(ui(win).model).toBeFocused();
   });
@@ -152,14 +131,13 @@ test.describe('모델 · 생각 · 도구 · 상태 줄', () => {
     await ui(win).model.focus();
     await win.keyboard.press('ArrowDown');
     const menu = ui(win).menu;
-    const search = menu.getByRole('combobox', { name: '모델 검색' });
-    await expect(search).toBeFocused();
+    const list = menu.getByRole('listbox', { name: '모델' });
+    await expect(list).toBeFocused();
     await expect(opt(menu, 'fake-chat-small')).toHaveAttribute('data-active', 'true');
     await win.keyboard.press('ArrowDown');
     const large = opt(menu, 'fake-chat-large');
     await expect(large).toHaveAttribute('data-active', 'true');
-    await expect(search).toHaveAttribute('aria-activedescendant', (await large.getAttribute('id'))!);
-    await expect(menu.locator('.mdetail')).toContainText('출처LiteLLM 관리 화면'); // 자세히 = 강조한 줄
+    await expect(list).toHaveAttribute('aria-activedescendant', (await large.getAttribute('id'))!);
     await win.keyboard.press('ArrowDown'); // 끝에서 처음으로
     await expect(opt(menu, 'fake-chat-small')).toHaveAttribute('data-active', 'true');
     await win.keyboard.press('End');
@@ -170,10 +148,9 @@ test.describe('모델 · 생각 · 도구 · 상태 줄', () => {
     await expect(ui(win).model).toHaveText('fake-chat-large');
     await expect(ui(win).model.locator('svg[data-provider="anthropic"]')).toHaveCount(1);
 
-    // 다시 열기: 최근 사용 = 방금 고른 모델 · 생각 깊이를 고를 수 있다 (Tab → ←→)
+    // 다시 열기: 생각 깊이를 고를 수 있다 (Tab → ←→) · 최근 사용 묶음은 없다
     await win.keyboard.press('ArrowDown');
-    await expect(menu.locator('.mh').first()).toHaveText('최근 사용');
-    await expect(menu.locator('[role="option"][data-sec="recent"]')).toHaveCount(1);
+    await expect(menu.getByRole('option')).toHaveCount(2);
     await expect(menu.getByRole('radiogroup', { name: '생각 깊이' })).not.toHaveAttribute('aria-disabled', 'true');
     await win.keyboard.press('Tab');
     await expect(depth(menu, '끄기')).toBeFocused();
@@ -193,7 +170,8 @@ test.describe('모델 · 생각 · 도구 · 상태 줄', () => {
     await expectHeading(win, '어느 모델이 답하나요');
     await expect(ui(win).last).toContainText('가짜 게이트웨이(fake-chat-large)가 답해요', { timeout: 15_000 });
     const by = ui(win).last.locator('.by');
-    await expect(by).toContainText(/fake-chat-large\s*·\s*\d/);
+    await expect(by).toContainText(/fake-chat-large\s*\d/); // 이름 · 걸린 시간 = 칸 나눔 (가운뎃점 없음)
+    expect(await by.textContent()).not.toContain('·');
     await expect(by.locator('svg')).toHaveAttribute('data-provider', 'anthropic');
     await expect(ui(win).last).toHaveAttribute('aria-busy', 'false');
     await expect(ui(win).last.locator('.trace-line')).toHaveCount(0); // 끝났고 한 일이 없다 = 줄 없음
@@ -202,9 +180,9 @@ test.describe('모델 · 생각 · 도구 · 상태 줄', () => {
   test('멀티턴: 두 번째 질문의 답이 첫 질문을 안다 (서버 기록)', async () => {
     await ask(win, '이어서 두 번째 질문');
     await expect(ui(win).log.locator('.msg.user')).toHaveText(['어느 모델이 답하나요', '이어서 두 번째 질문']);
-    await expect(ui(win).last).toContainText('받은 질문: 이어서 두 번째 질문 · 이전 질문: 어느 모델이 답하나요', { timeout: 15_000 });
+    await expect(ui(win).last).toContainText('받은 질문: 이어서 두 번째 질문, 이전 질문: 어느 모델이 답하나요', { timeout: 15_000 });
     await expect(ui(win).log.locator('.msg.agent .trace-line')).toHaveCount(0);
-    await expect(ui(win).log.locator('.msg.agent').first().locator('.by')).toContainText(/fake-chat-large\s*·\s*\d/);
+    await expect(ui(win).log.locator('.msg.agent').first().locator('.by')).toContainText(/fake-chat-large\s*\d/);
   });
 
   test('생각 깊이 = 깊게 → 유리 상태 줄이 "질문을 살펴보는 중" → 끝나면 "n초 동안 생각함" · 생각 글은 눌러야 보인다', async () => {
@@ -212,7 +190,7 @@ test.describe('모델 · 생각 · 도구 · 상태 줄', () => {
     await depth(menu, '깊게').click();
     await expect(depth(menu, '깊게')).toHaveAttribute('aria-checked', 'true');
     await closePicker(win);
-    await expect(ui(win).model).toHaveText(/^fake-chat-large\s*· 깊게$/);
+    await expect(ui(win).model).toHaveText(/^fake-chat-large\s*깊게$/);
 
     await ask(win, '[fake:slow] 천천히 생각해서 답해 줘');
     const line = ui(win).last.locator('.trace-line');
@@ -238,8 +216,8 @@ test.describe('모델 · 생각 · 도구 · 상태 줄', () => {
     await expect(line.locator('.trace-txt')).not.toHaveClass(/run/);
     await expect(panel).toBeVisible();
     await expect(panel.locator('.tp-think .tp-body')).toContainText('필요한 도구가 있는지 확인해요');
-    await expect(panel.locator('.tp-foot')).toContainText(/요청 1회 · 토큰 입력 \d+ \/ 출력 \d+ · 생각 토큰 \d+/);
-    await expect(ui(win).last.locator('.by')).toContainText('생각 깊게');
+    await expect(panel.locator('.tp-foot span')).toHaveText([/^요청 1회$/, /^토큰 입력 \d+ \/ 출력 \d+$/, /^생각 토큰 \d+$/]);
+    await expect(ui(win).last.locator('.by')).not.toContainText('생각'); // 생각 깊이는 답 아래에 안 보인다
     await win.screenshot({ path: shot('desktop-chat-reasoning') });
     // Esc = 패널 접고 줄로
     await panel.locator('.tp-body').focus();
@@ -263,7 +241,7 @@ test.describe('모델 · 생각 · 도구 · 상태 줄', () => {
     await ask(win, '[fake:nothink] 쉬운 질문이라 바로 답해');
     const line = ui(win).last.locator('.trace-line');
     await expect(line).toHaveAttribute('data-step', 'done', { timeout: 15_000 });
-    await expect(line.locator('.trace-txt')).toHaveText(/^생각 없이 바로 답함 · \d+(\.\d)?초$/);
+    await expect(line.locator('.trace-txt .seg')).toHaveText(['생각 없이 바로 답함', /^\d+(\.\d)?초$/]); // 칸 나눔 (가운뎃점 없음)
     await expect(line).toHaveAttribute('data-glyph', 'done'); // 생각 말풍선이 아니다
     await expect(line).toHaveAccessibleName(/^생각 없이 바로 답함/); // 버튼 이름 = 보이는 글 (시간 빼고 · 늦지 않게)
   });
@@ -282,16 +260,16 @@ test.describe('모델 · 생각 · 도구 · 상태 줄', () => {
     await expect(card.locator('dl')).toContainText('결과1025');
     await expect(ui(win).last).toContainText('계산 결과는 1025예요. (수식 2**10 + 1)', { timeout: 15_000 });
     await expect(line).toHaveAttribute('data-step', 'done');
-    await expect(line.locator('.trace-txt')).toHaveText(/^\d+(\.\d)?초 동안 생각함 · 계산기 1회$/);
-    await expect(line).toHaveAccessibleName(/^\d+(\.\d)?초 동안 생각함 · 계산기 1회$/);
+    await expect(line.locator('.trace-txt .seg')).toHaveText([/^\d+(\.\d)?초 동안 생각함$/, '계산기 1회']);
+    await expect(line).toHaveAccessibleName(/^\d+(\.\d)?초 동안 생각함, 계산기 1회$/);
     await expect(line).toHaveAttribute('data-glyph', 'think');
-    await expect(ui(win).last.locator('.trace > .sr[aria-live]')).toHaveText(/초 동안 생각함 · 계산기 1회$/); // 끝나면 바로 알린다 (2초 묶음 없이)
+    await expect(ui(win).last.locator('.trace > .sr[aria-live]')).toHaveText(/초 동안 생각함, 계산기 1회$/); // 끝나면 바로 알린다 (2초 묶음 없이)
     const rec = await recorded(win);
     expect(rec.steps).toEqual(['thinking', 'tool:calculator', 'writing', 'done']);
     // 화면 글: 질문을 살펴보는 중 → 계산하는 중 → (결과를 살펴보는 중) → 답을 다듬는 중 → 요약
     const texts = rec.texts.filter((x) => x !== '결과를 살펴보는 중');
     expect(texts.slice(0, -1)).toEqual(['질문을 살펴보는 중', '계산하는 중', '답을 다듬는 중']);
-    expect(texts.at(-1)).toMatch(/초 동안 생각함 · 계산기 1회$/);
+    expect(texts.at(-1)).toMatch(/초 동안 생각함, 계산기 1회$/);
     // 패널 = 나온 순서대로 (생각 → 도구) · 글 사이에 카드가 끼지 않는다
     const panel = ui(win).last.getByRole('region', { name: '생각과 도구 사용 과정' });
     await expect(panel.locator('.tp-think, .tp-tool')).toHaveCount(2);
@@ -314,7 +292,7 @@ test.describe('모델 · 생각 · 도구 · 상태 줄', () => {
     await ui(win).stop.click();
     await expect(line).toHaveAttribute('data-step', 'stopped');
     await expect(line).toHaveAttribute('data-phase', 'stopped');
-    await expect(line.locator('.trace-txt')).toHaveText(/^중간에 멈춤 · \d/);
+    await expect(line.locator('.trace-txt .seg')).toHaveText(['중간에 멈춤', /^\d/]);
     await expect(ui(win).last).toContainText('안녕하세요!');
     await expect(ui(win).send).toBeVisible(); // 멈추면 다시 보내기 버튼
     // 멈춘 바로 뒤 = 서버가 아직 끊김을 모를 수 있다 (409 thread_busy) → 화면은 잠깐 기다렸다 다시 보낸다
@@ -353,7 +331,7 @@ test.describe('기록 · 진행 상황', () => {
     await expect(lines.nth(0)).toHaveAttribute('aria-expanded', 'false');
     await expect(lines.nth(0).locator('.trace-txt')).toHaveText('생각함');
     const calc = log.locator('.msg.agent').filter({ hasText: '계산 결과는 1025예요' });
-    await expect(calc.locator('.trace-txt')).toHaveText('생각함 · 계산기 1회');
+    await expect(calc.locator('.trace-txt .seg')).toHaveText(['생각함', '계산기 1회']);
     // 생각을 건너뛴 답도 기록에서 그대로 (시간 없이)
     await expect(log.locator('.msg.agent').filter({ hasText: '[fake:nothink]' }).locator('.trace-txt')).toHaveText('생각 없이 바로 답함');
     await calc.locator('.trace-line').click();
@@ -429,7 +407,7 @@ test.describe('P2-1 관리자가 숨기면 사용자 모델 메뉴에서 빠진�
     });
   const probe = (id: string) => api.raw('POST', `/api/admin/models/${id}/test`);
 
-  test('이름이 겹치면 ID 를 함께 보여 준다 · 최근 연결에 실패한 모델 = 경고 점 + 이유 (그래도 고를 수 있다)', async () => {
+  test('이름이 겹치면 등록한 곳으로 가른다 (화면 읽기 · 툴팁) · 최근 연결에 실패한 모델 = 경고 점 + 이유 (그래도 고를 수 있다)', async () => {
     try {
       // 관리자가 small 의 표시 이름을 large 와 같게 (config.yaml 모델과 관리 화면 모델 이름이 같은 경우와 같은 모양)
       expect((await adminPatch('fake-chat-small', { display_name: 'fake-chat-large' })).ok).toBe(true);
@@ -441,26 +419,20 @@ test.describe('P2-1 관리자가 숨기면 사용자 모델 메뉴에서 빠진�
       const small = opt(menu, 'fake-chat-small');
       const large = opt(menu, 'fake-chat-large');
       // 화면 읽기도 둘을 가른다 (id · 등록한 곳) · 실패도 이름에
-      await expect(small).toHaveAccessibleName('fake-chat-large (fake-chat-small · config.yaml)');
-      await expect(large).toHaveAccessibleName('fake-chat-large (fake-chat-large · LiteLLM 관리 화면) · 최근 연결 실패 (키 없음)');
-      await expect(small.locator('.l2')).toHaveClass(/dup/);
-      await expect(small.locator('.l2')).toHaveText('fake-chat-smallconfig.yaml'); // 줄마다 id + 등록한 곳 (키 없는 쪽을 피한다)
-      await expect(large.locator('.l2 .src')).toHaveText('LiteLLM 관리 화면');
+      // 화면엔 이름만 · 화면 읽기 · 툴팁은 등록한 곳으로 가른다 (id 는 안 쓴다) · 실패도 이름에
+      await expect(small).toHaveAccessibleName('fake-chat-large (config.yaml)');
+      await expect(large).toHaveAccessibleName('fake-chat-large (LiteLLM 관리 화면), 최근 연결 실패 (키 없음)');
+      await expect(small).toHaveText('fake-chat-large');
       await expect(large.locator('.wdot')).toHaveCount(1);
       await expect(small.locator('.wdot')).toHaveCount(0);
       await expect(large).toHaveAttribute('title', /최근 연결 실패 \(키 없음\)/);
-      await large.hover();
-      const detail = menu.locator('.mdetail');
-      await expect(detail).toContainText('상태⚠ 키 없음');
-      await expect(detail).toContainText('고를 수는 있지만 답이 실패할 수 있어요');
-      await expect(detail).toContainText('같은 이름의 모델이 더 있어요');
       await win.screenshot({ path: shot('desktop-model-menu-dup-warn'), animations: 'disabled' });
       await large.click(); // 고를 수 있다
       await expect(menu).toHaveCount(0);
       await expect(ui(win).model.locator('.wdot')).toHaveCount(1);
-      // 버튼: 이름이 겹치니 id 도 · 툴팁에 id + 실패 이유
-      await expect(ui(win).model.locator('.mid')).toHaveText('fake-chat-large');
-      await expect(ui(win).model).toHaveAttribute('title', 'fake-chat-large · Anthropic · 최근 연결에 실패했어요 · 키 없음');
+      // 버튼: id 없이 이름 · 툴팁 = 이름, 회사, 실패 이유
+      await expect(ui(win).model.locator('.mid')).toHaveCount(0);
+      await expect(ui(win).model).toHaveAttribute('title', 'fake-chat-large, Anthropic, 최근 연결에 실패했어요 (키 없음)');
     } finally {
       await adminPatch('fake-chat-small', { display_name: null });
       await fakeCatalog({ broken: {} });
@@ -470,7 +442,7 @@ test.describe('P2-1 관리자가 숨기면 사용자 모델 메뉴에서 빠진�
     await expect(opt(menu, 'fake-chat-large').locator('.wdot')).toHaveCount(0);
     await expect(opt(menu, 'fake-chat-small')).toHaveAccessibleName('fake-chat-small');
     await closePicker(win);
-    await expect(ui(win).model.locator('.mid')).toHaveCount(0); // 이름이 안 겹치면 id 를 안 붙인다
+    await expect(ui(win).model.locator('.mid')).toHaveCount(0); // 버튼에 id 는 붙지 않는다
   });
 
   test('관리자 콘솔에서 숨김 → 데스크톱 메뉴에서 사라짐 → 다시 노출 → 돌아옴 (코드 변경 0)', async () => {
@@ -487,8 +459,8 @@ test.describe('P2-1 관리자가 숨기면 사용자 모델 메뉴에서 빠진�
 
     // 메뉴를 열면 다시 읽는다 → 숨긴 모델 없음 · 고른 모델은 기본으로 + 안내
     menu = await openPicker(win);
-    await expect(menu.locator('[role="option"][data-model="fake-chat-large"]')).toHaveCount(0); // 최근 사용에서도 빠진다
-    await expect(menu.locator('h6')).toHaveText(['OpenAI', '생각 깊이']);
+    await expect(menu.locator('[role="option"][data-model="fake-chat-large"]')).toHaveCount(0);
+    await expect(menu.getByRole('option')).toHaveCount(1);
     await expect(ui(win).model).toHaveText('fake-chat-small');
     await expect(win.getByRole('status').filter({ hasText: '기본 모델로 바꿨어요' })).toBeVisible();
     await closePicker(win);

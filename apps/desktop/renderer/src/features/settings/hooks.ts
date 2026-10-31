@@ -16,5 +16,5 @@ export function runtimeLabel() {
   const os = /Mac OS X|Macintosh/.test(ua) ? 'macOS' : /Windows/.test(ua) ? 'Windows' : /Linux/.test(ua) ? 'Linux' : '';
   const shell = ua.includes('Electron/') ? SETTINGS.desktop : SETTINGS.browser;
   const build = import.meta.env.DEV ? SETTINGS.devServer : SETTINGS.localBuild;
-  return [os, shell, build].filter(Boolean).join(' · ');
+  return [os, shell, build].filter(Boolean).join(', ');
 }

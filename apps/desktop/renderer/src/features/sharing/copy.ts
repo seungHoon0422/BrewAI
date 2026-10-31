@@ -9,5 +9,5 @@ export const SHARE = {
   on: '멤버가 이 대화를 볼 수 있어요. 이어 쓰기는 나만 할 수 있어요',
   off: '지금은 나만 볼 수 있어요',
   failed: '바꾸지 못했어요. 잠시 후 다시 시도해 주세요',
-  owner: (name: string) => `${name} 님이 공유한 대화 · 보기만 할 수 있어요`,
+  owner: (name: string) => `${name} 님이 공유한 대화예요. 보기만 할 수 있어요`,
 } as const;

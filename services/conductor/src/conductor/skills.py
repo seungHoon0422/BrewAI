@@ -113,7 +113,7 @@ def parse_skill(text: str, *, dirname: str, known_tools: Iterable[str] = (), sou
             meta[key] = _unquote(value)
     name = meta.get("name", "")
     if not NAME_RE.match(name):
-        raise _fail("bad_name", "name 은 소문자·숫자·- 48자까지예요")
+        raise _fail("bad_name", "name 은 소문자, 숫자, - 로 48자까지예요")
     if name != dirname:
         raise _fail("bad_name", f"name '{name}' 이 폴더 이름 '{dirname[:48]}' 과 달라요")
     description = " ".join(str(meta.get("description", "")).split())
@@ -212,7 +212,7 @@ def load_skills(root: str | Path | None, *, known_tools: Iterable[str] = (), sou
             skip("not_a_dir", "스킬은 폴더여야 하고 링크는 안 돼요")
             continue
         if not NAME_RE.match(entry.name):
-            skip("bad_name", "폴더 이름은 소문자·숫자·- 48자까지예요")
+            skip("bad_name", "폴더 이름은 소문자, 숫자, - 로 48자까지예요")
             continue
         file = entry / SKILL_FILE
         try:

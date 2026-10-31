@@ -121,7 +121,7 @@ test('앨리스가 [공유] → 밥에게 보인다 (닉네임 꼬리표) · 보
   await item.click();
   await expectHeading(b.win, TITLE);
   await expect(b.win.locator('.msg.agent').last()).toContainText(`받은 질문: ${TITLE}`);
-  await expect(b.win.locator('.readonly')).toHaveText(`${alice.display_name} 님이 공유한 대화예요 · 보기만 할 수 있어요`);
+  await expect(b.win.locator('.readonly')).toHaveText(`${alice.display_name} 님이 공유한 대화예요. 보기만 할 수 있어요`);
   await expect(b.win.getByRole('textbox', { name: '요청 입력' })).toHaveCount(0);
   await expect(b.win.getByRole('button', { name: /^공유/ })).toHaveCount(0); // 남의 대화엔 공유 버튼도 없다
   await b.win.screenshot({ path: shot('desktop-share-viewer') });

@@ -108,13 +108,13 @@ export function Breadcrumb({ path, kindLabel, kindIcon, hrefOf, onNavigate, maxI
           return (
             <li key={`${c.kind}:${c.id}`} data-kind={c.kind}>
               {last ? (
-                <span className="ui-crumb" aria-current="page" title={kind ? `${kind} · ${c.name}` : c.name}>{inner}</span>
+                <span className="ui-crumb" aria-current="page" title={kind ? `${kind}: ${c.name}` : c.name}>{inner}</span>
               ) : href ? (
-                <a className="ui-crumb" href={href} title={kind ? `${kind} · ${c.name}` : c.name}>{inner}</a>
+                <a className="ui-crumb" href={href} title={kind ? `${kind}: ${c.name}` : c.name}>{inner}</a>
               ) : onNavigate ? (
-                <button type="button" className="ui-crumb" title={kind ? `${kind} · ${c.name}` : c.name} onClick={() => onNavigate(c)}>{inner}</button>
+                <button type="button" className="ui-crumb" title={kind ? `${kind}: ${c.name}` : c.name} onClick={() => onNavigate(c)}>{inner}</button>
               ) : (
-                <span className="ui-crumb" title={kind ? `${kind} · ${c.name}` : c.name}>{inner}</span>
+                <span className="ui-crumb" title={kind ? `${kind}: ${c.name}` : c.name}>{inner}</span>
               )}
               {!last && <Icon name="chevron-right" size="xs" className="ui-crumb-sep" />}
             </li>

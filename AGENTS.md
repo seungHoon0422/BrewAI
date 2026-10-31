@@ -9,6 +9,7 @@
 - 설명이 길어지면 그림(인라인 SVG/HTML)으로 바꾼다. 문단 대신 표·카드.
 - 보고 = root의 `REPORT.html` 갱신. 이전 판은 `reports/YYYY-MM-DD-주제.html` 로 보관.
 - 사용자 결정이 필요하면 `HANDOFF.md` "결정 대기"에 한 줄 + 채팅에서 질문 1개.
+- UI 문구에 가운뎃점(·) 구분자를 쓰지 않는다 — 칸 나눔(여백) 또는 쉼표. 한 줄에 사실 여럿 = `@brewai/ui` `<Meta>`. 검사 = `e2e/copy-rule.ts` (copy.ts 와 주요 화면).
 
 ## 두 PC(회사·집) 이어받기
 - 공유 기억은 **레포에만** 있다. 개인 PC 메모리에만 있는 사실은 HANDOFF.md 나 ADR로 옮긴다.

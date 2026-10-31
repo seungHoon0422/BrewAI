@@ -1,4 +1,4 @@
-// 입력 부품 — 글 입력 · 비밀번호 · 여러 줄 · 고르기 · 체크 · 스위치 · 나눈 버튼(segmented).
+// 입력 부품 — 글 입력 · 비밀번호 · 여러 줄 · 체크 · 스위치 · 나눈 버튼(segmented). 고르기(목록 상자) = select.tsx
 // 모두 Field 안에 두면 이름 · 힌트 · 오류가 자동으로 이어진다 (useFieldControl).
 import { useState, type ComponentPropsWithRef, type CSSProperties, type KeyboardEvent, type ReactNode, type Ref } from 'react';
 import { cx, flag } from './cx';
@@ -92,29 +92,6 @@ export type TextareaProps = ComponentPropsWithRef<'textarea'> & { invalid?: bool
 export function Textarea({ invalid, autoGrow = true, className, id, required, disabled, 'aria-describedby': describedBy, ...rest }: TextareaProps) {
   const { invalid: bad, ...f } = useFieldControl({ id, required, disabled, 'aria-describedby': describedBy }, invalid);
   return <textarea className={cx('ui-textarea', className)} data-invalid={flag(bad)} data-autogrow={flag(autoGrow)} {...rest} {...f} />;
-}
-
-/* ── 고르기 (브라우저 기본 select — 키보드 · 화면 읽기가 그대로) ── */
-export type SelectOption = { value: string; label: string; disabled?: boolean };
-export type SelectProps = Omit<ComponentPropsWithRef<'select'>, 'size'> & {
-  size?: InputSize;
-  options?: readonly SelectOption[];
-  placeholder?: string; // 값이 없을 때 첫 줄 (고를 수 없음)
-  invalid?: boolean;
-};
-
-export function Select({ size = 'md', options, placeholder, invalid, className, children, id, required, disabled, 'aria-describedby': describedBy, ...rest }: SelectProps) {
-  const { invalid: bad, ...f } = useFieldControl({ id, required, disabled, 'aria-describedby': describedBy }, invalid);
-  return (
-    <span className={cx('ui-select', className)} data-size={size} data-invalid={flag(bad)} data-disabled={flag(f.disabled)}>
-      <select {...rest} {...f}>
-        {placeholder !== undefined && <option value="" disabled>{placeholder}</option>}
-        {options?.map((o) => <option key={o.value} value={o.value} disabled={o.disabled}>{o.label}</option>)}
-        {children}
-      </select>
-      <Icon name="chevron-down" size="sm" />
-    </span>
-  );
 }
 
 /* ── 체크 ────────────────────────────────────────────── */

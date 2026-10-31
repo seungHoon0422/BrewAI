@@ -28,7 +28,7 @@ export const SPACES_COPY = {
   search: '이름 검색',
   count: (n: number) => `${n}개`,
   personal: (n: number) => `내 ${S}(개인) ${n}개는 목록에 없어요 — 주인만 볼 수 있어요.`,
-  privacy: `관리자 콘솔은 대화 제목 · 내용을 보여 주지 않아요. 비공개 ${S}도 이름 · 숫자만 보여요.`,
+  privacy: `관리자 콘솔은 대화 제목과 내용을 보여 주지 않아요. 비공개 ${S}도 이름과 숫자만 보여요.`,
   empty: `아직 공유 ${S}가 없어요`,
   emptyHow: `데스크톱 앱에서 ${S} 만들기로 생겨요. 초대 코드에 ${S}를 넣으면 가입할 때 바로 들어가요.`,
   noMatch: `맞는 ${S}가 없어요`,
@@ -36,5 +36,5 @@ export const SPACES_COPY = {
   kv: { where: '위치', visibility: '공개 범위', members: '멤버', projects: `${P} (보관 제외)`, created: '만든 날', archived: '보관한 날' },
   description: '설명',
   partInfo: '정보',
-  manage: `멤버 · 공개 범위 · 보관은 그 ${S}의 관리자가 데스크톱 앱에서 바꿔요.`,
+  manage: `멤버, 공개 범위, 보관은 그 ${S}의 관리자가 데스크톱 앱에서 바꿔요.`,
 } as const;

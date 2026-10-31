@@ -124,6 +124,13 @@ button.ui-stat:hover{border-color:var(--border-strong)}
   .ui-kv .ui-kv-aside{text-align:left}
 }
 
+/* 한 줄에 사실 여러 개 (칸 나눔 = 여백) */
+.ui-meta{display:inline-flex;align-items:baseline;gap:0 var(--space-2);min-width:0;max-width:100%}
+.ui-meta-item{flex:none;white-space:nowrap}
+.ui-meta-item:last-child{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.ui-meta[data-wrap]{flex-wrap:wrap}
+.ui-meta[data-wrap] .ui-meta-item{white-space:normal}
+
 /* 빈 상태 */
 .ui-empty{display:flex;flex-direction:column;align-items:center;gap:var(--space-1-5);padding:var(--space-8) var(--space-6);text-align:center}
 .ui-empty[data-variant="boxed"]{border:1px solid var(--border);border-radius:var(--radius-lg)}

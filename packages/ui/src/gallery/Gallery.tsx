@@ -6,12 +6,13 @@ import './gallery.css';
 import { Button, IconButton, LinkButton } from '../button';
 import { Field } from '../field';
 import { ICON_NAMES, Icon, Mark } from '../icons';
-import { Checkbox, Input, PasswordInput, Segmented, Select, Switch, Textarea, passwordStrength } from '../inputs';
+import { Checkbox, Input, PasswordInput, Segmented, Switch, Textarea, passwordStrength } from '../inputs';
+import { Select } from '../select';
 import { Dialog, Menu, Popover, Sheet, Tooltip } from '../overlays';
 import { PROVIDER_IDS, ProviderIcon, providerLabel } from '../providers';
 import { Skeleton, Spinner } from '../spinner';
 import { Toast, ToastRegion, useToastQueue } from '../toast';
-import { Avatar, Badge, Callout, Card, CardHeader, Chip, EmptyState, Kbd, KeyValue, StatCard, StatusDot, type DotState, type Tone } from '../display';
+import { Avatar, Badge, Callout, Card, CardHeader, Chip, EmptyState, Kbd, KeyValue, Meta, StatCard, StatusDot, type DotState, type Tone } from '../display';
 import { Table, type Column, type SortState } from '../table';
 import { Breadcrumb, PageHeader, Tabs, Toolbar, ToolbarSpacer } from '../navigation';
 import { kindIcon } from '../scope';
@@ -187,14 +188,14 @@ function Inputs() {
         <Field label="이메일" hint="로그인 ID 예요" required error={email.includes('.') ? undefined : '이메일 모양이 아니에요'}>
           <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" />
         </Field>
-        <Field label="비밀번호" hint="15자 이상 · 조합 규칙 없음" aside={<a href="#/ui">비밀번호를 잊었어요</a>}>
+        <Field label="비밀번호" hint="15자 이상, 조합 규칙 없음" aside={<a href="#/ui">비밀번호를 잊었어요</a>}>
           <PasswordInput value={pw} onChange={(e) => setPw(e.target.value)} strength={passwordStrength(pw, 15)} autoComplete="new-password" />
         </Field>
         <Field label="닉네임">
           <Input defaultValue="승훈" size="lg" />
         </Field>
         <Field label="검색">
-          <Input type="search" icon="search" placeholder="모델 이름 · id" size="sm" />
+          <Input type="search" icon="search" placeholder="모델 이름이나 id" size="sm" />
         </Field>
         <Field label="지침" hint="이 프로젝트 대화의 시스템 프롬프트 뒤에 붙어요">
           <Textarea placeholder="예: 답은 한국어로 짧게" rows={2} />
@@ -247,7 +248,7 @@ function Choice() {
       <Tabs label="상태" value={tab} onChange={setTab}
         items={[{ id: 'all', label: '전체', count: 5 }, { id: 'exposed', label: '노출', count: 2 }, { id: 'hidden', label: '숨김', count: 1 }]}
         actions={<><span className="gal-note">3분 전</span><Button size="sm" icon="refresh">동기화</Button></>}>
-        <p className="gal-note">탭 내용 — {tab} · 탭 줄 오른쪽 = actions</p>
+        <p className="gal-note">탭 내용 — {tab}. 탭 줄 오른쪽 = actions</p>
       </Tabs>
       <Tabs label="거르개" variant="pill" value={tab} onChange={setTab}
         items={[{ id: 'all', label: '전체' }, { id: 'exposed', label: '노출' }, { id: 'hidden', label: '숨김' }]} />
@@ -281,7 +282,7 @@ function DisplayBits() {
           <Avatar key={n} name={n} size={(['xs', 'sm', 'md', 'lg', 'md', 'md'] as const)[i]} />
         ))}
       </Row>
-      <Row label="키 · 툴팁">
+      <Row label="키와 툴팁">
         <Kbd keys={['⌘', 'K']} />
         <Kbd>Esc</Kbd>
         <Tooltip content="툴팁 — 손을 올리거나 포커스하면 떠요">
@@ -303,12 +304,12 @@ function Cards() {
         <StatCard label="연결 실패" value={1} sub="최근 시험" tone="danger" pressed={pick === 'fail'} onClick={() => setPick('fail')} />
       </div>
       <Card>
-        <CardHeader title="게이트웨이" description="LiteLLM · 127.0.0.1:4000" icon="plug" actions={<Badge tone="ok" dot>연결됨</Badge>} />
+        <CardHeader title="게이트웨이" description={<Meta items={['LiteLLM', '127.0.0.1:4000']} />} icon="plug" actions={<Badge tone="ok" dot>연결됨</Badge>} />
       </Card>
       <Card variant="glass" padding="sm">
-        <span className="gal-live"><Spinner size="xs" />질문을 살펴보는 중 · 1.2초</span>
+        <span className="gal-live"><Spinner size="xs" /><Meta items={['질문을 살펴보는 중', '1.2초']} /></span>
       </Card>
-      <Callout title="모델 등록은 게이트웨이에서">여기서는 노출 · 표시 이름 · 순서만 정해요.</Callout>
+      <Callout title="모델 등록은 게이트웨이에서">여기서는 노출, 표시 이름, 순서만 정해요.</Callout>
       <Callout tone="info" live>새 모델 1개가 들어왔어요.</Callout>
       <Callout tone="ok">저장했어요.</Callout>
       <Callout tone="warn" title="이름이 겹쳐요" action={<Button size="sm">이름 바꾸기</Button>}>사용자 앱 메뉴에서 둘이 같아 보여요.</Callout>
@@ -343,8 +344,8 @@ function TableDemo() {
       cell: (m) => <span className="gal-model"><ProviderIcon provider={m.provider} />{m.name}{m.isDefault && <Badge size="sm" tone="accent">기본</Badge>}</span>,
     },
     { key: 'state', header: '상태', cell: (m) => <Badge tone={STATE_TONE[m.state]} dot>{STATE_TEXT[m.state]}</Badge> },
-    { key: 'ctx', header: '컨텍스트', sortable: true, align: 'end', hideBelow: 'md', cell: (m) => <span className="ui-num">{m.ctx}K</span> },
-    { key: 'on', header: '노출', align: 'center', cell: (m) => <Switch size="sm" checked={m.state === 'exposed'} aria-label={`${m.name} 노출`} onClick={(e) => e.stopPropagation()} /> },
+    { key: 'ctx', header: '컨텍스트', sortable: true, hideBelow: 'md', cell: (m) => <span className="ui-num">{m.ctx}K</span> },
+    { key: 'on', header: '노출', cell: (m) => <Switch size="sm" checked={m.state === 'exposed'} aria-label={`${m.name} 노출`} onClick={(e) => e.stopPropagation()} /> },
   ];
   return (
     <Sec title={COPY.sections.table}>
@@ -363,7 +364,13 @@ function Overlays() {
   const [dialog, setDialog] = useState(false);
   const [sheet, setSheet] = useState(false);
   const [picked, setPicked] = useState('claude-sonnet');
+  const [prov, setProv] = useState('all');
+  const [days, setDays] = useState('7');
   const { toasts, push, dismiss } = useToastQueue();
+  const provOptions = [
+    { value: 'all', label: '전체 제공사', description: '12개' },
+    ...PROVIDER_IDS.slice(0, 6).map((p, i) => ({ value: p, label: providerLabel(p), icon: <ProviderIcon provider={p} size="sm" />, description: `${i + 1}개`, disabled: i === 5 })),
+  ];
   return (
     <Sec title={COPY.sections.overlays}>
       <div className="gal-pop-stage">
@@ -371,7 +378,7 @@ function Overlays() {
           trigger={(p) => <Button {...p} iconEnd="chevron-down" icon={<ProviderIcon provider="anthropic" size="sm" />}>Claude Sonnet</Button>}>
           <div className="gal-pop">
             <Input size="sm" icon="search" placeholder="모델 찾기" />
-            <p className="gal-note">팝오버 = 유리 · 1px 선 · shadow-md</p>
+            <p className="gal-note">팝오버 = 유리, 1px 선, shadow-md</p>
           </div>
         </Popover>
         <Menu label="모델 고르기" placement="bottom-end" onSelect={setPicked}
@@ -387,6 +394,11 @@ function Overlays() {
           trigger={(p) => <IconButton {...p} icon="more" label="더 보기" />}
           items={[{ id: 'rename', label: '이름 바꾸기', icon: 'pen' }, { id: 'copy', label: 'id 복사', icon: 'copy', hint: '⌘C' }, { kind: 'separator' }, { id: 'del', label: '지우기', icon: 'trash', danger: true }]} />
       </div>
+      <Row label="고르기 상자">
+        <Select aria-label="제공사" options={provOptions} value={prov} onChange={setProv} />
+        <Select size="sm" aria-label="기간" options={[{ value: '1', label: '1일' }, { value: '7', label: '7일' }, { value: '30', label: '30일' }]} value={days} onChange={setDays} />
+        <Select size="sm" aria-label="꺼진 고르기" options={[{ value: 'a', label: '바꿀 수 없음' }]} value="a" disabled />
+      </Row>
       <Row label="열기">
         <Button onClick={() => setDialog(true)}>대화상자</Button>
         <Button onClick={() => setSheet(true)}>서랍</Button>
@@ -400,6 +412,7 @@ function Overlays() {
       <Dialog open={dialog} onClose={() => setDialog(false)} title="스페이스 나가기" description="나가면 이 스페이스의 대화를 볼 수 없어요."
         footer={<><Button variant="ghost" onClick={() => setDialog(false)}>취소</Button><Button variant="danger" onClick={() => setDialog(false)}>나가기</Button></>}>
         <Field label="스페이스 이름을 적어 확인"><Input placeholder="제품팀" /></Field>
+        <Field label="옮길 곳"><Select options={provOptions} value={prov} onChange={setProv} /></Field>
       </Dialog>
       <Sheet open={sheet} onClose={() => setSheet(false)} title="Claude Sonnet" description="anthropic/claude-sonnet"
         footer={<Button variant="primary" onClick={() => setSheet(false)}>저장</Button>}>

@@ -1,6 +1,6 @@
 // 모델 목록에서 화면 값을 계산한다 (순수 함수 · 상태 없음). hooks.ts · 컴포넌트가 같이 쓴다.
-// 표 = 한 장 (제공사 = 칸). 줄 순서 = 처음 나온 제공사끼리 모아서 (사용자 앱 모델 메뉴와 같은 규칙 — 기본 모델은 메뉴에서 맨 위).
-// 화면의 순서 숫자 = 그 제공사 안 자리 (1 · 2 …). ↑↓ · 끌기 모두 같은 제공사 안에서만 옮긴다.
+// 표 = 한 장 (제공사 = 칸). 줄 순서 = 전체 순서 하나 (서버 sort_order · 제공사로 묶지 않는다) = 사용자 앱 모델 메뉴 순서.
+// 화면의 순서 숫자 = 그 전체 자리 (서버 order 1 … N · 사라진 모델은 —). 끌기 = 아무 줄 사이로 · 자세히 페이지 = 한 칸 위 · 아래.
 import { providerLabel, type IconName } from '@brewai/ui';
 import type { AdminModel } from './api';
 import { CAP, COL_LABEL, COPY, ERROR_DETAIL, FIX_HINT, UNKNOWN_ERROR_HINT, type CapId, type StateFilter } from './copy';
@@ -44,15 +44,20 @@ export function capsOf(m: AdminModel): Cap[] {
 // 연결 테스트 응답 시간 (conductor 가 잰 왕복): 412ms · 1.2초
 export const latency = (ms: number) => (ms < 1000 ? `${Math.max(0, Math.round(ms))}ms` : `${(ms / 1000).toFixed(1)}초`);
 
-export function ago(iso: string | null, now: number) {
+// 하루 넘으면 날짜 (compact = 날짜만 · 좁은 표 칸용. 시각까지는 when() 을 툴팁에)
+export function ago(iso: string | null, now: number, compact = false) {
   const t = iso ? Date.parse(iso) : NaN;
   if (!Number.isFinite(t)) return null;
   const s = Math.round((now - t) / 1000);
   if (s < 45) return COPY.ago.now;
   if (s < 3600) return COPY.ago.min(Math.max(1, Math.round(s / 60)));
   if (s < 86400) return COPY.ago.hour(Math.round(s / 3600));
-  return new Date(t).toLocaleString('ko-KR', { month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return compact ? new Date(t).toLocaleDateString('ko-KR', { month: 'long', day: 'numeric' }) : when(iso);
 }
+export const when = (iso: string | null) => {
+  const t = iso ? Date.parse(iso) : NaN;
+  return Number.isFinite(t) ? new Date(t).toLocaleString('ko-KR', { month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : null;
+};
 
 // 마지막 연결 결과 = 대화 · 연결 시험 중 나중 것
 export const failed = (m: AdminModel) => !!m.last_error_at && (!m.last_ok_at || m.last_error_at > m.last_ok_at);
@@ -103,19 +108,6 @@ export function dupIndex(rows: readonly AdminModel[]): (m: AdminModel) => Dup {
   };
 }
 
-// 제공사 안 자리 (1 · 2 …) = 화면의 순서 숫자. 전체 sort_order 는 제공사를 건너 이어져 1 · 3 · 2 처럼 읽히므로 안 보인다
-export function positions(rows: readonly AdminModel[]): Map<string, number> {
-  const seen = new Map<string, number>();
-  const pos = new Map<string, number>();
-  for (const r of rows) {
-    if (r.status !== 'present') continue;
-    const n = (seen.get(r.provider) ?? 0) + 1;
-    seen.set(r.provider, n);
-    pos.set(r.id, n);
-  }
-  return pos;
-}
-
 // 제공사별 개수 · 노출 수. 고르기 상자 순서 = 표 줄 순서 (처음 나온 제공사)
 export function providerSummary(rows: readonly AdminModel[]): ProviderSummary[] {
   const map = new Map<string, ProviderSummary>();
@@ -138,18 +130,11 @@ export function filterRows(rows: readonly AdminModel[], { provider, state, query
     && (!q || norm(r.label).includes(q) || norm(r.id).includes(q)));
 }
 
-// 표 줄 순서 = 처음 나온 제공사끼리 모은다 (안에서는 sort_order 그대로 · 서버가 이미 그 순서로 준다)
-export function orderRows(rows: readonly AdminModel[]): AdminModel[] {
-  const rank = new Map<string, number>();
-  for (const r of rows) if (!rank.has(r.provider)) rank.set(r.provider, rank.size);
-  return rows.map((r, i) => ({ r, i })).sort((a, b) => rank.get(a.r.provider)! - rank.get(b.r.provider)! || a.i - b.i).map((x) => x.r);
-}
-
 export const candidatesOf = (rows: readonly AdminModel[]) => rows.filter((r) => r.state === 'candidate');
 
-// 같은 제공사 · 게이트웨이에 있는 줄 사이에서 앞 · 뒤 (↑↓ 로 옮길 자리)
+// 게이트웨이에 있는 줄 사이에서 앞 · 뒤 (자세히 페이지 '한 칸 위 · 아래' 로 옮길 자리 · 제공사와 상관없이 전체 순서)
 export function neighbors(list: readonly AdminModel[], m: AdminModel) {
-  const live = list.filter((r) => r.provider === m.provider && r.status === 'present');
+  const live = list.filter((r) => r.status === 'present');
   const at = live.findIndex((r) => r.id === m.id);
   return { at, total: live.length, prev: at > 0 ? live[at - 1] : undefined, next: at >= 0 && at < live.length - 1 ? live[at + 1] : undefined };
 }

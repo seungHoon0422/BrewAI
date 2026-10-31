@@ -1,14 +1,14 @@
 import { test, expect, type Page } from '@playwright/test';
 import { login, poolEmail, poolUser } from './auth';
 import { ADMIN_USER, API, PASSWORD } from './env';
-import { overflowX, shot } from './helpers';
+import { overflowX, pickOption, shot } from './helpers';
 
 // 관리자 '사용자·조직' (slice 04): 탭 넷 = 사용자 · 조직 · 스페이스 · 초대. 가입은 초대 코드로만 · 코드는 만든 직후 한 번만 보인다.
 // 비활성화 = 모든 세션 폐기 + 로그인 불가 · 재설정 코드(bwp_) = 메일 서버 없이 관리자가 전한다.
 // 바꾸는 사람 = '비활성 대상' (auth.ts POOL disabled) 만
 const ORG = `E2E 조직 ${Date.now().toString(36)}`;
 
-const tabs = (page: Page) => page.getByRole('tablist', { name: '사용자·조직 탭' });
+const tabs = (page: Page) => page.getByRole('tablist', { name: '사용자와 조직 탭' });
 const people = (page: Page) => page.getByRole('table', { name: '사용자 목록' });
 const personRow = (page: Page, email: string) => people(page).getByRole('row').filter({ hasText: email });
 const sheet = (page: Page, email: string) => page.getByRole('dialog').filter({ hasText: email });
@@ -26,9 +26,9 @@ test('사용자 탭: 나(관리자) · 테스트 사용자 · 조직 · 검색 (
   await expect(me).toContainText('관리자');
   const member = personRow(page, poolEmail('member'));
   await expect(member).toContainText('일반 멤버');
-  await expect(member).toContainText('우리 팀 · 멤버');
+  await expect(member).toContainText('우리 팀 (멤버)');
   await expect(member).not.toContainText('비밀번호');
-  await page.getByRole('searchbox', { name: '닉네임 · 이메일 검색' }).fill('일반 멤버');
+  await page.getByRole('searchbox', { name: '닉네임이나 이메일 검색' }).fill('일반 멤버');
   await expect(people(page).locator('tbody tr')).toHaveCount(1);
   await expect(page.getByText('1명', { exact: true })).toBeVisible();
   await page.screenshot({ path: shot('admin-users-people'), fullPage: true });
@@ -50,13 +50,13 @@ test('조직 만들기 → 그 조직 초대 코드 (한 번만 보임) → 데�
   await expect(page).toHaveURL(/#\/users\/invites$/);
   await page.getByRole('button', { name: '초대 코드 만들기' }).click();
   const form = page.getByRole('dialog', { name: '초대 코드 만들기' });
-  await form.getByRole('combobox', { name: '조직' }).selectOption({ label: ORG }); // 조직이 둘 이상이면 고른다
+  await pickOption(form.getByRole('combobox', { name: '조직' }), { label: ORG }); // 조직이 둘 이상이면 고른다 (공용 고르기 상자 · 대화상자 안에서도 위에 뜬다)
   await expect(form.getByText('이 조직에 공유 스페이스가 아직 없어요.')).toBeVisible();
   await form.getByRole('button', { name: '코드 만들기' }).click();
   const result = page.getByRole('dialog', { name: '초대 코드를 만들었어요' });
   const code = (await result.getByLabel('초대 코드').textContent())!.trim();
   expect(code).toMatch(/^BREW-[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$/);
-  await expect(result).toContainText(`${ORG} · 멤버 · 1명까지`);
+  await expect(result).toContainText(`${ORG} 멤버 1명까지`);
   await expect(result).toContainText('이 창을 닫으면 다시 볼 수 없어요');
   await page.screenshot({ path: shot('admin-invite-code') });
   await result.getByRole('button', { name: '닫기' }).first().click();
@@ -80,7 +80,7 @@ test('스페이스 탭: 공유 스페이스는 이름 · 숫자만 · 내 스페
   await expect(page.getByRole('table', { name: '공유 스페이스 목록' })).toBeVisible();
   const panel = page.getByRole('tabpanel', { name: '스페이스' });
   await expect(panel).toContainText(/내 스페이스\(개인\) \d+개는 목록에 없어요/);
-  await expect(panel).toContainText('관리자 콘솔은 대화 제목 · 내용을 보여 주지 않아요.');
+  await expect(panel).toContainText('관리자 콘솔은 대화 제목과 내용을 보여 주지 않아요.');
 });
 
 test.describe('한 사람 관리', () => {

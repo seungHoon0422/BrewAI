@@ -25,12 +25,12 @@ export const AUTH = {
   noBridge: 'BrewAI 데스크톱 앱에서 열어 주세요',
   noBridgeSub: '로그인은 데스크톱 앱만 할 수 있어요 (npm run desktop)',
   bootstrap: '아직 첫 계정이 없어요',
-  bootstrapSub: '.env 의 BREWAI_ADMIN_EMAIL · BREWAI_ADMIN_PASSWORD 를 채우고 서버를 다시 시작해 주세요 (node scripts/stack.mjs secrets)',
+  bootstrapSub: '.env 의 BREWAI_ADMIN_EMAIL, BREWAI_ADMIN_PASSWORD 를 채우고 서버를 다시 시작해 주세요 (node scripts/stack.mjs secrets)',
   firstLogin: '처음이면',
-  firstLoginSub: '.env 의 BREWAI_ADMIN_EMAIL · BREWAI_ADMIN_PASSWORD 로 로그인해요',
+  firstLoginSub: '.env 의 BREWAI_ADMIN_EMAIL, BREWAI_ADMIN_PASSWORD 로 로그인해요',
   // 테스트 계정 (서버가 test_admin 을 줄 때만 · 이메일 칸에 admin)
   testAccount: '테스트 계정',
-  testAccountSub: '이메일 칸에 admin · 비밀번호 admin 으로 로그인해요 (이 PC 에서만)',
+  testAccountSub: '이메일 칸에 admin, 비밀번호 칸에 admin 을 넣어 로그인해요 (이 PC 에서만)',
   // 서버 상태 줄
   server: (host: string) => `서버 ${host}`,
   serverOk: '연결됨',
@@ -53,9 +53,9 @@ export const INVITE = {
   expires: (when: string) => `${when}까지`,
   other: '다른 코드',
   nickname: '닉네임',
-  nicknameHint: '다른 사람에게 보이는 이름이에요 · 나중에 바꿀 수 있어요',
+  nicknameHint: '다른 사람에게 보이는 이름이에요. 나중에 바꿀 수 있어요',
   nicknamePlaceholder: '비워 두면 이메일 @ 앞부분',
-  passwordHint: (min: number) => `${min}자 이상 · 조합 규칙 없음 · 긴 문장도 좋아요`,
+  passwordHint: (min: number) => `${min}자 이상, 조합 규칙 없음, 긴 문장도 좋아요`,
   submit: '가입하기',
 } as const;
 
@@ -72,7 +72,7 @@ export const RESET = {
 // 코드 → 문구. min = 비밀번호 최소 길이 (서버 password_min) · wait = 다시 시도까지 초
 const ERRORS: Record<string, string | ((p: { min: number; wait: number | null }) => string)> = {
   invalid_credentials: '이메일 또는 비밀번호가 맞지 않아요',
-  rate_limited: ({ wait }) => (wait ? `잠시 후 다시 시도해 주세요 · ${wait}초` : '잠시 후 다시 시도해 주세요'),
+  rate_limited: ({ wait }) => (wait ? `잠시 후 다시 시도해 주세요 (${wait}초)` : '잠시 후 다시 시도해 주세요'),
   offline: '서버에 연결할 수 없어요',
   server: '잠시 후 다시 시도해 주세요',
   auth_required: '다시 로그인해 주세요',

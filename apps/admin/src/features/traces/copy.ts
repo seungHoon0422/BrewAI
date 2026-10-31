@@ -1,6 +1,6 @@
 // 트레이스 화면 문구 (Langfuse 로 가는 입구 — trace 를 여기에 복제하지 않는다)
 export const TRACES_COPY = {
-  about: ['에이전트 · LLM · 툴 호출이 span으로 남고, 모든 span에 ', 'user.id', ' · ', 'session.id', '가 붙어요. 이 값으로 찾아 Langfuse에서 열어요.'],
+  about: ['에이전트, LLM, 툴 호출이 span으로 남고, 모든 span에 ', 'user.id', ', ', 'session.id', '가 붙어요. 이 값으로 찾아 Langfuse에서 열어요.'],
   open: 'Langfuse 열기',
   later: 'P1-3 연결 후',
   filters: '필터',

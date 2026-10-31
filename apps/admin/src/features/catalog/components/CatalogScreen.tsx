@@ -48,7 +48,7 @@ function SkillTab() {
       <TableFrame className="sktable">
         <table className="ui-table" aria-label={C.skillTable}>
           <thead>
-            <tr>{SKILL_COLS.map((c, i) => <th key={c} scope="col" data-align={i === SKILL_COLS.length - 1 ? 'end' : undefined}>{c}</th>)}</tr>
+            <tr>{SKILL_COLS.map((c) => <th key={c} scope="col">{c}</th>)}</tr>
           </thead>
           <tbody>
             {skills.map((k) => (
@@ -61,17 +61,17 @@ function SkillTab() {
                   </span>
                 </td>
                 <td className="skd">{k.description}</td>
-                <td className="skt">{k.tools.length ? k.tools.join(' · ') : <span className="nil">—</span>}</td>
+                <td className="skt">{k.tools.length ? k.tools.join(', ') : <span className="nil">—</span>}</td>
                 <td><code>{k.source}</code></td>
                 <td><code className="ver" title={C.versionTitle(k.lines)}>{k.version}</code></td>
-                <td className="ui-num" data-align="end">{k.used}</td>
+                <td className="ui-num">{k.used}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </TableFrame>
       {errors.length > 0 && (
-        <Callout live tone="danger">{C.unreadable(errors.length, errors.map((e) => `${e.dir} (${e.code})`).join(' · '))}</Callout>
+        <Callout live tone="danger">{C.unreadable(errors.length, errors.map((e) => `${e.dir} (${e.code})`).join(', '))}</Callout>
       )}
       <p className="skfoot">
         {foot[0]}<code>{foot[1]}</code>{foot[2]}<code>{foot[3]}</code>{foot[4]}

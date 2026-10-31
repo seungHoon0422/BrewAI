@@ -11,7 +11,7 @@ const MENU: MenuItem[] = [
   { id: 'catalog', label: '카탈로그' },
   { id: 'approvals', label: '승인 기록' },
   { id: 'traces', label: '트레이스' },
-  { id: 'users', label: '사용자·조직' },
+  { id: 'users', label: '사용자와 조직' },
   { id: 'docs', label: '문서' },
   { id: 'settings', label: '설정' },
 ];
@@ -102,7 +102,7 @@ test('카탈로그 › Skill: runtime/skills 스타터 5개 (읽기 전용 · �
   await expect(creator.locator('.skn .chip')).toHaveText('내장');
   await expect(creator).toContainText('runtime/skills');
   await expect(creator.locator('.ver')).toHaveText(/^[0-9a-f]{12}$/);
-  await expect(page.getByRole('tabpanel')).toContainText('새 스킬 저장·등록(격리 → 테스트 → 승인)은 P5');
+  await expect(page.getByRole('tabpanel')).toContainText('새 스킬 저장과 등록(격리 → 테스트 → 승인)은 P5');
   // 읽기 전용: 바꾸는 입력칸 · 버튼 없음
   await expect(page.getByRole('tabpanel').getByRole('textbox')).toHaveCount(0);
   await expect(page.getByRole('tabpanel').getByRole('button')).toHaveCount(0);
@@ -199,7 +199,7 @@ test.describe('문서', () => {
     expect(paths).toContain('services/conductor');
     for (const p of paths) {
       if (fs.existsSync(path.join(ROOT, p))) await expect(chip(p), p).toHaveText('있음');
-      else await expect(chip(p), p).toHaveText(/^예정 · P\d/);
+      else await expect(chip(p), p).toHaveText(/^예정 P\d/);
     }
     await page.screenshot({ path: shot('admin-docs-architecture'), fullPage: true });
   });

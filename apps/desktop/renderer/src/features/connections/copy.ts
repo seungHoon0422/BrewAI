@@ -8,7 +8,7 @@ export const CONNECTIONS = {
   connect: '연결',
   connectLabel: (name: string) => `${name} 연결`,
   soon: '준비 중',
-  needs: '필요 · 앱 로그인(OAuth) 연결',
+  needs: '필요: 앱 로그인(OAuth) 연결',
 } as const;
 
 export const CONNECTION_NOTES = [
@@ -19,8 +19,8 @@ export const CONNECTION_NOTES = [
 
 // 흔한 연결 (예시 — 화면에도 '예시' 로 표시)
 export const SAMPLE_APPS: readonly { id: string; name: string; can: string; icon: IconName }[] = [
-  { id: 'mail', name: '메일', can: '받은편지함 읽기 · 답장 초안 저장', icon: 'mail' },
+  { id: 'mail', name: '메일', can: '받은편지함 읽기, 답장 초안 저장', icon: 'mail' },
   { id: 'calendar', name: '캘린더', can: '내 일정 읽기', icon: 'calendar' },
-  { id: 'files', name: '파일', can: '문서 찾기 · 읽기', icon: 'folder' },
+  { id: 'files', name: '파일', can: '문서 찾기, 읽기', icon: 'folder' },
   { id: 'messenger', name: '메신저', can: '대화방 메시지 읽기', icon: 'chat' },
 ];
