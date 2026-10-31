@@ -335,7 +335,7 @@ def test_existing_v3_table_gets_new_columns_once(tmp_path) -> None:
     db.executescript(V3_OLD_TABLE)
     db.close()
     store = Store(path)  # 켤 때는 칸을 건드리지 않는다 (store.py 그대로) → 처음 읽거나 쓸 때
-    assert store.query("PRAGMA user_version")[0][0] == SCHEMA_VERSION == 3
+    assert store.query("PRAGMA user_version")[0][0] == SCHEMA_VERSION  # 칸 더하기는 스키마 번호와 무관
     with store.read() as conn:
         added = usage.ensure_columns(conn)
         assert added == [n for n, _ in usage.ADDED_COLUMNS]
