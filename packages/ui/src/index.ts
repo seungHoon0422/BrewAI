@@ -26,5 +26,9 @@ export {
   Badge, Chip, StatusDot, Avatar, Kbd, Card, CardHeader, StatCard, Callout, KeyValue, EmptyState, Meta, initialsOf,
   type Tone, type DotState, type BadgeProps, type ChipProps, type CardProps, type StatCardProps, type CalloutProps, type KeyValueItem, type EmptyStateProps, type MetaProps,
 } from './display';
+export {
+  TimeSeriesChart, BarList, ShareBar, Sparkline, StatTile, deltaOf, vizColor, vizSlot, formatNumber, formatCompact,
+  type ChartSeries, type TimeSeriesChartProps, type BarItem, type ShareItem, type StatDelta, type StatTileProps, type VizColor,
+} from './charts';
 export { Table, TableFrame, type Column, type TableProps, type SortState, type SortDir } from './table';
 export { Tabs, Breadcrumb, PageHeader, Toolbar, ToolbarSpacer, type TabItem, type TabsProps, type BreadcrumbProps, type PageHeaderProps } from './navigation';

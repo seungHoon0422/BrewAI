@@ -11,6 +11,14 @@
   GET    /api/admin/invites · POST {org_id?, email?, org_role, space_ids?, max_uses?, days?} → {invite, code} (코드 1회 표시)
   DELETE /api/admin/invites/{id}              204 (취소)
   GET    /api/admin/audit?limit=              최근 감사 기록
+  GET    /api/admin/usage?from&to&tz&group=day|org|space|user|model&org&space&user&model&limit&series
+                                              {from, to, tz, days, group, filters, totals, previous, series: [하루], groups: [묶음], others}
+                                              (usage.py · 숫자만 — 질문 · 답 · 제목 없음. space=personal = 내 스페이스 전부 한 줄)
+  GET    /api/admin/usage/gateway?from&to&tz  {status: ok|down|error|auth, code, last_sync_at, models: {개수}, by_model: [연결 · 실패율]}
+                                              (게이트웨이가 꺼져도 200 = 마지막으로 본 목록 + status)
+  GET    /api/admin/stats                     {users: {total, active, disabled, admins}, orgs, spaces: {shared, archived, personal},
+                                              invites_active, active_users: {d7, d30}}
+  기간: from · to = YYYY-MM-DD (포함 · tz 기준 날짜) · 없으면 오늘까지 7일 · 최대 366일 (틀리면 422 bad_date | bad_range)
 AdminUser = {id, email, display_name, instance_role, status, providers, orgs: [{id, name, role}], last_login_at, created_at, session_count}
 """
 
@@ -18,17 +26,20 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import UTC, timedelta
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
 
+from . import usage
 from .auth import tokens
 from .auth.accounts import RESET_S, Principal, clean_display_name, normalize_email
 from .auth.directory import INVITE_DAYS
 from .auth.http import accounts_of, client_ip, directory_of, require_admin
 from .auth.policy import Denied
+from .gateway import GatewayError
 
 _HD = re.compile(r"^[a-z0-9.-]{1,253}\.[a-z]{2,}$")
 
@@ -311,3 +322,98 @@ def register(admin: APIRouter) -> None:
             (limit,),
         )
         return [dict(r) | {"detail": json.loads(r["detail"]) if r["detail"] else None} for r in rows]
+
+    # ── 사용량 (usage.py · 숫자만) ──
+    def usage_window(request: Request, start: str | None, end: str | None, tz: int) -> usage.Window:
+        try:
+            return usage.window(start, end, tz=tz, now=accounts_of(request).clock())
+        except usage.BadRange as e:
+            raise Denied(422, str(e)) from e
+
+    def model_labels(request: Request) -> dict[str, str]:
+        return {r.gateway_id: r.label for r in request.app.state.registry.rows()}
+
+    # def (async 아님) = 스레드풀에서 집계 → 긴 기간 집계가 이벤트 루프(채팅 스트림)를 막지 않는다. 잠금은 store 의 RLock
+    @admin.get("/api/admin/usage")
+    def get_usage(
+        request: Request,
+        start: str | None = Query(None, alias="from", max_length=10), end: str | None = Query(None, alias="to", max_length=10),
+        tz: int = Query(0, ge=-720, le=840), group: usage.Group = Query("day"),
+        org: str | None = Query(None, max_length=64), space: str | None = Query(None, max_length=64),
+        user: str | None = Query(None, max_length=64), model: str | None = Query(None, max_length=200),
+        limit: int = Query(50, ge=1, le=200), series: bool = Query(True),
+    ) -> dict[str, Any]:
+        w = usage_window(request, start, end, tz)
+        store = accounts_of(request).store
+        labels = model_labels(request)
+        with store.read() as db:
+            return usage.summary(
+                db, w, usage.Filters(org=org, space=space, user=user, model=model), group, limit=limit, model_labels=labels, series=series,
+            )
+
+    @admin.get("/api/admin/usage/gateway")
+    async def get_gateway_status(
+        request: Request,
+        start: str | None = Query(None, alias="from", max_length=10), end: str | None = Query(None, alias="to", max_length=10),
+        tz: int = Query(0, ge=-720, le=840),
+    ) -> dict[str, Any]:
+        w = usage_window(request, start, end, tz)
+        registry = request.app.state.registry
+        status, code = "ok", None
+        try:
+            await registry.refresh()  # 카탈로그 캐시(30초) — 꺼져 있으면 마지막으로 본 목록으로
+        except GatewayError as e:
+            code = e.code
+            status = "down" if e.code == "gateway_unreachable" else "auth" if e.code == "gateway_auth_failed" else "error"
+        store = accounts_of(request).store
+        rows = registry.rows()
+        health = store.model_health()
+        with store.read() as db:
+            errors = usage.model_errors(db, w)
+        counts = {"total": 0, "exposed": 0, "candidate": 0, "hidden": 0, "missing": 0, "failing": 0}
+        by_model = []
+        for r in rows:
+            used = errors.get(r.gateway_id)
+            if not r.is_chat and not used:
+                continue  # 임베딩 등 = 채팅에 안 쓰는 모델
+            state, hcode, at = usage.health_state(health.get(r.gateway_id))
+            counts[r.state] += 1
+            counts["total"] += r.status == "present"
+            counts["failing"] += r.status == "present" and state == "error"
+            h = health.get(r.gateway_id)
+            by_model.append({
+                "id": r.gateway_id, "label": r.label, "provider": r.provider, "state": r.state, "health": state, "health_code": hcode,
+                "health_at": at, "health_source": h["last_source"] if h else None,
+                **(used or {"runs": 0, "errors": 0, "error_rate": 0.0}),
+            })
+        by_model.sort(key=lambda m: (-m["errors"], -m["runs"], m["label"].lower()))
+        return {
+            "status": status, "code": code, "last_sync_at": registry.last_sync_at(), "from": w.start.isoformat(), "to": w.end.isoformat(),
+            "models": counts, "by_model": by_model,
+        }
+
+    @admin.get("/api/admin/stats")
+    async def get_stats(request: Request) -> dict[str, Any]:
+        acc = accounts_of(request)
+        q = lambda sql, *a: acc.store.query(sql, a)[0][0]  # noqa: E731
+        now = acc.clock()
+        iso = lambda d: (now - timedelta(days=d)).astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")  # noqa: E731
+        with acc.store.read() as db:
+            d7, d30 = usage.active_users(db, iso(7)), usage.active_users(db, iso(30))
+        return {
+            "users": {
+                "total": q("SELECT COUNT(*) FROM users"), "active": q("SELECT COUNT(*) FROM users WHERE status = 'active'"),
+                "disabled": q("SELECT COUNT(*) FROM users WHERE status = 'disabled'"), "admins": q("SELECT COUNT(*) FROM users WHERE instance_role = 'admin'"),
+            },
+            "orgs": q("SELECT COUNT(*) FROM orgs"),
+            "spaces": {
+                "shared": q("SELECT COUNT(*) FROM spaces WHERE kind = 'shared' AND archived_at IS NULL"),
+                "archived": q("SELECT COUNT(*) FROM spaces WHERE kind = 'shared' AND archived_at IS NOT NULL"),
+                "personal": q("SELECT COUNT(*) FROM spaces WHERE kind = 'personal'"),
+            },
+            "invites_active": q(
+                "SELECT COUNT(*) FROM invites WHERE revoked_at IS NULL AND uses < max_uses AND expires_at > ?", acc.now(),
+            ),
+            "active_users": {"d7": d7, "d30": d30},
+            "at": acc.now(),
+        }

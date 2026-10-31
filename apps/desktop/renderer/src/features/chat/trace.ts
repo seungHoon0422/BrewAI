@@ -2,7 +2,7 @@
 // 답 상태 → 글 조각 (문구는 copy.ts). 결정적 — 시간과 상태로만 고른다.
 // 끝난 줄 = 조각 여럿 ('3.2초 동안 생각함' · '계산기 1회' · '1.4초'). 화면은 조각마다 칸을 나누고(가운뎃점 없음), text = 쉼표로 이은 한 줄.
 import { seconds } from '../../lib/format';
-import { READING_RESULT, TRACE, WAITING_PHRASE, joinParts, stepPhrase } from './copy';
+import { READING_RESULT, TRACE, WAITING_PHRASE, joinParts, parallelPhrase, stepPhrase } from './copy';
 import { isLive, type Answer, type ReasoningPart, type ToolPart } from './model';
 
 export type TracePhase = 'live' | 'done' | 'stopped';
@@ -66,6 +66,9 @@ export function tracePhrase(a: Answer, now: number, tools: Record<string, string
   }
   const elapsed = now - a.startedAt;
   const step = a.steps.findLast((s) => s.status === 'running');
+  // 한 응답의 도구 여럿이 동시에 도는 중 = '도구 n개를 동시에 쓰는 중' (단계 훅은 마지막에 연 단계 그대로)
+  const running = a.parts.filter((p) => isTool(p) && p.status === 'running').length;
+  if (running > 1) return one(step?.name ?? 'tool:parallel', 'live', parallelPhrase(running));
   if (!step) {
     // 단계 사이 (앞 단계는 끝났고 다음 단계 전) = 앞 단계의 말을 이어 간다 (도구 뒤 = 결과를 읽는 중)
     const prev = a.steps.at(-1);
@@ -81,3 +84,52 @@ export function tracePhrase(a: Answer, now: number, tools: Record<string, string
   }
   return one(step.name, 'live', stepPhrase(step.name, elapsed - step.started_ms, tools, skills));
 }
+
+// 도구 묶음 (패널) — 같은 batch 가 이어진 도구들. 하나뿐이면 묶지 않는다
+export type ToolGroup = { batch: number; tools: ToolPart[] };
+export type PanelItem = { kind: 'think'; part: ReasoningPart } | { kind: 'tool'; part: ToolPart } | { kind: 'group'; group: ToolGroup };
+
+export function panelItems(items: readonly (ReasoningPart | ToolPart)[]): PanelItem[] {
+  const out: PanelItem[] = [];
+  for (const p of items) {
+    if (p.kind === 'reasoning') {
+      out.push({ kind: 'think', part: p });
+      continue;
+    }
+    const last = out.at(-1);
+    if (last?.kind === 'group' && last.group.batch === p.batch) last.group.tools.push(p);
+    else if (last?.kind === 'tool' && last.part.batch === p.batch) out[out.length - 1] = { kind: 'group', group: { batch: p.batch, tools: [last.part, p] } };
+    else out.push({ kind: 'tool', part: p });
+  }
+  return out;
+}
+
+// 묶음 시간. 한 응답의 툴은 모델이 다 부른 뒤(마지막 TOOL_CALL_END = go) 한꺼번에 돈다 →
+//   wall = go 부터 마지막 결과까지 (실제로 걸린 시간) · sum = 도구마다 go 부터 제 결과까지의 합 (하나씩 했으면) · done = 다 끝났다
+// lanes = 도구마다 [부르기 시작, go, 결과] 를 묶음 전체(첫 시작 ~ 마지막 결과)에 대한 비율로 — 앞 칸(모델이 부르는 중)은 엇갈리고
+//   뒤 칸(실행)은 같은 자리에서 같이 시작한다 = 동시에 돌았다. 도는 중이면 now 까지. 기록에서 연 답(시간 없음) = null
+// run = 도구마다 실행 시간(go ~ 제 결과) — 묶음 안 카드의 시간도 이것 (머리 줄 '실행' · '하나씩이면' 과 같은 뜻 · 모델이 인자를 쓰는 시간 빼고)
+// lanes 는 실행이 전체의 1% 도 안 되면(내장 도구 몇 ms) 비운다 — 실행 칸이 안 보이는 막대는 아무것도 말하지 않는다
+export type Lane = { id: string; from: number; go: number; to: number; running: boolean };
+export type GroupTiming = { wall: number; sum: number; done: boolean; lanes: Lane[]; run: Record<string, number> };
+const MIN_RUN_SHARE = 0.01;
+export function groupTiming(g: ToolGroup, now: number): GroupTiming | null {
+  const t = g.tools;
+  if (t.some((p) => p.at <= 0)) return null;
+  const end = (p: ToolPart) => p.at + (p.ms ?? Math.max(0, now - p.at));
+  const start = Math.min(...t.map((p) => p.at));
+  const all = t.every((p) => p.ready != null);
+  const go = all ? Math.max(...t.map((p) => p.ready ?? 0)) : now;
+  const last = Math.max(...t.map(end));
+  const span = Math.max(1, last - start);
+  const run = (p: ToolPart) => Math.max(0, end(p) - go);
+  const done = t.every((p) => p.status !== 'running' && p.ms != null);
+  const pos = (x: number) => Math.min(1, Math.max(0, (x - start) / span));
+  const wall = Math.max(0, last - go);
+  const lanes = done && wall / span < MIN_RUN_SHARE ? []
+    : t.map((p) => ({ id: p.id, from: pos(p.at), go: all ? pos(go) : pos(end(p)), to: pos(end(p)), running: p.status === 'running' }));
+  return { wall, sum: t.reduce((n, p) => n + run(p), 0), done, lanes, run: Object.fromEntries(t.map((p) => [p.id, run(p)])) };
+}
+
+// 묶음 시간 글: 1초 아래는 ms (내장 도구는 몇 ms 만에 끝난다 · '0.0초' 대신)
+export const shortDuration = (ms: number) => (ms < 1000 ? `${Math.round(ms)}ms` : seconds(ms));

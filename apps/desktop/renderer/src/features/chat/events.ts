@@ -62,8 +62,13 @@ export function apply(a: Answer, ev: AgUiEvent, labels: () => Labels): Answer {
       return { ...a, status: 'running', steps: [...a.steps, { name, label, status: 'running', started_ms: elapsed(a), duration_ms: null }] };
     }
     case 'STEP_FINISHED': {
+      // 툴 단계는 결과(TOOL_CALL_RESULT) 바로 뒤에 닫힌다 → 결과가 이미 온 도구(call id)의 단계를 닫는다 (병렬 툴: 현재 시각 두 번이
+      // 거꾸로 끝나도 서버 기록과 같은 단계). call id 를 모르면 같은 이름 중 먼저 연 것
       const name = s_(ev.stepName);
-      const i = a.steps.findLastIndex((st) => st.name === name && st.status === 'running');
+      const resulted = (id: string | undefined) => a.parts.some((p) => p.kind === 'tool' && p.id === id && p.status !== 'running');
+      const open = (st: Answer['steps'][number]) => st.name === name && st.status === 'running';
+      let i = a.steps.findIndex((st) => open(st) && st.call_id != null && resulted(st.call_id));
+      if (i < 0) i = a.steps.findIndex(open);
       if (i < 0) return a;
       const steps = a.steps.slice();
       steps[i] = { ...steps[i], status: 'done', duration_ms: Math.max(0, elapsed(a) - steps[i].started_ms) };
@@ -96,7 +101,14 @@ export function apply(a: Answer, ev: AgUiEvent, labels: () => Labels): Answer {
       const id = s_(ev.toolCallId) || `tool${a.parts.length}`;
       if (a.parts.some((p) => p.kind === 'tool' && p.id === id)) return a;
       const label = labels().tools[name] ?? name;
-      return { ...a, parts: [...a.parts, { kind: 'tool', id, name, label, argsText: '', args: undefined, result: undefined, status: 'running', ms: null, at }] };
+      // 아직 도는 도구가 있으면 같은 응답의 툴 호출 = 같은 묶음 (결과는 툴 호출이 다 온 뒤에 온다 · conductor agent.py 와 같은 규칙)
+      const tools = a.parts.filter((p): p is ToolPart => p.kind === 'tool');
+      const open = tools.findLast((p) => p.status === 'running');
+      const batch = open ? open.batch : Math.max(0, ...tools.map((p) => p.batch)) + 1;
+      // 서버는 툴 단계(STEP_STARTED)를 이 이벤트 바로 앞에 연다 → 아직 call id 없는 마지막 툴 · 스킬 단계에 이 id 를 붙인다
+      const s = a.steps.findLastIndex((st) => st.status === 'running' && st.call_id == null && /^(tool|skill):/.test(st.name));
+      const steps = s < 0 ? a.steps : a.steps.map((st, k) => (k === s ? { ...st, call_id: id } : st));
+      return { ...a, steps, parts: [...a.parts, { kind: 'tool', id, name, label, argsText: '', args: undefined, result: undefined, status: 'running', ms: null, at, ready: null, batch }] };
     }
     case 'TOOL_CALL_ARGS':
     case 'TOOL_CALL_END':
@@ -107,7 +119,7 @@ export function apply(a: Answer, ev: AgUiEvent, labels: () => Labels): Answer {
       const p = a.parts[i] as ToolPart;
       const parts = a.parts.slice();
       if (ev.type === 'TOOL_CALL_ARGS') parts[i] = { ...p, argsText: p.argsText + s_(ev.delta) };
-      else if (ev.type === 'TOOL_CALL_END') parts[i] = { ...p, args: parseJson(p.argsText || '{}') };
+      else if (ev.type === 'TOOL_CALL_END') parts[i] = { ...p, args: parseJson(p.argsText || '{}'), ready: at };
       else {
         const content = s_(ev.content);
         const result = parseJson(content) ?? content;

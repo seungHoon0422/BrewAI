@@ -104,6 +104,8 @@ const TOOL_PHRASE: Record<string, string> = {
   text_stats: '글자를 세는 중',
 };
 const skillPhrase = (label: string) => `'${label}' 스킬을 펼치는 중`;
+// 도구 여럿이 동시에 도는 중 (병렬 툴 · 한 응답에서 같이 불렸다)
+export const parallelPhrase = (n: number) => `도구 ${n}개를 동시에 쓰는 중`;
 
 // 단계 이름 → 지금 하는 일 한 줄. inStepMs = 그 단계가 시작된 뒤 지난 시간 (생각 문구를 고른다)
 export function stepPhrase(name: string | null, inStepMs: number, tools: Record<string, string>, skills: Record<string, string> = {}): string {
@@ -171,6 +173,12 @@ export const TOOL = {
   dayCount: (text: string, days: string) => `${text} (${days}일)`,
   textStats: (r: { characters: string; noSpaces: string; words: string; lines: string }) =>
     `${r.characters}자, 공백 빼고 ${r.noSpaces}자, 단어 ${r.words}, ${r.lines}줄`,
+  // 한 응답에서 같이 불려 동시에 돈 도구 묶음 (머리 줄 · 칸 나눔)
+  parallel: (n: number) => `동시에 ${n}개`,
+  parallelRunning: (n: number) => `${n}개 실행 중`,
+  wall: (t: string) => `실행 ${t}`,
+  serial: (t: string) => `하나씩이면 ${t}`,
+  lanes: '도구마다 부른 때와 실행한 때', // 시간 막대 (화면 읽기 이름)
 } as const;
 
 // 대화 화면 (홈 · 대화 · 입력창 · 실패)
@@ -197,10 +205,27 @@ export const CHAT = {
   moveFailed: '옮기지 못했어요',
 } as const;
 
-export const SUGGESTIONS: readonly { icon: 'mail' | 'team' | 'calendar'; text: string; prompt: string; need?: string }[] = [
+// 새 대화 홈의 제안 — 누르면 입력창에 넣지 않고 바로 보낸다
+export type Starter = { icon: 'mail' | 'team' | 'calendar' | 'clock' | 'ruler' | 'layers'; text: string; prompt: string; need?: string; tag?: string };
+export const SUGGESTIONS: readonly Starter[] = [
   { icon: 'mail', text: "'견적 요청' 메일에 답장 초안 쓰기", prompt: "'견적 요청' 메일에 답장 초안 써줘", need: '연결 필요' },
   { icon: 'team', text: '노트북 3종 비교표 — 여럿이 나눠서 조사', prompt: '노트북 3종 가격, 무게, 배터리 비교표 만들어줘' },
   { icon: 'calendar', text: '내일 10시 회의 자료 준비', prompt: '내일 10시 회의 자료 준비해줘', need: '연결 필요' },
+];
+
+// 도구 시험 — 도구 · 스킬 실행 흐름을 바로 확인하는 질문 (진짜 모델이 자연스럽게 도구를 부르게 쓴 글 · E2E 는 mock 표시로 본다)
+export const TOOL_TRY = {
+  label: '도구 시험',
+  parallel: '동시 실행',
+  chain: '여러 단계',
+} as const;
+export const TOOL_STARTERS: readonly Starter[] = [
+  { icon: 'clock', text: '서울과 뉴욕 지금 시각, 시차까지', prompt: '서울이랑 뉴욕 지금 몇 시인지 알려 주고 시차도 계산해 줘', tag: TOOL_TRY.parallel },
+  { icon: 'ruler', text: '마일, 섭씨, GiB 세 가지를 한 번에 바꾸기', prompt: '마라톤 42.195km 는 몇 마일인지, 68°F 는 섭씨로 몇 도인지, 2TB 는 몇 GiB 인지 한 번에 알려 줘', tag: TOOL_TRY.parallel },
+  {
+    icon: 'layers', text: '크리스마스까지 D-day 세고 송년회 준비표 만들기', tag: TOOL_TRY.chain,
+    prompt: '오늘 날짜를 확인하고, 올해 크리스마스까지 며칠 남았는지 센 다음, 회의 준비 스킬로 그날 송년회 준비 체크리스트를 만들어 줘',
+  },
 ];
 
 // 사이드바 최근 대화

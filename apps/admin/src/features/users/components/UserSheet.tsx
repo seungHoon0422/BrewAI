@@ -5,6 +5,7 @@ import { ConfirmDialog, DecorAvatar, Muted, Row, Section, TitleWith } from '../.
 import { COMMON_COPY } from '../../../shared/copy';
 import { ago, dateText, left } from '../../../shared/format';
 import { toOrgRole } from '../../orgs/api';
+import { UsageSection } from '../../usage/components/UsageSection';
 import { orgMembershipText } from '../../orgs/copy';
 import { roleLabel } from '../../scope/model';
 import type { AdminUserRow, ResetCode, UserPatch } from '../api';
@@ -100,6 +101,8 @@ function SheetBody({ user: u, self, busy, onChange, onRevoke, onResetCode }: Omi
           )}
         </Row>
       </Section>
+
+      <UsageSection filter={{ user: u.id }} />
 
       <Section title={C.partReset} hint={google && !password ? C.resetGoogleOnly : C.resetHint}>
         {code ? (

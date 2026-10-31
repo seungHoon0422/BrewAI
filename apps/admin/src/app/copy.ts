@@ -7,8 +7,9 @@ const SPACE = roleLabel('membership');
 
 // 메뉴 라벨 (E2E: 링크 이름 = 화면 h1) · h1 아래 한 줄
 export const MENU_COPY: Record<RouteId, { label: string; desc: string }> = {
-  overview: { label: '개요', desc: '게이트웨이, 모델, 승인, 비용 상태를 한눈에 봐요.' },
+  overview: { label: '개요', desc: '호출, 토큰, 비용 흐름과 게이트웨이 상태를 한눈에 봐요.' },
   models: { label: '모델', desc: '사용자 앱 모델 목록에 무엇을 보일지 정해요.' },
+  usage: { label: '사용량', desc: `${ORG}, ${SPACE}, 사용자, 모델별 호출과 토큰, 추정 비용이에요. 숫자만 보여요.` },
   catalog: { label: '카탈로그', desc: '에이전트가 찾아 설치할 수 있는 MCP 서버와 Skill이에요.' },
   approvals: { label: '승인 기록', desc: '승인 카드에서 내린 허용과 거절 기록이에요.' },
   traces: { label: '트레이스', desc: '트레이스 원본은 Langfuse에 있어요.' },

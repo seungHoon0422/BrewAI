@@ -28,6 +28,8 @@
 //   [fake:think] → reasoning_effort 없이도 생각 조각 · [fake:system] → 답 끝에 ', 지침: <system 메시지 마지막 줄>' (프로젝트 지침이 모델까지 갔는지)
 //   툴 (적은 순서대로 하나씩 부른다 · 요청 tools 에 있을 때만): [fake:skill <이름>] → use_skill · [fake:convert <값> <단위> <단위>] → unit_convert
 //   · [fake:calc] <수식> → calculator (줄 끝까지가 수식, 없으면 12*(3+4)) · [fake:time] → current_time. 다 부르면 결과들로 답한다
+//   병렬 (한 응답에 tool_calls 여럿 = conductor 가 동시에 돌린다): [fake:parallel] → current_time 서울 · 뉴욕 + unit_convert 68 F → C 를 한 번에
+//   여러 단계 (한 응답에 하나씩 차례로): [fake:chain] → current_time → date_calc(오늘부터 12-25 까지) → use_skill meeting-prep → 답
 // drop_params: 요청에 drop_params true 면 (LiteLLM 처럼) 모델이 지원 안 하는 reasoning_effort 를 400 대신 버린다
 // 등록 출처: GET /v1/model/info (LiteLLM 모양: data[{model_name, litellm_params, model_info:{id, db_model}}]) — db_model true = 관리 화면(DB)
 // 테스트 조작 (Bearer 필요): POST /__fake/catalog {"late": true|false, "hide": ["fake-chat-large"], "broken": {"<모델>": "<FAILURES 이름>"}, "reset": true}
@@ -235,6 +237,7 @@ function sentenceFromTool(message) {
   if (out?.text !== undefined && out?.from_unit !== undefined) return `변환 결과는 ${out.text}예요.`;
   if (out?.result !== undefined) return `계산 결과는 ${out.result}예요. (수식 ${out.expression})`;
   if (out?.iso) return `지금은 ${out.date} ${out.time} ${out.weekday}이에요. (${out.timezone})`;
+  if (out?.operation === 'diff') return `${out.to?.date}까지 ${out.days}일 남았어요.`;
   return `도구 결과를 받았어요: ${JSON.stringify(out)}`;
 }
 
@@ -244,19 +247,41 @@ function replyFromTools(messages) {
   return messages.slice(lastUser + 1).filter((m) => m?.role === 'tool').map(sentenceFromTool).join(' ');
 }
 
-// 마지막 user 메시지의 표시 → 부를 툴 목록 (적은 순서대로 · 요청 tools 에 그 이름이 있을 때만)
-function plannedCalls(body, question) {
+// 마지막 user 메시지의 표시 → 차례(round) 목록. 차례 하나 = 모델 응답 하나의 tool_calls (여럿이면 병렬).
+// 적은 순서대로 · 요청 tools 에 그 이름이 있는 툴만 (빈 차례는 뺀다)
+function plannedRounds(body, question) {
   const offered = new Set((body.tools ?? []).map((t) => t?.function?.name).filter(Boolean));
   const found = [];
-  for (const m of question.matchAll(/\[fake:skill\s+([a-z0-9-]+)\]/g)) found.push({ at: m.index, name: 'use_skill', args: { name: m[1] } });
+  const one = (at, name, args) => found.push({ at, calls: [{ name, args }] });
+  for (const m of question.matchAll(/\[fake:skill\s+([a-z0-9-]+)\]/g)) one(m.index, 'use_skill', { name: m[1] });
   for (const m of question.matchAll(/\[fake:convert\s+([-\d.]+)\s+(\S+)\s+([^\]\s]+)\]/g)) {
-    found.push({ at: m.index, name: 'unit_convert', args: { value: Number(m[1]), from_unit: m[2], to_unit: m[3] } });
+    one(m.index, 'unit_convert', { value: Number(m[1]), from_unit: m[2], to_unit: m[3] });
   }
   const calc = question.match(/\[fake:calc\]\s*([^\n]*)/);
-  if (calc) found.push({ at: calc.index, name: 'calculator', args: { expression: calc[1].trim() || '12*(3+4)' } });
+  if (calc) one(calc.index, 'calculator', { expression: calc[1].trim() || '12*(3+4)' });
   const time = question.indexOf('[fake:time]');
-  if (time >= 0) found.push({ at: time, name: 'current_time', args: { timezone: 'Asia/Seoul' } });
-  return found.sort((x, y) => x.at - y.at).filter((c) => offered.has(c.name));
+  if (time >= 0) one(time, 'current_time', { timezone: 'Asia/Seoul' });
+  const parallel = question.indexOf('[fake:parallel]');
+  if (parallel >= 0) {
+    found.push({
+      at: parallel,
+      calls: [
+        { name: 'current_time', args: { timezone: 'Asia/Seoul' } },
+        { name: 'current_time', args: { timezone: 'America/New_York' } },
+        { name: 'unit_convert', args: { value: 68, from_unit: 'F', to_unit: 'C' } },
+      ],
+    });
+  }
+  const chain = question.indexOf('[fake:chain]');
+  if (chain >= 0) {
+    one(chain, 'current_time', { timezone: 'Asia/Seoul' });
+    one(chain + 0.1, 'date_calc', { operation: 'diff', date: 'today', other_date: '2026-12-25' });
+    one(chain + 0.2, 'use_skill', { name: 'meeting-prep' });
+  }
+  return found
+    .sort((x, y) => x.at - y.at)
+    .map((r) => r.calls.filter((c) => offered.has(c.name)))
+    .filter((calls) => calls.length > 0);
 }
 
 // 조각 나누기: 코드 포인트 기준 6글자씩 (한글이 깨지지 않게)
@@ -340,8 +365,10 @@ async function chatCompletions(req, res) {
 
   const afterTool = messages.at(-1)?.role === 'tool';
   const lastUser = messages.findLastIndex((m) => m?.role === 'user');
-  const done = messages.slice(lastUser + 1).filter((m) => m?.role === 'tool').length; // 이번 질문에서 이미 부른 툴 수
-  const call = plannedCalls(body, question)[done] ?? null;
+  // 이번 질문에서 이미 지난 차례 수 = 툴을 부른 assistant 메시지 수
+  const done = messages.slice(lastUser + 1).filter((m) => m?.role === 'assistant' && Array.isArray(m.tool_calls) && m.tool_calls.length > 0).length;
+  const calls = plannedRounds(body, question)[done] ?? [];
+  const call = calls.length > 0;
   const thinking = !afterTool && !question.includes('[fake:nothink]') && (body.reasoning_effort !== undefined || question.includes('[fake:think]'));
   const anthropic = info.providers.includes('anthropic');
   const omitted = thinking && question.includes('[fake:omitted]');
@@ -349,13 +376,16 @@ async function chatCompletions(req, res) {
   const mdBig = question.includes('[fake:md-big]');
   const md = mdBig || question.includes('[fake:md]');
   const reply = call ? '' : afterTool ? replyFromTools(messages) : mdBig ? MD_BIG_REPLY : md ? MD_REPLY : replyFor(model, messages);
-  const toolCall = call && { index: 0, id: `call_fake_${messages.length}`, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args) } };
+  // 차례 하나의 tool_calls (index 0, 1, …). id 는 대화 길이 + 순번 (첫 것은 예전 그대로 call_fake_<n>)
+  const toolCalls = calls.map((c, i) => ({
+    index: i, id: `call_fake_${messages.length}${i ? `_${i}` : ''}`, type: 'function', function: { name: c.name, arguments: JSON.stringify(c.args) },
+  }));
   const id = 'chatcmpl-fake';
   const base = { id, created: CREATED, model, system_fingerprint: null };
   const finish = call ? 'tool_calls' : 'stop';
 
   if (!body.stream) {
-    const message = { role: 'assistant', content: call ? null : reply, tool_calls: toolCall ? [{ id: toolCall.id, type: 'function', function: toolCall.function }] : null };
+    const message = { role: 'assistant', content: call ? null : reply, tool_calls: call ? toolCalls.map(({ id: tid, type, function: fn }) => ({ id: tid, type, function: fn })) : null };
     if (thinking && !omitted) message.reasoning_content = THOUGHT;
     return send(res, 200, {
       ...base,
@@ -388,14 +418,14 @@ async function chatCompletions(req, res) {
       chunk(signatureDelta());
     }
   }
-  if (toolCall) {
-    // OpenAI 스트림 툴 호출: 첫 조각 = id · 이름, 다음 조각들 = arguments 이어 붙이기
+  for (const tc of toolCalls) {
+    // OpenAI 스트림 툴 호출: 첫 조각 = id · 이름, 다음 조각들 = arguments 이어 붙이기 (여럿이면 index 마다 차례로)
     await sleep(delay);
-    chunk({ tool_calls: [{ index: 0, id: toolCall.id, type: 'function', function: { name: toolCall.function.name, arguments: '' } }] });
-    for (const part of chunks(toolCall.function.arguments, 10)) {
+    chunk({ tool_calls: [{ index: tc.index, id: tc.id, type: 'function', function: { name: tc.function.name, arguments: '' } }] });
+    for (const part of chunks(tc.function.arguments, 10)) {
       if (res.destroyed) return;
       await sleep(delay);
-      chunk({ tool_calls: [{ index: 0, function: { arguments: part } }] });
+      chunk({ tool_calls: [{ index: tc.index, function: { arguments: part } }] });
     }
   }
   const parts = chunks(reply, mdBig ? 120 : md ? 3 : 6);

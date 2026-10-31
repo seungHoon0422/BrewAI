@@ -17,4 +17,11 @@ export const UI_COPY = {
   showMore: '숨긴 위치 보기',
   notifications: '알림',
   dismiss: '알림 닫기',
+  // 차트 (charts.tsx)
+  chartDate: '날짜',
+  chartLegend: '범례',
+  chartShowTable: '표로 보기',
+  chartShowChart: '차트로 보기',
+  chartKeys: '왼쪽 오른쪽 화살표로 날짜를 옮겨요',
+  deltaNew: '새로',
 } as const;

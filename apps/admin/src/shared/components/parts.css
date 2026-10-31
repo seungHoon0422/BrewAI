@@ -1,6 +1,8 @@
 /* 화면 안 작은 틀 — 배치만 (모양은 @brewai/ui 부품). 토큰만 쓴다 (ADR-0012) */
 .part{display:grid;gap:var(--space-2-5);padding:var(--space-4) 0;border-top:1px solid var(--border-subtle)}
 .part:first-child{padding-top:0;border-top:0}
+/* 서랍 끝 안내가 둘 이상이면 붙지 않게 (스페이스 서랍: 관리 안내 + 내용 안 보임) */
+.ui-modal-body>.ui-callout+.ui-callout{margin-top:var(--space-2)}
 .part-title{margin:0;font-size:var(--fs-sm);font-weight:var(--fw-semibold);color:var(--text)}
 .part-hint{margin:0;font-size:var(--fs-xs);line-height:var(--lh-base);color:var(--text-muted)}
 .part-row{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-2);min-width:0}

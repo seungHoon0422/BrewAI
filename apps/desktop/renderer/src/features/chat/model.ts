@@ -8,8 +8,11 @@ export type ModelTag = { id: string; label: string; provider: string; provider_l
 export type ReasoningPart = { kind: 'reasoning'; id: string; text: string; live: boolean; ms: number | null; at: number };
 export type TextPart = { kind: 'text'; id: string; text: string };
 export type ToolStatus = 'running' | 'done' | 'error' | 'cancelled';
+// at = 부르기 시작(TOOL_CALL_START) · ms = 그때부터 결과까지 · ready = 인자를 다 받은 때(TOOL_CALL_END · 기록에서 연 답은 null)
+// batch = 툴을 부른 모델 응답 번호 (같은 batch = 한 응답에서 같이 불려 동시에 돌았다 · 화면이 '동시에 n개' 로 묶는다)
 export type ToolPart = {
   kind: 'tool'; id: string; name: string; label: string; argsText: string; args: unknown; result: unknown; status: ToolStatus; ms: number | null; at: number;
+  ready: number | null; batch: number;
 };
 export type Part = ReasoningPart | TextPart | ToolPart;
 

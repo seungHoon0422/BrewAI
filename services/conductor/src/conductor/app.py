@@ -23,6 +23,7 @@
                                      personal_space · 다른 스페이스 프로젝트 = 409 project_in_other_space)
   DELETE /api/threads/{id}           대화 지우기 (204 · 만든 사람만)
   GET    /api/runs?space=            내 최근 실행 (진행 상황 화면: 상태 · 모델 · 단계 · 걸린 시간) + path (그 대화의 경로)
+                                     단계 tool:* 는 + call_id · batch (같은 batch = 한 모델 응답 = 병렬로 겹쳐 돈다)
 관리자 (같은 출처 Vite proxy · 쿠키 + CSRF, ADR-0006 — 모델 등록은 LiteLLM 에서만)
   GET    /api/admin/models           모든 모델 (노출 · 후보 · 숨김 · 사라짐) + 게이트웨이 값 (읽기 전용) + source (등록 출처)
   GET    /api/admin/providers        provider 별 개수
@@ -33,6 +34,7 @@
   POST   /api/admin/models/{id}/test 연결 테스트 = 짧은 호출 한 번 → {ok, code, detail, status, at, duration_ms = 응답 시간} (결과는 model_health 에)
   GET    /api/admin/skills           스킬 카탈로그 (읽기 전용: 출처 runtime/skills · 버전 = sha256 앞 12자) + 읽지 못한 스킬
   GET    /api/admin/gateway          게이트웨이 주소 · LiteLLM Admin UI 링크 ('LiteLLM 에서 추가')
+  GET    /api/admin/usage · /api/admin/usage/gateway · /api/admin/stats   사용량 · 게이트웨이 상태 요약 · 개수 (api_admin.py · usage.py)
 """
 
 from __future__ import annotations
@@ -75,6 +77,7 @@ from .settings import Settings, load_settings
 from .skills import load_skills
 from .store import Store, StoreConflict
 from .tools import BUILTIN_TOOLS
+from .usage import health_state as usage_health
 
 ADMIN_PREFIX = "/api/admin/"
 TITLE_CHARS = 80
@@ -200,14 +203,7 @@ def _source(r: ExposureRow) -> Any:
     return s if s in ("config", "ui", "mixed") else None
 
 
-def _health(h: Any) -> tuple[str, str | None, str | None]:
-    """(ok | error | unknown, 실패 code, 시각). 실패가 마지막 성공보다 나중이면 error."""
-    if not h:
-        return "unknown", None, None
-    ok, err = h["last_ok_at"], h["last_error_at"]
-    if err and (not ok or err > ok):
-        return "error", h["last_error_code"], err
-    return ("ok", None, ok) if ok else ("unknown", None, None)
+_health = usage_health  # (ok | error | unknown, 실패 code, 시각) — 개요 게이트웨이 카드와 같은 판정 (usage.py)
 
 
 def _model_out(r: ExposureRow, default: str | None, health: Any = None) -> ModelOut:

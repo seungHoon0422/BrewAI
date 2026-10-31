@@ -3,7 +3,7 @@ import { MENU_COPY } from './copy';
 
 // 관리 메뉴 = E2E 계약. 라벨 · 순서 · 해시를 바꾸면 e2e 스펙도 같이 바꾼다. 라벨 · 설명 글 = copy.ts MENU_COPY
 // 라벨은 링크 이름이자 그 화면의 h1 이다. 화면(컴포넌트)은 App.tsx 의 SCREENS 가 잇는다.
-export type RouteId = 'overview' | 'models' | 'catalog' | 'approvals' | 'traces' | 'users' | 'docs' | 'settings';
+export type RouteId = 'overview' | 'models' | 'usage' | 'catalog' | 'approvals' | 'traces' | 'users' | 'docs' | 'settings';
 
 export type MenuItem = {
   id: RouteId;
@@ -16,6 +16,7 @@ export type MenuItem = {
 const ITEMS: readonly Omit<MenuItem, 'label' | 'desc'>[] = [
   { id: 'overview', icon: 'grid' },
   { id: 'models', icon: 'cube' },
+  { id: 'usage', icon: 'receipt' },
   { id: 'catalog', icon: 'box' },
   { id: 'approvals', icon: 'shield' },
   { id: 'traces', icon: 'waterfall' },
@@ -25,8 +26,18 @@ const ITEMS: readonly Omit<MenuItem, 'label' | 'desc'>[] = [
 ];
 export const MENU: readonly MenuItem[] = ITEMS.map((m) => ({ ...m, ...MENU_COPY[m.id] }));
 
-// '#/users/orgs' 처럼 화면 안 탭까지 (sub = 화면이 정한 탭 id)
-export const hrefOf = (id: RouteId, sub?: string) => (sub ? `#/${id}/${sub}` : `#/${id}`);
+// '#/users/orgs' 처럼 화면 안 탭까지 (sub = 화면이 정한 탭 id) · query = '?org=…' (빈 값은 뺀다 · 사용량 거르개 같은 화면 상태)
+export function hrefOf(id: RouteId, sub?: string, query?: Readonly<Record<string, string | number | null | undefined>>): string {
+  const base = sub ? `#/${id}/${sub}` : `#/${id}`;
+  const q = new URLSearchParams();
+  Object.entries(query ?? {}).forEach(([k, v]) => {
+    if (v !== null && v !== undefined && v !== '') q.set(k, String(v));
+  });
+  const text = q.toString();
+  return text ? `${base}?${text}` : base;
+}
+// 해시의 '?' 뒤 ('#/usage?org=o1' → org=o1)
+export const queryOf = (hash: string) => new URLSearchParams(hash.includes('?') ? hash.slice(hash.indexOf('?') + 1) : '');
 const segments = (hash: string) => hash.replace(/^#\/?/, '').split('?')[0].split('/');
 
 // '#/models' → 모델 · '#/docs/adr/0007' → 문서. 빈 해시 · '#/' · 모르는 해시 → 개요

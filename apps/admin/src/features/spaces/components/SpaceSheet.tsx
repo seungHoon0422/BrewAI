@@ -4,6 +4,7 @@ import { COMMON_COPY } from '../../../shared/copy';
 import { dateText } from '../../../shared/format';
 import { ScopePathText } from '../../scope/components/ScopePathText';
 import { usePublishScopePath } from '../../scope/hooks';
+import { UsageSection } from '../../usage/components/UsageSection';
 import type { AdminSpace } from '../api';
 import { SPACES_COPY as C, VISIBILITY_HINT, VISIBILITY_TEXT } from '../copy';
 
@@ -25,6 +26,7 @@ export function SpaceSheet({ space: s, onClose }: { space: AdminSpace | null; on
               ...(s.archived_at ? [{ key: 'archived', label: C.kv.archived, value: dateText(s.archived_at) ?? COMMON_COPY.none }] : []),
             ]} />
           </Section>
+          <UsageSection filter={{ space: s.id }} />
           <Callout icon="info">{C.manage}</Callout>
           <Callout icon="lock">{C.privacy}</Callout>
         </>

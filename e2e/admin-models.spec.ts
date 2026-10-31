@@ -346,8 +346,6 @@ test('게이트웨이가 떠 있는데 오류를 내면 (conductor 502) "꺼짐"
     r.fulfill({ status: 502, contentType: 'application/json', body: '{"detail":"gateway_error"}' }));
   await page.goto('/#/models');
   await expect(page.getByRole('alert')).toContainText('게이트웨이가 오류를 냈어요');
-  await page.goto('/#/overview');
-  await expect(gatewayCard(page).locator('.v')).toHaveText('오류');
 });
 
 test('게이트웨이에 모델이 0개면 빈 표 안내', async ({ page }) => {
@@ -368,33 +366,39 @@ test('PATCH 가 실패하면 줄은 그대로 + 이유 한 줄', async ({ page }
   await expect(page.getByRole('alert')).toHaveCount(0);
 });
 
-// 개요 '게이트웨이' 카드 = 같은 API 의 실제 결과
-const card = (page: Page, label: string) => page.locator('.stat').filter({ has: page.locator('dt', { hasText: new RegExp(`^${label}$`) }) });
-const gatewayCard = (page: Page) => card(page, '게이트웨이');
-const exposedCard = (page: Page) => card(page, '노출 모델');
+// 개요 '게이트웨이' 카드 = conductor GET /api/admin/usage/gateway (모델 표와 같은 동기화 · 꺼져도 마지막 목록 + 상태)
+const GATEWAY_STATUS_API = `${ADMIN_URL}/api/admin/usage/gateway**`;
+const gatewayCard = (page: Page) => page.getByRole('region', { name: '게이트웨이', exact: true });
+const modelCount = (page: Page, key: string) => gatewayCard(page).locator(`[data-count="${key}"] dd`);
 
-test('개요: 게이트웨이 연결됨 · 노출 모델 수', async ({ page }) => {
+test('개요: 게이트웨이 연결됨 · 노출 모델 수 · 누르면 모델', async ({ page }) => {
   await page.goto('/#/overview');
   await expect(gatewayCard(page)).toHaveAttribute('data-state', 'ok');
-  await expect(gatewayCard(page).locator('.v')).toHaveText('연결됨');
-  await expect(gatewayCard(page).locator('.sub')).toHaveText('LiteLLM, 모델 3개, 회사 2곳');
-  await expect(exposedCard(page).locator('.v')).toHaveText('2');
-  await expect(exposedCard(page).locator('.sub')).toHaveText('후보 0, 숨김 1');
+  await expect(gatewayCard(page).locator('.ov-gw-status')).toHaveText('연결됨');
+  await expect(modelCount(page, 'exposed')).toHaveText('2');
+  await expect(modelCount(page, 'missing')).toHaveText('0');
+  await expect(gatewayCard(page)).not.toContainText('fake-embed'); // 채팅에 안 쓰는 모델은 빼고
   await page.screenshot({ path: shot('admin-overview-live'), fullPage: true });
+  await gatewayCard(page).getByRole('link', { name: '모델 보기' }).click();
+  await expect(page).toHaveURL(/#\/models$/);
 });
 
 test('개요: conductor · 게이트웨이가 꺼지면 카드가 그렇게 말한다', async ({ page }) => {
   await page.route(conductorCall, conductorDown);
   await page.goto('/#/overview');
   await expect(gatewayCard(page)).toHaveAttribute('data-state', 'error');
-  await expect(gatewayCard(page).locator('.v')).toHaveText('conductor 꺼짐');
+  await expect(gatewayCard(page)).toContainText('conductor 에 연결할 수 없어요');
+  await expect(page.getByRole('alert').first()).toContainText('conductor 에 연결할 수 없어요');
   await page.unroute(conductorCall);
-  await page.route(MODELS_API, (r) =>
-    r.fulfill({ status: 503, contentType: 'application/json', body: '{"detail":"gateway_unreachable"}' }));
+  await page.route(GATEWAY_STATUS_API, (r) => r.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify({ status: 'down', code: 'gateway_unreachable', last_sync_at: null, models: { total: 2, exposed: 2, candidate: 0, hidden: 0, missing: 0, failing: 0 }, by_model: [] }),
+  }));
   await page.reload();
-  await expect(gatewayCard(page).locator('.v')).toHaveText('꺼짐');
-  await expect(gatewayCard(page).locator('.sub')).toContainText('npm run gateway');
-  await expect(exposedCard(page).locator('.v')).toHaveText('—');
+  await expect(gatewayCard(page)).toHaveAttribute('data-status', 'down');
+  await expect(gatewayCard(page).locator('.ov-gw-status')).toHaveText('꺼짐');
+  await expect(gatewayCard(page)).toContainText('npm run gateway');
+  await expect(modelCount(page, 'exposed')).toHaveText('2'); // 마지막으로 본 목록
 });
 
 test('연결 테스트: 그 자리에서 돌림표 → 정상 · 응답 시간 | 키 없음 + 고치는 곳 · 다시 읽어도 남는다', async ({ page }) => {

@@ -242,7 +242,7 @@ def test_tool_call_round_trip_streams_tool_events_and_steps(make_api, h) -> None
     answer = api.client.get("/api/threads/thread-1").json()["messages"][1]
     assert answer["parts"] == [
         {"type": "tool", "id": "call_1", "name": "calculator", "label": "계산기", "args": {"expression": "12*(3+4)"},
-         "result": {"expression": "12*(3+4)", "result": "84"}, "status": "done"},
+         "result": {"expression": "12*(3+4)", "result": "84"}, "status": "done", "batch": 1},
         {"type": "text", "text": "계산 결과는 84입니다."},
     ]
     assert answer["content"] == "계산 결과는 84입니다."
@@ -300,9 +300,209 @@ def test_tool_loop_is_capped(make_api, h) -> None:
     api = make_api(lambda _: FunctionModel(stream_function=stream))
     events = api.chat("끝없이")
     assert events[-1] | {"type": "RUN_ERROR", "code": "run_limit"} == events[-1]
-    assert events[-2]["type"] == "STEP_FINISHED"  # 열린 단계를 닫고 오류
+    # 툴 단계는 결과가 오면 닫힌다 → 상한에 걸리는 9번째 요청 땐 열린 단계가 없다 (모든 STEP_STARTED 는 짝이 있다)
+    assert h.types(events).count("STEP_STARTED") == h.types(events).count("STEP_FINISHED")
     run = api.client.get("/api/runs").json()[0]
-    assert run["status"] == "error" and run["steps"][-1]["status"] == "error"
+    assert run["status"] == "error" and all(s["status"] != "running" for s in run["steps"])
+
+
+# ── 병렬 툴: 한 응답의 tool_calls 여럿 = 동시에 · call id 마다 순서 · 단계 batch · 상한 · 시간 제한 ──────────────────
+
+
+def _parallel_model(seen: dict[str, Any]) -> FunctionModel:
+    """첫 응답 = current_time 두 개 (서울 · 뉴욕) 를 한 번에 → 둘째 응답 = 답 (mock 게이트웨이 [fake:parallel] 과 같은 흐름)."""
+
+    async def stream(messages: list[ModelMessage], info: AgentInfo) -> AsyncIterator[Any]:
+        returns = [p for m in messages if isinstance(m, ModelRequest) for p in m.parts if isinstance(p, ToolReturnPart)]
+        if not returns:
+            yield {
+                0: DeltaToolCall(name="current_time", json_args='{"timezone": "Asia/Seoul"}', tool_call_id="t_seoul"),
+                1: DeltaToolCall(name="current_time", json_args='{"timezone": "America/New_York"}', tool_call_id="t_ny"),
+            }
+            return
+        seen["returns"] = [(p.tool_call_id, p.content.get("timezone") if isinstance(p.content, dict) else p.content) for p in returns]
+        yield "두 곳 시각을 확인했어요."
+
+    return FunctionModel(stream_function=stream)
+
+
+def _slow_clock(monkeypatch: pytest.MonkeyPatch, spans: list[tuple[float, float]], wait: float = 0.25) -> None:
+    """current_time 이 wait 초 걸리게 (툴은 스레드에서 돈다) · 시작 · 끝 시각을 남긴다."""
+    import threading
+    import time as _time
+
+    from conductor import tools as tools_mod
+
+    real = tools_mod._now
+    lock = threading.Lock()
+
+    def slow() -> Any:
+        start = _time.monotonic()
+        _time.sleep(wait)
+        with lock:
+            spans.append((start, _time.monotonic()))
+        return real()
+
+    monkeypatch.setattr(tools_mod, "_now", slow)
+
+
+def test_parallel_tool_calls_run_concurrently_with_ordered_events(make_api, h, monkeypatch: pytest.MonkeyPatch) -> None:
+    spans: list[tuple[float, float]] = []
+    _slow_clock(monkeypatch, spans)
+    seen: dict[str, Any] = {}
+    api = make_api(lambda _: _parallel_model(seen))
+    events = api.chat("서울이랑 뉴욕 지금 몇 시야?")
+    assert events[-1]["type"] == "RUN_FINISHED"
+    # 둘 다 시작한 뒤에야 하나가 끝난다 = 동시에 돌았다
+    assert len(spans) == 2 and max(s for s, _ in spans) < min(e for _, e in spans)
+    t = h.types(events)
+    # 두 툴 단계가 결과보다 먼저 다 열린다 (겹친다) · 결과 → 그 단계 닫기
+    starts = [i for i, e in enumerate(events) if e["type"] == "STEP_STARTED" and e["stepName"] == "tool:current_time"]
+    results = [i for i, x in enumerate(t) if x == "TOOL_CALL_RESULT"]
+    assert len(starts) == 2 and len(results) == 2 and max(starts) < min(results)
+    for i in results:
+        assert events[i + 1] | {"type": "STEP_FINISHED", "stepName": "tool:current_time"} == events[i + 1]
+    # call id 마다 START → ARGS → END → RESULT 순서
+    for cid in ("t_seoul", "t_ny"):
+        mine = [e["type"] for e in events if e.get("toolCallId") == cid]
+        assert mine[0] == "TOOL_CALL_START" and mine[-2:] == ["TOOL_CALL_END", "TOOL_CALL_RESULT"]
+        assert set(mine[1:-2]) == {"TOOL_CALL_ARGS"}
+    assert sorted(seen["returns"]) == [("t_ny", "America/New_York"), ("t_seoul", "Asia/Seoul")]
+    # 단계 기록: 같은 batch · 각자 call id · 각자 걸린 시간
+    run = api.client.get("/api/runs").json()[0]
+    tools = [s for s in run["steps"] if s["name"] == "tool:current_time"]
+    assert sorted(s["call_id"] for s in tools) == ["t_ny", "t_seoul"] and {s["batch"] for s in tools} == {1}
+    assert all(s["status"] == "done" and s["duration_ms"] >= 200 for s in tools)
+    assert run["steps"][-1]["name"] == "writing" and "batch" not in run["steps"][-1]
+    summary = next(e for e in events if e.get("name") == "brewai.run_summary")
+    assert [s.get("batch") for s in summary["value"]["steps"]] == [1, 1, None]
+    # 기록에서 다시 연 답도 같은 묶음
+    parts = api.client.get("/api/threads/thread-1").json()["messages"][1]["parts"]
+    assert [(p["id"], p.get("batch")) for p in parts if p["type"] == "tool"] == [("t_seoul", 1), ("t_ny", 1)]
+
+
+@pytest.mark.parametrize("knob", ["cap", "mode"])
+def test_parallel_tools_respect_cap_and_mode(make_api, monkeypatch: pytest.MonkeyPatch, knob: str) -> None:
+    """동시 실행 상한 1 · 실행 모드 sequential 이면 하나씩 (상수가 실제로 실행에 걸린다)."""
+    from conductor import agent as agent_mod
+
+    if knob == "cap":
+        monkeypatch.setattr(agent_mod, "MAX_PARALLEL_TOOLS", 1)
+    else:
+        monkeypatch.setattr(agent_mod, "TOOL_EXECUTION", "sequential")
+    spans: list[tuple[float, float]] = []
+    _slow_clock(monkeypatch, spans, wait=0.1)
+    api = make_api(lambda _: _parallel_model({}))
+    assert api.chat("서울이랑 뉴욕")[-1]["type"] == "RUN_FINISHED"
+    (s1, e1), (s2, e2) = sorted(spans)
+    assert e1 <= s2  # 겹치지 않는다
+
+
+def test_slow_tool_times_out_and_the_model_hears_it(make_api, monkeypatch: pytest.MonkeyPatch) -> None:
+    from conductor import agent as agent_mod
+
+    monkeypatch.setattr(agent_mod, "TOOL_TIMEOUT_S", 0.05)
+    _slow_clock(monkeypatch, [], wait=0.3)
+    heard: list[str] = []
+
+    async def stream(messages: list[ModelMessage], info: AgentInfo) -> AsyncIterator[Any]:
+        from pydantic_ai.messages import RetryPromptPart
+
+        retries = [p for m in messages if isinstance(m, ModelRequest) for p in m.parts if isinstance(p, RetryPromptPart)]
+        if not retries:
+            yield {0: DeltaToolCall(name="current_time", json_args="{}", tool_call_id="slow")}
+            return
+        heard.append(retries[-1].model_response())
+        yield "시각을 확인하지 못했어요."
+
+    api = make_api(lambda _: FunctionModel(stream_function=stream))
+    events = api.chat("지금 몇 시?")
+    assert events[-1]["type"] == "RUN_FINISHED" and "Timed out" in heard[0]
+    result = next(e for e in events if e["type"] == "TOOL_CALL_RESULT")
+    assert "Timed out" in result["content"]
+
+
+def test_parallel_tool_failure_cancels_siblings_and_closes_every_tool_step(make_api, h, monkeypatch: pytest.MonkeyPatch) -> None:
+    """두 툴 중 하나가 (재시도 아닌) 예외 → 다른 툴은 아직 도는 중에 끊긴다 · RUN_ERROR. Pydantic AI 가 결과 없는 툴마다
+    '중단됨' 마감 결과를 보낸다 → 그 툴 단계는 done 이 아니라 error (단계 짝은 맞는다)."""
+    import threading
+    import time as _time
+
+    from conductor import tools as tools_mod
+
+    real, lock, calls = tools_mod._now, threading.Lock(), []
+
+    def flaky() -> Any:
+        with lock:
+            calls.append(1)
+            first = len(calls) == 1
+        if first:
+            _time.sleep(0.05)  # 다른 툴도 시작한 뒤에 터진다
+            raise RuntimeError("clock broke")
+        _time.sleep(0.4)
+        return real()
+
+    monkeypatch.setattr(tools_mod, "_now", flaky)
+    api = make_api(lambda _: _parallel_model({}))
+    events = api.chat("서울이랑 뉴욕")
+    t = h.types(events)
+    assert t[-1] == "RUN_ERROR" and t.count("STEP_STARTED") == t.count("STEP_FINISHED")
+    run = api.client.get("/api/runs").json()[0]
+    tools = [s for s in run["steps"] if s["name"] == "tool:current_time"]
+    assert run["status"] == "error" and len(tools) == 2 and all(s["status"] == "error" for s in tools)
+    ev = api.store.query("SELECT status, tool_calls FROM usage_events WHERE run_id = ?", (run["id"],))
+    assert [(r["status"], r["tool_calls"]) for r in ev] == [("error", 2)]
+
+
+def test_client_disconnect_during_parallel_tools_cancels_every_open_tool(make_api, h, monkeypatch: pytest.MonkeyPatch) -> None:
+    """두 툴이 도는 중에 클라이언트가 끊는다 (ASGI http.disconnect) → 실행 cancelled · 툴 단계 둘 다 cancelled · 사용량 한 줄."""
+    import anyio
+
+    _slow_clock(monkeypatch, [], wait=0.5)
+    api = make_api(lambda _: _parallel_model({}))
+    body = json.dumps(h.chat_body("서울이랑 뉴욕", run="run-cut")).encode()
+    headers = [(b"host", b"127.0.0.1"), (b"content-type", b"application/json"), (b"authorization", f"Bearer {api.client.bearer}".encode())]
+    scope = {
+        "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": "POST", "scheme": "http", "path": "/api/chat",
+        "raw_path": b"/api/chat", "query_string": b"", "root_path": "", "headers": headers, "client": ("127.0.0.1", 50000),
+        "server": ("127.0.0.1", 80),
+    }
+
+    async def go() -> str:
+        gone = anyio.Event()
+        sent = False
+        out = ""
+
+        async def receive() -> dict[str, Any]:
+            nonlocal sent
+            if not sent:
+                sent = True
+                return {"type": "http.request", "body": body, "more_body": False}
+            await gone.wait()
+            return {"type": "http.disconnect"}
+
+        async def send(msg: dict[str, Any]) -> None:
+            nonlocal out
+            if msg["type"] == "http.response.body":
+                out += msg.get("body", b"").decode()
+                if out.count('"stepName":"tool:current_time"') >= 2 and '"TOOL_CALL_RESULT"' not in out:
+                    gone.set()  # 두 툴 단계가 다 열렸고 결과는 아직 = 도는 중에 끊기
+
+        with anyio.fail_after(10):
+            await api.app(scope, receive, send)
+        return out
+
+    out = api.client.portal.call(go)  # type: ignore[union-attr]
+    gc.collect()  # 끊긴 스트림 제너레이터가 닫히며 실행을 닫는다
+    events = h.sse_events(out)
+    assert sum(1 for e in events if e.get("stepName") == "tool:current_time" and e["type"] == "STEP_STARTED") == 2
+    assert not any(e["type"] == "TOOL_CALL_RESULT" for e in events)
+    run = api.store.query("SELECT status, error_code, steps FROM runs WHERE id = 'run-cut'")[0]
+    assert (run["status"], run["error_code"]) == ("cancelled", "client_disconnected")
+    tools = [s for s in json.loads(run["steps"]) if s["name"] == "tool:current_time"]
+    assert len(tools) == 2 and all(s["status"] == "cancelled" for s in tools)
+    ev = api.store.query("SELECT status, tool_calls, input_tokens FROM usage_events WHERE run_id = 'run-cut'")
+    assert [(r["status"], r["tool_calls"], r["input_tokens"]) for r in ev] == [("cancelled", 2, None)]
 
 
 # ── 실행 기록: 끊김 · 재시작 ─────────────────────────────────────────────────────────

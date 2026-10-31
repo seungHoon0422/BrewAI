@@ -10,9 +10,12 @@
   users · identities · sessions · refresh_tokens · one_time_tokens · login_attempts   로그인 · 세션 (토큰은 sha256 만)
   orgs · org_members · spaces · space_members · projects · invites                    조직 > 스페이스 > 프로젝트
   audit_events                                                                         append-only (UPDATE · DELETE 코드 없음)
+  ↓ v3 — 읽고 쓰는 코드 = usage.py
+  usage_events    실행 한 번 = 한 줄 (누가 · 어느 모델 · 토큰 · 도구 호출 · 추정 비용 · 상태). 대화를 지워도 남는다 · 대화 내용 없음
 
 v1 → v2: 파일 DB 면 먼저 `<파일>.v1.bak` 으로 백업 → threads · runs 에 칸을 더한다. 옛 대화(space_id NULL)는 첫 관리자가
 생길 때 그 사람의 내 스페이스로 (auth/directory.bootstrap).
+v2 → v3: 파일 DB 면 먼저 `<파일>.v2.bak` → usage_events 표 + 이미 닫힌 옛 실행을 한 번 채운다 (v1 에서 오면 v1.bak 이 원본).
 대화 · 실행 함수는 범위 인자(user_id · space_id)를 받는다. 전역 조회는 admin_* 만. 권한 판정은 auth/policy.py (여기선 안 한다).
 연결 하나 + 잠금 하나 (요청이 짧다 · P1). ":memory:" = 테스트·E2E (프로세스가 끝나면 사라짐).
 """
@@ -29,7 +32,9 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 2  # 표 추가(IF NOT EXISTS)는 버전을 올리지 않는다. 칸 추가 · 뜻이 바뀌는 변경만 (v2 = 로그인 · 조직)
+from . import usage as usage_log  # 이름 usage 는 finish_run 인자 (토큰 dict)
+
+SCHEMA_VERSION = 3  # 표 추가(IF NOT EXISTS)는 버전을 올리지 않는다. 칸 추가 · 뜻이 바뀌는 변경 · 채우기만 (v2 = 로그인 · 조직 · v3 = 사용량)
 log = logging.getLogger("conductor.store")
 
 _SCHEMA = """
@@ -229,7 +234,7 @@ CREATE TABLE IF NOT EXISTS audit_events (
 );
 CREATE INDEX IF NOT EXISTS threads_space ON threads (space_id, updated_at);
 CREATE INDEX IF NOT EXISTS runs_user ON runs (user_id, seq);
-"""
+""" + usage_log.SCHEMA
 
 # v1 → v2: 이미 있는 표에 더하는 칸 (새 DB 는 _SCHEMA 의 CREATE TABLE 이 처음부터 갖고 있다)
 _V2_COLUMNS = {
@@ -273,14 +278,38 @@ class Store:
         version = self._db.execute("PRAGMA user_version").fetchone()[0]
         if version > SCHEMA_VERSION:
             raise RuntimeError(f"{target} 은 더 새 conductor 가 만든 DB 예요 (schema {version} > {SCHEMA_VERSION})")
+        had_runs = "runs" in self._tables()
         self._migrate()
+        if 0 < version < 3 and had_runs:
+            self._backup(f"{self.path}.v2.bak", skip=version < 2)  # v1 에서 오면 v1.bak 이 이미 원본
         self._db.executescript(_SCHEMA)
-        self._db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
-        # 지난번 conductor 가 실행 중에 꺼졌으면 그 실행은 끝나지 않는다 → 취소로 닫는다
-        self._db.execute(
-            "UPDATE runs SET status = 'cancelled', error_code = 'interrupted', finished_at = ? WHERE status = 'running'",
-            (now_iso(),),
-        )
+        with self.tx() as db:
+            if version < 3 and had_runs:
+                log.info("DB v%d → v3: 사용량 %d건 채움", version, usage_log.backfill(db))
+            db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+            # 지난번 conductor 가 실행 중에 꺼졌으면 그 실행은 끝나지 않는다 → 취소로 닫는다 (사용량도 그대로 한 줄)
+            at = now_iso()
+            stale = [r[0] for r in db.execute("SELECT id FROM runs WHERE status = 'running'")]
+            db.execute("UPDATE runs SET status = 'cancelled', error_code = 'interrupted', finished_at = ? WHERE status = 'running'", (at,))
+            for run_id in stale:
+                usage_log.record(db, run_id)
+
+    def _tables(self) -> set[str]:
+        return {r["name"] for r in self._db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+
+    def _backup(self, dest_path: str, *, skip: bool = False) -> None:
+        """파일 DB 를 바꾸기 전 복사 (있으면 그대로 둔다 = 첫 백업이 원본). :memory: 는 없음."""
+        if skip or self.path == ":memory:":
+            return
+        bak = Path(dest_path)
+        if bak.exists():
+            return
+        dest = sqlite3.connect(str(bak))
+        try:
+            self._db.backup(dest)
+        finally:
+            dest.close()
+        log.info("DB 백업 %s", bak)
 
     def _columns(self, table: str) -> set[str]:
         return {r["name"] for r in self._db.execute(f"PRAGMA table_info({table})")}
@@ -290,15 +319,7 @@ class Store:
         missing = {t: [c for c in cols if c.split()[0] not in self._columns(t)] for t, cols in _V2_COLUMNS.items()}
         if not any(missing[t] for t in missing if self._columns(t)):
             return  # 새 DB (표 없음) · 이미 v2
-        if self.path != ":memory:":
-            bak = Path(f"{self.path}.v1.bak")
-            if not bak.exists():
-                dest = sqlite3.connect(str(bak))
-                try:
-                    self._db.backup(dest)
-                finally:
-                    dest.close()
-                log.info("DB v1 → v2: 백업 %s", bak)
+        self._backup(f"{self.path}.v1.bak")
         self._db.execute("BEGIN IMMEDIATE")
         try:
             for table, cols in missing.items():
@@ -323,6 +344,12 @@ class Store:
                 self._db.execute("ROLLBACK")
                 raise
             self._db.execute("COMMIT")
+
+    @contextmanager
+    def read(self) -> Iterator[sqlite3.Connection]:
+        """여러 SELECT 를 잠금 하나로 (트랜잭션 없음 · 쓰지 않는다)."""
+        with self._lock:
+            yield self._db
 
     def query(self, sql: str, params: tuple[Any, ...] = ()) -> list[sqlite3.Row]:
         with self._lock:
@@ -414,6 +441,7 @@ class Store:
                 "UPDATE threads SET updated_at = ?, title = COALESCE(title, ?) WHERE id = ?",
                 (at, title if status == "done" else None, row["thread_id"]),
             )
+            usage_log.record(db, run_id)  # 같은 트랜잭션 = 실행이 닫히면 사용량도 반드시 한 줄
 
     _THREAD_COLS = (
         "t.id, t.title, t.created_at, t.updated_at, t.space_id, t.project_id, t.user_id, t.visibility, u.display_name AS owner_name,"

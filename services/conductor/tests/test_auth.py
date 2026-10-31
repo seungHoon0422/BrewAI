@@ -390,6 +390,9 @@ def test_v1_database_is_backed_up_migrated_and_adopted(make_api, tmp_path, h) ->
     personal = api.me["personal_space_id"]
     run = store.query("SELECT user_id, space_id, org_id FROM runs WHERE id = 'old-run'")[0]
     assert (run["user_id"], run["space_id"], run["org_id"]) == (api.me["id"], personal, api.me["orgs"][0]["id"])
+    # v3 채우기는 첫 관리자보다 먼저 돈다 → 사용량 줄도 같이 귀속 ('알 수 없음' 에 남지 않는다)
+    ev = store.query("SELECT user_id, space_id, org_id FROM usage_events WHERE run_id = 'old-run'")[0]
+    assert (ev["user_id"], ev["space_id"], ev["org_id"]) == (api.me["id"], personal, api.me["orgs"][0]["id"])
     threads = api.client.get("/api/threads").json()
     assert [(t["id"], t["mine"], t["visibility"]) for t in threads] == [("old-1", True, "private")]
     assert [(c["kind"], c["name"]) for c in threads[0]["path"]] == [("org", "우리 팀"), ("space", "내 스페이스"), ("thread", "옛 대화")]

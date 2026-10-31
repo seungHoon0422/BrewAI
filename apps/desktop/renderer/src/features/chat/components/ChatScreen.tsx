@@ -1,4 +1,5 @@
-// 대화 — 홈(마크 · 제목 · 제안 3줄 · 입력창) / 프로젝트 화면(머리 · 입력창 · 그 대화들) → 보내면 대화 화면(경로 · 제목 · 공유 · 메시지 · 입력창).
+// 대화 — 홈(마크 · 제목 · 제안 · 도구 시험 · 입력창) / 프로젝트 화면(머리 · 입력창 · 그 대화들) → 보내면 대화 화면(경로 · 제목 · 공유 · 메시지 · 입력창).
+// 제안을 누르면 입력창에 넣지 않고 바로 보낸다. 홈에서 보내면 홈이 빠지고 말풍선이 대화 자리로 올라간다 (motion.ts).
 // 상태는 hooks.ts (앱 전체 store): 메뉴를 옮겨도 답은 계속 받고, 진행 상황 화면이 같은 실행을 본다.
 // App 이 대화가 바뀔 때마다 key 를 바꿔 이 화면을 새로 만든다 → 입력 중인 글이 비고 입력창에 포커스.
 import { useEffect, useRef, useState } from 'react';
@@ -11,8 +12,9 @@ import { useProject } from '../../projects/hooks';
 import { ScopeBreadcrumb } from '../../scope/components/ScopeBreadcrumb';
 import { focusProject, useCurrentSpace, useScopeState } from '../../scope/hooks';
 import { ShareButton } from '../../sharing/components/ShareButton';
-import { CHAT, SUGGESTIONS } from '../copy';
+import { CHAT, SUGGESTIONS, TOOL_STARTERS, TOOL_TRY, type Starter } from '../copy';
 import { send, stop, updateThread, useConvBusy, useCurrentConv } from '../hooks';
+import { leaveHome } from '../motion';
 import { Composer } from './Composer';
 import { Messages } from './Messages';
 import { ThreadList } from './ThreadList';
@@ -25,15 +27,26 @@ export function ChatScreen() {
   const [text, setText] = useState('');
   const [moveError, setMoveError] = useState(false);
   const input = useRef<HTMLTextAreaElement>(null);
+  const view = useRef<HTMLElement>(null);
   const loading = conv?.load === 'loading';
   const canSend = text.trim() !== '' && !busy && !loading;
 
   useEffect(() => input.current?.focus(), []);
 
+  // 새 대화(홈 · 프로젝트 화면)에서 보내면 이 화면이 대화 화면으로 바뀐다 → 바뀌기 직전 자리를 넘긴다 (from = 글이 있던 자리)
+  const sendFrom = (ask: string, from: Element | null) => {
+    if (!conv) leaveHome(view.current, ask.trim(), from);
+    return send(ask);
+  };
   const onSend = () => {
     if (!canSend) return;
-    if (send(text)) setText('');
+    if (sendFrom(text, input.current)) setText('');
     input.current?.focus();
+  };
+  // 제안 = 바로 보낸다 (입력창은 그대로 · 쓰던 글이 있어도 지우지 않는다)
+  const onStarter = (s: Starter, el: HTMLElement) => {
+    if (busy || loading) return;
+    sendFrom(s.prompt, el.querySelector('.sg-t') ?? el);
   };
 
   // 프로젝트 칩: 새 대화 = 넣을 곳 고르기 · 연 대화 = 같은 스페이스 안에서 옮기기 (내 대화만)
@@ -54,7 +67,7 @@ export function ChatScreen() {
 
   if (!conv && project) {
     return (
-      <section className="view proj">
+      <section className="view proj" ref={view}>
         <div className="proj-in">
           <ProjectHeader project={project} />
           {composer}
@@ -70,23 +83,17 @@ export function ChatScreen() {
 
   if (!conv) {
     return (
-      <section className="view home">
+      <section className="view home" ref={view}>
         <div className="hero">
           <Mark size={40} />
           <h1>{CHAT.homeTitle}</h1>
         </div>
         <div className="dock">
-          <ul className="suggest">
-            {SUGGESTIONS.map((s) => (
-              <li key={s.prompt}>
-                <button className="sg" type="button" onClick={() => { setText(s.prompt); input.current?.focus(); }}>
-                  <Icon name={s.icon} />
-                  {s.text}
-                  {s.need && <span className="need">{s.need}</span>}
-                </button>
-              </li>
-            ))}
-          </ul>
+          <div className="suggest-box">
+            <StarterList items={SUGGESTIONS} onPick={onStarter} />
+            <h2 className="suggest-h" id="tool-try">{TOOL_TRY.label}</h2>
+            <StarterList items={TOOL_STARTERS} onPick={onStarter} labelledBy="tool-try" />
+          </div>
           {composer}
         </div>
       </section>
@@ -120,5 +127,22 @@ export function ChatScreen() {
         </div>
       </div>
     </section>
+  );
+}
+
+// 제안 줄 = 아이콘 · 글 · 오른쪽 꼬리표 (연결 필요 · 동시 실행 · 여러 단계). 누르면 바로 보낸다
+function StarterList({ items, onPick, labelledBy }: { items: readonly Starter[]; onPick: (s: Starter, el: HTMLElement) => void; labelledBy?: string }) {
+  return (
+    <ul className="suggest" aria-labelledby={labelledBy}>
+      {items.map((s) => (
+        <li key={s.prompt}>
+          <button className="sg" type="button" data-prompt={s.prompt} onClick={(e) => onPick(s, e.currentTarget)}>
+            <Icon name={s.icon} />
+            <span className="sg-t">{s.text}</span>
+            {(s.need || s.tag) && <span className="need">{s.need ?? s.tag}</span>}
+          </button>
+        </li>
+      ))}
+    </ul>
   );
 }

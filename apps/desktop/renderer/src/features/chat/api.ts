@@ -7,7 +7,8 @@ import { UNTITLED } from './copy';
 
 export type StepStatus = 'running' | 'done' | 'error' | 'cancelled';
 // name = thinking | tool:<이름> | skill:<스킬> | writing · started_ms = 실행 시작부터
-export type Step = { name: string; label: string; status: StepStatus; started_ms: number; duration_ms: number | null };
+// call_id · batch = 툴 단계만 (같은 batch = 한 모델 응답에서 같이 불려 동시에 돌았다)
+export type Step = { name: string; label: string; status: StepStatus; started_ms: number; duration_ms: number | null; call_id?: string; batch?: number };
 // reasoning_tokens = 생각 토큰 (글이 안 와도 >0 이면 생각은 했다 · display omitted · redacted)
 export type Usage = { input_tokens: number | null; output_tokens: number | null; requests: number; tool_calls: number; reasoning_tokens: number | null } | null;
 
@@ -34,7 +35,7 @@ export type ThreadSummary = ThreadScope & {
 export type HistoryPart =
   | { type: 'reasoning'; text: string }
   | { type: 'text'; text: string }
-  | { type: 'tool'; id: string; name: string; label: string; args: unknown; result: unknown; status: 'done' | 'error' | 'running' };
+  | { type: 'tool'; id: string; name: string; label: string; args: unknown; result: unknown; status: 'done' | 'error' | 'running'; batch: number | null };
 
 export type HistoryUser = { id: string; role: 'user'; run_id: string; content: string; created_at: string };
 export type HistoryAssistant = {
@@ -80,6 +81,8 @@ export function toSteps(v: unknown): Step[] {
     status: (['running', 'done', 'error', 'cancelled'] as const).find((x) => x === s.status) ?? 'done',
     started_ms: num(s.started_ms) ?? 0,
     duration_ms: num(s.duration_ms),
+    ...(typeof s.call_id === 'string' ? { call_id: s.call_id } : {}),
+    ...(num(s.batch) != null ? { batch: num(s.batch)! } : {}),
   }));
 }
 
@@ -125,7 +128,7 @@ function toPart(p: Record<string, unknown>): HistoryPart | null {
   if (p.type === 'reasoning' || p.type === 'text') return { type: p.type, text: str(p.text) };
   if (p.type === 'tool') {
     const status = p.status === 'error' ? 'error' : p.status === 'running' ? 'running' : 'done';
-    return { type: 'tool', id: str(p.id), name: str(p.name), label: str(p.label, str(p.name)), args: p.args ?? null, result: p.result ?? null, status };
+    return { type: 'tool', id: str(p.id), name: str(p.name), label: str(p.label, str(p.name)), args: p.args ?? null, result: p.result ?? null, status, batch: num(p.batch) };
   }
   return null;
 }

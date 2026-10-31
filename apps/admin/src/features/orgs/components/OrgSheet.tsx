@@ -3,6 +3,7 @@ import { Button, Field, Input, Segmented, Sheet, Switch } from '@brewai/ui';
 import { Row, Section } from '../../../shared/components/parts';
 import { COMMON_COPY } from '../../../shared/copy';
 import { usePublishScopePath } from '../../scope/hooks';
+import { UsageSection } from '../../usage/components/UsageSection';
 import type { AdminOrg, JoinPolicy, OrgPatch } from '../api';
 import { JOIN_TEXT, ORGS_COPY as C } from '../copy';
 import { OrgMembers } from './OrgMembers';
@@ -55,6 +56,8 @@ function SheetBody({ org, busy, onChange, onMembersChanged }: Omit<Props, 'org' 
         </form>
         <p className="part-hint">{C.nameHint}</p>
       </Section>
+
+      <UsageSection filter={{ org: org.id }} />
 
       <Section title={C.partJoin} hint={C.joinHint[join]}>
         <form className="part-stack" onSubmit={(e) => {

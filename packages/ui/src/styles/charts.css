@@ -1,0 +1,88 @@
+/* 차트 — 마크 = --viz-N 만 · 글자 = 글자색 토큰만 · 눈금선 · 기준선 = 1px 실선(점선 없음) · 선 2px · 막대 끝 둥글게 · 조각 사이 2px 면 틈.
+   풍선 = 떠 있는 일시적 층 (유리 · shadow-md). 표 보기 = 같은 값 (화면 읽기 · 색 없이 읽기). */
+
+.ui-chart{position:relative;display:grid;gap:var(--space-2);min-width:0;margin:0}
+.ui-chart-head{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-1) var(--space-3);min-height:24px}
+.ui-chart-toggle{display:inline-flex;align-items:center;gap:var(--space-1);margin-left:auto;height:24px;padding:0 var(--space-2);border:0;border-radius:var(--radius-sm);
+  background:transparent;color:var(--text-muted);font:inherit;font-size:var(--fs-xs);cursor:pointer}
+.ui-chart-toggle:hover{background:var(--surface-hover);color:var(--text)}
+.ui-chart-plot{position:relative;min-width:0;border-radius:var(--radius-md);outline-offset:2px;touch-action:pan-y}
+.ui-chart-plot svg{display:block;overflow:visible}
+.ui-chart-grid{stroke:var(--viz-grid);stroke-width:1;shape-rendering:crispEdges}
+.ui-chart-base{stroke:var(--viz-axis);stroke-width:1;shape-rendering:crispEdges}
+.ui-chart-tick{fill:var(--text-muted);font-size:var(--fs-2xs);font-variant-numeric:tabular-nums}
+.ui-chart-line{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.ui-chart-area{opacity:.1}
+.ui-chart-dot{stroke:var(--surface);stroke-width:2}
+.ui-chart-cross{stroke:var(--border-strong);stroke-width:1;shape-rendering:crispEdges}
+.ui-chart-table{max-height:280px;border:1px solid var(--border);border-radius:var(--radius-lg)}
+.ui-chart-table th[scope="row"]{font-weight:var(--fw-regular);color:var(--text-2);white-space:nowrap}
+
+/* 범례 (2계열 이상) — 견본 = 마크 모양 (선 = 짧은 막대 · 막대/면 = 네모) */
+.ui-legend{display:flex;flex-wrap:wrap;gap:var(--space-1) var(--space-3);margin:0;padding:0;list-style:none;font-size:var(--fs-xs);color:var(--text-2)}
+.ui-legend li{display:inline-flex;align-items:center;gap:var(--space-1-5)}
+.ui-legend-key{display:inline-block;flex:none;width:12px;height:2px;border-radius:1px}
+.ui-legend-key[data-shape="rect"]{width:9px;height:9px;border-radius:2px}
+
+/* 풍선 (값이 먼저 · 이름은 옅게) */
+.ui-chart-tip{position:absolute;top:0;z-index:var(--z-tooltip);transform:translateX(12px);display:grid;gap:2px;min-width:120px;max-width:240px;
+  padding:var(--space-1-5) var(--space-2-5);border-radius:var(--radius-md);background:var(--glass-bg-strong);backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);
+  box-shadow:var(--shadow-md),0 0 0 1px var(--glass-border);font-size:var(--fs-xs);color:var(--text-2);pointer-events:none;white-space:nowrap}
+.ui-chart-tip[data-flip]{transform:translateX(calc(-100% - 12px))}
+.ui-share .ui-chart-tip{transform:translate(-50%,-100%)}
+.ui-share .ui-chart-tip[data-flip]{transform:translate(-50%,-100%)}
+.ui-chart-tip-x{margin:0 0 2px;color:var(--text-muted)}
+.ui-chart-tip-row{display:flex;align-items:center;gap:var(--space-1-5);margin:0}
+.ui-chart-tip-row b{color:var(--text);font-weight:var(--fw-semibold)}
+
+/* 가로 막대 목록 — 줄 = 이름 · 값 / 아래 막대 (6px · 끝 둥글게 · 한 계열 = 한 색) */
+.ui-barlist{display:grid;gap:var(--space-0-5);margin:0;padding:0;list-style:none}
+.ui-barlist-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:var(--space-1) var(--space-3);width:100%;
+  padding:var(--space-1-5) var(--space-2);margin:0 calc(-1 * var(--space-2));box-sizing:content-box;border:0;border-radius:var(--radius-md);
+  background:transparent;color:var(--text);font:inherit;text-align:left;text-decoration:none}
+.ui-barlist-row[data-interactive]{cursor:pointer;transition:background var(--dur-fast)}
+.ui-barlist-row[data-interactive]:hover{background:var(--surface-hover)}
+.ui-barlist-name{display:flex;align-items:center;gap:var(--space-2);min-width:0}
+.ui-barlist-name .ui-icon{color:var(--text-muted)}
+.ui-barlist-text{display:grid;min-width:0}
+.ui-barlist-label{font-size:var(--fs-sm);font-weight:var(--fw-medium)}
+.ui-barlist-sub{font-size:var(--fs-xs);color:var(--text-muted)}
+.ui-barlist-value{display:inline-flex;align-items:baseline;gap:var(--space-1-5);font-size:var(--fs-sm)}
+.ui-barlist-value b{font-weight:var(--fw-semibold)}
+.ui-barlist-aside{font-size:var(--fs-xs);color:var(--text-muted)}
+.ui-barlist-track{grid-column:1 / -1;display:block;height:6px;border-radius:var(--radius-pill);background:var(--surface-sunken);overflow:hidden}
+.ui-barlist-fill{display:block;height:100%;border-radius:var(--radius-pill);min-width:0;transition:width var(--dur-slow) var(--ease-standard)}
+
+/* 비중 막대 — 한 줄 12px · 조각 사이 2px 틈(면 색) · 양 끝만 둥글게 */
+.ui-share{display:grid;gap:var(--space-3);min-width:0}
+.ui-share-bar{position:relative;height:12px;border-radius:var(--radius-xs);background:var(--surface-sunken)}
+.ui-share-seg{position:absolute;top:0;bottom:0;transition:opacity var(--dur-fast)}
+.ui-share-seg:first-child{border-top-left-radius:var(--radius-xs);border-bottom-left-radius:var(--radius-xs)}
+.ui-share-seg:nth-last-child(1 of .ui-share-seg){border-top-right-radius:var(--radius-xs);border-bottom-right-radius:var(--radius-xs)}
+.ui-share-bar:has([data-active]) .ui-share-seg:not([data-active]){opacity:.45}
+.ui-share-legend{display:grid;gap:0;margin:0;padding:0;list-style:none}
+.ui-share-row{display:flex;align-items:center;gap:var(--space-2);padding:var(--space-1-5) var(--space-2);margin:0 calc(-1 * var(--space-2));
+  border-radius:var(--radius-md);color:var(--text);font-size:var(--fs-sm);text-decoration:none}
+.ui-share-name{flex:1 1 auto}
+a.ui-share-row:hover,.ui-share-legend li[data-active] .ui-share-row{background:var(--surface-hover)}
+.ui-share-row b{font-weight:var(--fw-semibold)}
+.ui-share-pct{flex:none;width:48px;text-align:right;font-size:var(--fs-xs);color:var(--text-muted)}
+
+/* 작은 흐름 · 숫자 카드 */
+.ui-spark{display:block;width:100%;height:28px;margin-top:auto;padding-top:var(--space-2)}
+.ui-spark svg{display:block;overflow:visible}
+.ui-spark-line{fill:none;stroke:var(--text-faint);stroke-width:1.5;stroke-linejoin:round;stroke-linecap:round}
+.ui-spark-dot{fill:var(--viz-1);stroke:var(--surface);stroke-width:2}
+.ui-kpi{display:flex;flex-direction:column;align-items:stretch;text-decoration:none}
+a.ui-kpi{cursor:pointer;transition:border-color var(--dur-fast)}
+a.ui-kpi:hover{border-color:var(--border-strong)}
+.ui-kpi-value{font-variant-numeric:normal}
+.ui-kpi-foot{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-1) var(--space-1-5);min-height:18px;margin-top:2px}
+.ui-kpi-note{font-size:var(--fs-xs);color:var(--text-muted)}
+.ui-kpi .ui-stat-sub{margin-top:2px}
+.ui-kpi-delta{display:inline-flex;align-items:center;gap:2px;font-size:var(--fs-xs);font-weight:var(--fw-medium);color:var(--text-muted)}
+.ui-kpi-delta[data-tone="good"]{color:var(--ok-text)}
+.ui-kpi-delta[data-tone="bad"]{color:var(--danger-text)}
+
+@media (prefers-reduced-motion:reduce){.ui-barlist-fill,.ui-share-seg{transition:none}}
+@media (forced-colors:active){.ui-chart-line{stroke:CanvasText}.ui-barlist-fill,.ui-share-seg,.ui-legend-key{forced-color-adjust:none}}

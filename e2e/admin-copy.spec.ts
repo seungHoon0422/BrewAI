@@ -9,14 +9,15 @@ test('copy.ts 문구에 가운뎃점 구분자가 없다 (주석은 빼고)', ()
   expect(separatorsInCopy()).toEqual([]);
 });
 
-test('관리자 화면에 가운뎃점이 없다: 개요 · 모델 목록 · 모델 추가 · 모델 자세히 · 사용자 탭 넷 · 카탈로그', async ({ page }) => {
+test('관리자 화면에 가운뎃점이 없다: 개요 · 사용량 · 모델 목록 · 모델 추가 · 모델 자세히 · 사용자 탭 넷 · 카탈로그', async ({ page }) => {
   const look = async (hash: string, ready: () => Promise<void>) => {
     await page.goto(`/#/${hash}`);
     await ready();
     expect(await separatorsOnScreen(page), hash).toEqual([]);
   };
-  const gateway = page.locator('.stat').filter({ has: page.locator('dt', { hasText: /^게이트웨이$/ }) });
-  await look('overview', () => expect(gateway.locator('.v')).toHaveText('연결됨'));
+  const gateway = page.getByRole('region', { name: '게이트웨이', exact: true });
+  await look('overview', () => expect(gateway.locator('.ov-gw-status')).toHaveText('연결됨'));
+  await look('usage', () => expect(page.locator('[data-kpi="runs"]')).toBeVisible());
   await look('models', () => expect(page.getByRole('table', { name: '모델 목록' }).locator('tbody tr[data-model="fake-chat-small"]')).toBeVisible());
   await look('models/add', () => expect(h1(page)).toBeVisible());
   await look('models/fake-chat-small', () => expect(page.locator('.mhead')).toBeVisible());

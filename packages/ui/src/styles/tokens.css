@@ -30,6 +30,11 @@
   --glass-edge:linear-gradient(180deg,rgba(255,255,255,.95),rgba(0,0,0,.07) 55%,rgba(0,0,0,.11));
   --glass-lift:0 1px 2px rgba(0,0,0,.04),0 6px 18px rgba(0,0,0,.06);
   --glass-sheen-mix:7%;
+  /* 데이터 색 (차트 마크에만 — 막대 · 선 · 점 · 범례 견본. 글자 · 면 · 상태에는 쓰지 않는다). 색 = 상태만 규칙(ADR-0012)의 유일한 예외.
+     순서 고정 (1 = 파랑 → 8 = 빨강 · 돌려쓰지 않는다 · 9번째부터 = other). dataviz 검사(흰 면): 인접 색맹 ΔE ≥ 9.1 · 정상 ≥ 19.6 ·
+     3·4·5번은 3:1 아래 → 범례 · 값 글 · 표 보기가 늘 같이 있다. grid = 눈금선 · axis = 기준선 · other = 기타 · 쉼 */
+  --viz-1:#2a78d6; --viz-2:#eb6834; --viz-3:#1baf7a; --viz-4:#eda100; --viz-5:#e87ba4; --viz-6:#008300; --viz-7:#6250d6; --viz-8:#e34948;
+  --viz-other:#a1a1a6; --viz-grid:#efeff1; --viz-axis:#d6d6da;
 }
 
 /* ① 다크 (OS 설정 · 강제) — 두 덩어리 값이 같아야 한다 */
@@ -51,6 +56,8 @@
     --glass-edge:linear-gradient(180deg,rgba(255,255,255,.2),rgba(255,255,255,.05) 55%,rgba(255,255,255,.03));
     --glass-lift:0 1px 2px rgba(0,0,0,.3),0 6px 18px rgba(0,0,0,.28);
     --glass-sheen-mix:8%;
+    --viz-1:#3987e5; --viz-2:#d95926; --viz-3:#199e70; --viz-4:#c98500; --viz-5:#d55181; --viz-6:#008300; --viz-7:#9085e9; --viz-8:#e66767;
+    --viz-other:#6c6c72; --viz-grid:#2c2c30; --viz-axis:#3c3c42;
   }
 }
 [data-theme="dark"]{
@@ -70,6 +77,8 @@
   --glass-edge:linear-gradient(180deg,rgba(255,255,255,.2),rgba(255,255,255,.05) 55%,rgba(255,255,255,.03));
   --glass-lift:0 1px 2px rgba(0,0,0,.3),0 6px 18px rgba(0,0,0,.28);
   --glass-sheen-mix:8%;
+  --viz-1:#3987e5; --viz-2:#d95926; --viz-3:#199e70; --viz-4:#c98500; --viz-5:#d55181; --viz-6:#008300; --viz-7:#9085e9; --viz-8:#e66767;
+  --viz-other:#6c6c72; --viz-grid:#2c2c30; --viz-axis:#3c3c42;
 }
 
 /* ② 계산하는 값 — var() 는 선언한 요소에서 풀린다 → data-theme 를 붙인 요소마다 다시 계산 */

@@ -8,6 +8,7 @@ const NAV = '관리 메뉴';
 const MENU: MenuItem[] = [
   { id: 'overview', label: '개요' },
   { id: 'models', label: '모델' },
+  { id: 'usage', label: '사용량' },
   { id: 'catalog', label: '카탈로그' },
   { id: 'approvals', label: '승인 기록' },
   { id: 'traces', label: '트레이스' },

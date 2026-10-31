@@ -3,6 +3,9 @@
 POST /api/chat 본문 = AG-UI RunAgentInput, 응답 = AG-UI SSE. 이벤트 순서 (계약 · docs 는 app.py 머리말):
   RUN_STARTED → CUSTOM brewai.run → (STEP_STARTED thinking → REASONING_* → STEP_FINISHED)?
   → (STEP_STARTED tool:<name> → TOOL_CALL_START/ARGS/END → TOOL_CALL_RESULT → STEP_FINISHED)*
+  병렬 툴 = 한 모델 응답에 tool_calls 여럿 → 단계가 겹친다: STEP_STARTED a · START/ARGS/END a · STEP_STARTED b · … → 둘이 동시에 돌고
+  결과는 끝나는 순서대로 (TOOL_CALL_RESULT x → STEP_FINISHED x). 순서 보장 = 같은 call id 안에서만 (START → ARGS → END → RESULT).
+  단계 기록(steps)의 툴 단계엔 call_id · batch (같은 응답 = 같은 batch) — 화면이 '동시에 n개' 로 묶는다. 동시 실행 상한 · 툴 시간 제한은 아래 상수.
   → STEP_STARTED writing → TEXT_MESSAGE_START/CONTENT…/END → STEP_FINISHED → CUSTOM brewai.run_summary → RUN_FINISHED
   스킬 = (STEP_STARTED skill:<스킬> → TOOL_CALL_START use_skill …/RESULT → STEP_FINISHED) — 툴 단계 이름이 tool:use_skill 대신 skill:<이름>
   실패 = … → STEP_FINISHED → RUN_ERROR {code, message, detail?} (마지막 이벤트. detail = diagnose.py DETAILS · 화면 안내용)
@@ -20,12 +23,13 @@ POST /api/chat 본문 = AG-UI RunAgentInput, 응답 = AG-UI SSE. 이벤트 순�
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
 import time
 from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Sequence
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, field, replace
 from typing import Any, Literal, Protocol
 
@@ -40,9 +44,10 @@ from ag_ui.core import (
 )
 from openai import APIConnectionError, APIStatusError, AsyncOpenAI
 from pydantic import ValidationError
-from pydantic_ai import Agent, FunctionToolset, Tool
+from pydantic_ai import Agent, FunctionToolset, RunContext, Tool
 from pydantic_ai.exceptions import ModelConnectionError, ModelHTTPError, UsageLimitExceeded
 from pydantic_ai.messages import (
+    INTERRUPTED_TOOL_RETURN_CONTENT,
     ModelMessage,
     ModelMessagesTypeAdapter,
     ModelRequest,
@@ -59,6 +64,8 @@ from pydantic_ai.models.openai import OpenAIChatModel, OpenAIChatModelSettings
 from pydantic_ai.models.wrapper import WrapperModel
 from pydantic_ai.providers.litellm import LiteLLMProvider
 from pydantic_ai.settings import ModelSettings
+from pydantic_ai.tool_manager import ParallelExecutionMode, ToolManager
+from pydantic_ai.toolsets import AbstractToolset, ToolsetTool, WrapperToolset
 from pydantic_ai.ui.ag_ui import AGUIAdapter, AGUIEventStream
 from pydantic_ai.usage import UsageLimits
 from starlette.requests import Request
@@ -76,6 +83,8 @@ INSTRUCTIONS = (
     "너는 BrewAI 의 conductor 에이전트다. 한국어로 짧고 정확하게 답한다. "
     "숫자 계산은 calculator, 단위 환산은 unit_convert, 날짜 차이·며칠 뒤·요일은 date_calc, 글자 수는 text_stats, "
     "오늘 날짜·지금 시각은 current_time 도구로 확인한 뒤 답한다 (암산·추측하지 않는다). "
+    "서로의 결과가 필요 없는 도구 호출은 한 번에 같이 부른다 (예: 두 도시의 시각 = current_time 두 번을 한 응답에 · 동시에 돈다). "
+    "앞 도구의 결과가 있어야 하는 호출만 차례로 부른다. "
     "앞선 대화를 기억하고 이어서 답한다."
 )
 
@@ -87,6 +96,14 @@ REASONING_EFFORT: dict[str, Literal["medium", "high"]] = {"low": "medium", "high
 MAX_MODEL_REQUESTS = 8  # 툴 왕복 포함 한 실행의 모델 호출 상한 (무한 툴 루프 방지)
 MAX_PROMPT_CHARS = 32_000
 THINKING_MAX_TOKENS = 16_000  # Anthropic thinking 은 max_tokens > budget 이어야 한다 (LiteLLM high = 4096)
+# 병렬 툴: 모델이 한 응답에 툴을 여럿 부르면 동시에 돌린다 (Pydantic AI 기본값이지만 여기서 못 박는다 · 결과는 끝나는 대로).
+# 한 실행에서 동시에 도는 툴은 MAX_PARALLEL_TOOLS 개까지 (나머지는 줄 서서 기다린다 · 기다리는 시간은 시간 제한에 안 든다).
+# 툴 하나가 TOOL_TIMEOUT_S 를 넘기면 모델에게 '시간 초과' 재시도 안내가 간다 (Pydantic AI FunctionToolset timeout → ModelRetry)
+TOOL_EXECUTION: ParallelExecutionMode = "parallel"
+MAX_PARALLEL_TOOLS = 4
+TOOL_TIMEOUT_S = 20.0
+# 실행이 오류 · 취소로 끝날 때 Pydantic AI 가 아직 결과 없는 툴마다 보내는 마감 결과 (ui/_event_stream.py) → 그 툴 단계는 완료가 아니다
+_CLOSEOUT = {"Tool execution was interrupted by an error.": "error", INTERRUPTED_TOOL_RETURN_CONTENT: "cancelled"}
 PROBE_MAX_TOKENS = 16  # 관리자 '연결 시험' (LiteLLM 자체 health check 기본값과 같다. 1 은 생각 모델에서 거절될 수 있다)
 _ID = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 
@@ -262,7 +279,23 @@ def build_toolset(specs: Sequence[ToolSpec]) -> FunctionToolset[None]:
             for s in specs
         ],
         max_retries=1,
+        timeout=TOOL_TIMEOUT_S,
     )
+
+
+@dataclass
+class _Bounded(WrapperToolset[None]):
+    """동시 실행 상한: 한 실행(run)의 툴 호출은 gate 개수만큼만 동시에 돈다. 실행마다 새로 만든다 (실행끼리 막지 않게)."""
+
+    gate: asyncio.Semaphore = field(default_factory=lambda: asyncio.Semaphore(MAX_PARALLEL_TOOLS))
+
+    async def call_tool(self, name: str, tool_args: dict[str, Any], ctx: RunContext[None], tool: ToolsetTool[None]) -> Any:
+        async with self.gate:
+            return await self.wrapped.call_tool(name, tool_args, ctx, tool)
+
+
+def bounded(toolset: AbstractToolset[None], limit: int | None = None) -> _Bounded:
+    return _Bounded(toolset, gate=asyncio.Semaphore(limit or MAX_PARALLEL_TOOLS))
 
 
 def load_history(blobs: Sequence[str]) -> list[ModelMessage]:
@@ -296,6 +329,7 @@ def render_run(blob: str | None) -> dict[str, Any]:
     """저장된 실행 하나 → 화면용 답 (GET /api/threads/{id}). parts = 생각 · 툴 · 글 을 나온 순서대로."""
     parts: list[dict[str, Any]] = []
     tools: dict[str, dict[str, Any]] = {}
+    batch = 0  # 툴을 부른 모델 응답 번호 (같은 응답의 툴 = 같은 batch = 동시에 돌았다)
     if blob:
         try:
             messages = ModelMessagesTypeAdapter.validate_json(blob)
@@ -303,6 +337,8 @@ def render_run(blob: str | None) -> dict[str, Any]:
             messages = []
         for m in messages:
             if isinstance(m, ModelResponse):
+                if any(isinstance(p, ToolCallPart) for p in m.parts):
+                    batch += 1
                 for p in m.parts:
                     if isinstance(p, ThinkingPart) and p.content:
                         if parts and parts[-1]["type"] == "reasoning":
@@ -317,7 +353,7 @@ def render_run(blob: str | None) -> dict[str, Any]:
                     elif isinstance(p, ToolCallPart):
                         tool = {
                             "type": "tool", "id": p.tool_call_id, "name": p.tool_name, "label": tool_label(p.tool_name),
-                            "args": p.args_as_dict(), "result": None, "status": "running",
+                            "args": p.args_as_dict(), "result": None, "status": "running", "batch": batch,
                         }
                         tools[p.tool_call_id] = tool
                         parts.append(tool)
@@ -336,13 +372,17 @@ def render_run(blob: str | None) -> dict[str, Any]:
 
 @dataclass
 class _Activity:
-    """AG-UI 이벤트를 보며 단계(생각 → 툴 → 쓰기)를 만든다. STEP_STARTED/FINISHED 를 끼워 넣고 sink 에 남긴다."""
+    """AG-UI 이벤트를 보며 단계(생각 → 툴 → 쓰기)를 만든다. STEP_STARTED/FINISHED 를 끼워 넣고 sink 에 남긴다.
+    생각 · 쓰기 = 한 번에 하나. 툴(스킬) 단계 = 동시에 여럿 열릴 수 있다 (병렬 툴): 그 툴의 결과가 오면 닫힌다.
+    열린 툴 단계가 없을 때 새 툴 단계가 열리면 batch +1 (한 모델 응답의 툴 호출은 결과보다 먼저 다 온다 → 같은 batch)."""
 
     sink: RunSink
     labels: dict[str, str] = field(default_factory=dict)  # 스킬 이름 → 화면 이름 (skill:<이름> 단계)
     started: float = field(default_factory=time.monotonic)
     steps: list[dict[str, Any]] = field(default_factory=list)
-    key: str | None = None
+    opened: dict[str, int] = field(default_factory=dict)  # 열린 단계 key → steps 위치 (열린 순서)
+    calls: dict[str, str] = field(default_factory=dict)  # 툴 call id → 단계 key
+    batch: int = 0
     status: Literal["done", "error", "cancelled"] = "cancelled"
     code: str | None = "client_disconnected"
     detail: str | None = None
@@ -353,33 +393,63 @@ class _Activity:
     def _ms(self) -> int:
         return int((time.monotonic() - self.started) * 1000)
 
-    def open(self, key: str, name: str) -> list[BaseEvent]:
-        out = self.close("done")
-        self.key = key
-        self.steps.append(
-            {"name": name, "label": step_label(name, self.labels), "status": "running", "started_ms": self._ms(), "duration_ms": None}
-        )
-        out.append(StepStartedEvent(step_name=name))
+    def is_open(self, key: str) -> bool:
+        return key in self.opened
+
+    def _record(self) -> None:
         try:
             self.sink.steps_changed(self.steps)
         except Exception:  # 진행 상황 기록 실패가 대화를 막지 않게
             log.exception("failed to record run steps")
+
+    def open(self, key: str, name: str, call_id: str | None = None) -> list[BaseEvent]:
+        """단계를 연다. call_id 가 있으면 툴 단계 = 다른 툴 단계는 열어 둔다 (동시에 돈다) · 생각 · 쓰기만 닫는다."""
+        tool = call_id is not None
+        out = self.close_all("done", keep_tools=tool)
+        if tool and not any("call_id" in self.steps[i] for i in self.opened.values()):
+            self.batch += 1
+        step: dict[str, Any] = {
+            "name": name, "label": step_label(name, self.labels), "status": "running", "started_ms": self._ms(), "duration_ms": None,
+        }
+        if tool:
+            step |= {"call_id": call_id, "batch": self.batch}
+            self.calls[call_id] = key
+        self.opened[key] = len(self.steps)
+        self.steps.append(step)
+        out.append(StepStartedEvent(step_name=name))
+        self._record()
         return out
 
-    def close(self, status: str) -> list[BaseEvent]:
-        if self.key is None:
+    def close(self, key: str, status: str) -> list[BaseEvent]:
+        i = self.opened.pop(key, None)
+        if i is None:
             return []
-        step = self.steps[-1]
+        step = self.steps[i]
         step.update(status=status, duration_ms=self._ms() - step["started_ms"])
-        self.key = None
         return [StepFinishedEvent(step_name=step["name"])]
+
+    def close_call(self, call_id: str, status: str = "done") -> list[BaseEvent]:
+        """툴 결과가 왔다 → 그 툴 단계만 닫는다 (같은 batch 의 다른 툴은 아직 돌 수 있다)."""
+        key = self.calls.pop(call_id, None)
+        out = self.close(key, status) if key else []
+        if out:
+            self._record()
+        return out
+
+    def close_all(self, status: str, *, keep_tools: bool = False) -> list[BaseEvent]:
+        """열린 단계를 연 순서대로 닫는다. keep_tools = 생각 · 쓰기만 닫고 툴 단계는 둔다 (툴 단계는 그 결과가 닫는다)."""
+        out: list[BaseEvent] = []
+        for key in list(self.opened):
+            if keep_tools and "call_id" in self.steps[self.opened[key]]:
+                continue
+            out += self.close(key, status)
+        return out
 
     def finish(self) -> None:
         if self.closed:
             return
         self.closed = True
-        if self.key is not None:
-            self.close("cancelled" if self.status == "cancelled" else ("error" if self.status == "error" else "done"))
+        self.close_all("cancelled" if self.status == "cancelled" else ("error" if self.status == "error" else "done"))
         try:
             self.sink.finish(
                 status=self.status, steps=self.steps, duration_ms=self._ms(),
@@ -433,10 +503,13 @@ class _RunStream:
                 name = None
             name = name.strip() if isinstance(name, str) else ""
             step = f"skill:{name if SKILL_NAME_RE.match(name) else 'unknown'}"
-            out = [*act.open(f"{step}#{skill['id']}", step), *skill["events"]]
+            out = [*act.open(f"{step}#{skill['id']}", step, skill["id"]), *skill["events"]]
             skill = None
             return out
 
+        # 병렬 툴 실행을 이 실행에 못 박는다 (컨텍스트 변수 · 툴 태스크가 물려받는다). 다른 컨텍스트에서 닫혀도(GC) 실패하지 않게
+        mode = ToolManager.parallel_execution_mode(TOOL_EXECUTION)
+        mode.__enter__()
         try:
             async for ev in events:
                 t = ev.type
@@ -466,19 +539,22 @@ class _RunStream:
                 post: list[BaseEvent] = []
                 if t == EventType.RUN_STARTED:
                     post.append(CustomEvent(name="brewai.run", value=meta))
-                elif t == EventType.REASONING_START and act.key != "thinking":
+                elif t == EventType.REASONING_START and not act.is_open("thinking"):
                     pre = act.open("thinking", "thinking")
                 elif t == EventType.TOOL_CALL_START:
                     name = f"tool:{ev.tool_call_name}"  # type: ignore[attr-defined]
-                    pre = act.open(f"{name}#{ev.tool_call_id}", name)  # type: ignore[attr-defined]
-                elif t == EventType.TEXT_MESSAGE_CONTENT and act.key != "writing":
+                    pre = act.open(f"{name}#{ev.tool_call_id}", name, ev.tool_call_id)  # type: ignore[attr-defined]
+                elif t == EventType.TOOL_CALL_RESULT:
+                    closeout = _CLOSEOUT.get(getattr(ev, "content", None) or "")
+                    post = act.close_call(ev.tool_call_id, closeout or "done")  # type: ignore[attr-defined]
+                elif t == EventType.TEXT_MESSAGE_CONTENT and not act.is_open("writing"):
                     pre = act.open("writing", "writing")
                 elif t == EventType.RUN_FINISHED:
-                    pre = act.close("done")
+                    pre = act.close_all("done")
                     act.status, act.code = "done", None
                     pre.append(CustomEvent(name="brewai.run_summary", value=act.summary(run_id, model)))
                 elif t == EventType.RUN_ERROR:
-                    pre = act.close("error")
+                    pre = act.close_all("error")
                     act.status, act.code = "error", getattr(ev, "code", None) or "model_error"
                     act.detail = getattr(ev, "detail", None)
                 for e in (*pre, *held, ev, *post):
@@ -488,6 +564,8 @@ class _RunStream:
                 for e in open_skill():
                     yield e
         finally:
+            with suppress(ValueError):  # 연 컨텍스트와 다른 곳(GC 의 aclose)에서 닫히면 reset 이 ValueError
+                mode.__exit__(None, None, None)
             act.finish()
 
 
@@ -660,7 +738,7 @@ class ChatRuntime:
             message_history=history,
             instructions=scope.instructions,
             model_settings=settings,
-            toolsets=[self._toolset] if model.supports_tools else None,
+            toolsets=[bounded(self._toolset)] if model.supports_tools else None,  # 실행마다 동시 실행 상한
             usage_limits=UsageLimits(request_limit=MAX_MODEL_REQUESTS),
             on_complete=on_complete,
         )

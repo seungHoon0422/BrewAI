@@ -112,7 +112,8 @@ function historyAnswer(m: HistoryAssistant): Answer {
     if (p.type === 'text') return { kind: 'text', id: `${m.id}:t${i}`, text: p.text };
     return {
       kind: 'tool', id: p.id || `${m.id}:tool${i}`, name: p.name, label: p.label, argsText: JSON.stringify(p.args ?? {}),
-      args: p.args, result: p.result, status: p.status === 'running' ? 'done' : p.status, ms: null, at: 0,
+      args: p.args, result: p.result, status: p.status === 'running' ? 'done' : p.status, ms: null, at: 0, ready: null,
+      batch: p.batch ?? -(i + 1), // 옛 기록(batch 없음) = 도구마다 따로
     };
   });
   return {

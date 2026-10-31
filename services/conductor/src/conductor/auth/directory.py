@@ -336,6 +336,11 @@ class Directory:
         adopted = db.execute(
             "UPDATE threads SET space_id = ?, user_id = ?, visibility = 'private' WHERE space_id IS NULL", (personal, user_id)
         ).rowcount
+        # 사용량 줄도 같이 (v3 채우기는 첫 관리자보다 먼저 돈다 → 옛 실행 줄이 '알 수 없음' 에 남지 않게). runs 를 바꾸기 전에
+        db.execute(
+            "UPDATE usage_events SET space_id = ?, user_id = ?, org_id = ?"
+            " WHERE space_id IS NULL AND run_id IN (SELECT id FROM runs WHERE space_id IS NULL)", (personal, user_id, org_id),
+        )
         db.execute("UPDATE runs SET space_id = ?, user_id = ?, org_id = ? WHERE space_id IS NULL", (personal, user_id, org_id))
         return user_id, adopted
 

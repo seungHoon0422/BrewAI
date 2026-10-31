@@ -1,46 +1,66 @@
-// 개요 화면 문구. 카드 라벨 · 값은 E2E 가 읽는다 (e2e/admin-models.spec.ts '개요: …')
+// 개요 화면 문구 = 운영자가 보는 한 장 (사용량 흐름 · 조직 · 모델 비중 · 게이트웨이 · 사람 수 · 바로 가기). 개발 진행은 문서 메뉴에만.
+// 카드 이름 · 값은 E2E 가 읽는다 (e2e/admin-usage.spec.ts · admin-models.spec.ts)
 import type { IconName } from '@brewai/ui';
-import type { LoadError } from '../../shared/http';
+import { MENU_COPY } from '../../app/copy';
+import type { RouteId } from '../../app/routes';
+import { KIND_LABEL } from '../scope/copy';
 
-export type Stat = { label: string; value: string; sub: string; icon: IconName };
-
-export const GATEWAY = '게이트웨이';
-export const EXPOSED = '노출 모델';
-
-export const GATEWAY_DOWN: Record<LoadError, { value: string; sub: string }> = {
-  conductor: { value: 'conductor 꺼짐', sub: 'npm run api 로 켜기' },
-  gateway: { value: '꺼짐', sub: 'LiteLLM, npm run gateway 로 켜기' },
-  gateway_error: { value: '오류', sub: 'LiteLLM 이 오류를 냈어요. 게이트웨이 로그 확인' },
-  gateway_auth: { value: '인증 실패', sub: '.env 의 LITELLM_MASTER_KEY 확인' },
-  server: { value: '확인 실패', sub: '모델 목록을 읽지 못했어요' },
-};
+const ORG = KIND_LABEL.org;
+const SPACE = KIND_LABEL.space;
 
 export const OVERVIEW_COPY = {
-  checking: '확인 중…',
+  period: '기간',
+  toUsage: '사용량 자세히',
+  orgs: `${ORG}별 사용량`,
+  orgsHint: `호출 수, 눌러서 그 ${ORG} 사용량`,
+  orgsEmpty: `이 기간에 호출한 ${ORG}이 없어요`,
+  models: '모델별 비중',
+  modelsHint: '호출 수, 눌러서 모델 자세히',
+  modelsOther: (n: number) => `기타 ${n}개`,
+  // 게이트웨이 카드 (E2E: region '게이트웨이' · data-state)
+  gateway: '게이트웨이',
+  gatewayLink: '모델 보기',
   litellm: 'LiteLLM',
-  exposedLoading: '후보 0, 숨김 —',
-  afterGateway: '게이트웨이 연결 후',
-  connected: '연결됨',
-  gatewaySub: (models: number, providers: number) => `LiteLLM, 모델 ${models}개${providers > 1 ? `, 회사 ${providers}곳` : ''}`,
-  exposedSub: (candidates: number, hidden: number, missing: number) => `후보 ${candidates}, 숨김 ${hidden}${missing ? `, 사라짐 ${missing}` : ''}`,
-  mine: '내가 할 일',
-  confirm: '컨펌 필요',
-  toBoard: '문서 › 보드',
-  next: '다음에 채울 것',
+  lastSync: (ago: string) => `마지막 동기화 ${ago}`,
+  neverSynced: '아직 동기화 전',
+  modelCounts: { exposed: '노출', candidate: '후보', hidden: '숨김', missing: '사라짐', failing: '연결 실패' },
+  failingTitle: '살펴볼 모델',
+  failingHint: '기간 안에 실패가 있었거나 연결 테스트가 실패한 모델',
+  allHealthy: '기간 안에 실패한 모델이 없어요',
+  modelLine: (runs: string, rate: string) => `호출 ${runs}, 실패율 ${rate}`,
+  health: { ok: '정상', error: '연결 실패', unknown: '아직 모름' },
+  gatewayHow: {
+    down: 'LiteLLM 이 응답하지 않아요. npm run gateway 로 켜고 마지막으로 본 목록을 보여 줘요.',
+    error: 'LiteLLM 이 오류를 냈어요. 게이트웨이 로그를 확인해 주세요.',
+    auth: '.env 의 LITELLM_MASTER_KEY 를 확인해 주세요.',
+  },
+  // 사람 수 카드
+  people: `사용자와 ${ORG}`,
+  peopleLink: `사용자와 ${ORG} 보기`,
+  counts: {
+    users: '사용자',
+    usersSub: (active: number, disabled: number) => `활성 ${active}명${disabled ? `, 비활성 ${disabled}명` : ''}`,
+    orgs: ORG,
+    spaces: `공유 ${SPACE}`,
+    spacesSub: (personal: number, archived: number) => `내 ${SPACE} ${personal}개${archived ? `, 보관 ${archived}개` : ''}`,
+    active: '활성 사용자',
+    activeSub: (d30: number) => `최근 7일, 30일엔 ${d30}명`,
+    invites: '쓸 수 있는 초대 코드',
+  },
+  unit: { people: (n: number) => `${n}명`, count: (n: number) => `${n}개` },
+  // 바로 가기
+  links: '바로 가기',
+  later: '준비 중',
+  empty: '아직 사용 기록이 없어요',
+  emptyHow: '데스크톱 앱에서 대화를 하면 호출 수, 토큰, 비용이 여기에 흐름으로 쌓여요.',
 } as const;
 
-// 나머지는 아직 연결 전이라 0 · —
-export const LATER: Stat[] = [
-  { label: '승인 대기', value: '0', sub: 'P1-2 승인 카드부터', icon: 'shield' },
-  { label: '오늘 비용', value: '—', sub: 'Langfuse 연결 후 (P1-3)', icon: 'receipt' },
-];
-
-// docs/roadmap.json 완료 기준 id 와 맞춘다
-export const NEXT = [
-  { id: 'P1-2', what: '승인 기록', how: '승인 카드의 허용과 거절을 감사 기록으로' },
-  { id: 'P1-3', what: '트레이스', how: 'user.id, session.id 로 Langfuse trace 열기' },
-  { id: 'P2-1~2', what: '모델', how: '노출, 표시 이름, 순서, 기본 모델 편집 → 금요일 E2E 로 판정 (새 모델은 후보로 숨김)' },
-  { id: 'P2-3', what: '관리자 로그인', how: '사용자 앱과 따로 배포, 인증' },
-  { id: 'P3', what: '카탈로그', how: 'MCP, Skill 허용 목록, 버전/해시 고정' },
-  { id: 'P6', what: '사용자와 예산', how: '월 예산, 사용량, 정책' },
-];
+// 바로 가기 = 아직 화면만 있는 메뉴 · 설정 (누르면 그 메뉴로). 문서(개발 진행)는 사이드바에만
+export const QUICK_LINKS: readonly { id: RouteId; icon: IconName; label: string; desc: string; later?: true }[] = (
+  [
+    { id: 'approvals', icon: 'shield', later: true },
+    { id: 'traces', icon: 'waterfall', later: true },
+    { id: 'catalog', icon: 'box' },
+    { id: 'settings', icon: 'sliders' },
+  ] as const
+).map((l) => ({ ...l, ...MENU_COPY[l.id] }));

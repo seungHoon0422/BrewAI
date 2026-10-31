@@ -9,7 +9,7 @@ export const COPY = {
   themeLabel: '테마',
   sections: {
     color: '색', type: '글자', shape: '둥글기, 그림자, 유리', buttons: '버튼', inputs: '입력', choice: '고르기',
-    display: '배지, 점, 아바타', cards: '카드, 알림, 빈 상태', table: '표', overlays: '떠 있는 층', nav: '길 찾기', icons: '아이콘', wait: '기다림',
+    display: '배지, 점, 아바타', cards: '카드, 알림, 빈 상태', table: '표', overlays: '떠 있는 층', nav: '길 찾기', icons: '아이콘', wait: '기다림', charts: '차트',
   },
 } as const;
 
@@ -45,3 +45,19 @@ export const MODEL_CAPS = [
   { icon: 'bulb', label: '생각(추론)' },
   { icon: 'embed', label: '임베딩' },
 ] as const;
+
+// 차트 예시 (사용량 14일 · 조직 · 모델 비중) — 값은 지어낸 것
+export const CHART_DAYS = Array.from({ length: 14 }, (_, i) => `2026-10-${String(19 + i).padStart(2, '0')}`);
+export const CHART_RUNS = [12, 18, 15, 22, 30, 9, 7, 26, 34, 31, 40, 38, 14, 11];
+export const CHART_ERRORS = [1, 0, 2, 1, 3, 0, 0, 1, 2, 4, 1, 2, 0, 1];
+export const CHART_ORGS = [
+  { key: 'o1', label: '제품팀', sub: '멤버 12명', value: 1240 },
+  { key: 'o2', label: '데이터팀', sub: '멤버 5명', value: 610 },
+  { key: 'o3', label: '운영', sub: '멤버 3명', value: 95 },
+];
+export const CHART_MODELS = [
+  { key: 'claude-sonnet', label: 'Claude Sonnet', value: 820 },
+  { key: 'gpt-mini', label: 'GPT mini', value: 410 },
+  { key: 'gemini-flash', label: 'Gemini Flash', value: 160 },
+  { key: 'other', label: '기타 2개', value: 40 },
+];

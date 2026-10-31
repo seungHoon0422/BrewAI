@@ -19,7 +19,8 @@ export function toolRows(p: ToolPart): ToolRow[] {
   const K = TOOL.rows;
   const rows: ToolRow[] = [];
   if (p.name === 'calculator') rows.push({ k: K.expression, v: show(args?.expression) || p.argsText || '…', mono: true });
-  else if (p.name === 'current_time') rows.push({ k: K.timezone, v: show(args?.timezone) || TOOL.defaultTimezone });
+  // 인자가 아직 오는 중이면 기본 시간대로 채우지 않는다 (병렬로 두 번째 시각 호출이 '서울'로 잠깐 보이던 것)
+  else if (p.name === 'current_time') rows.push({ k: K.timezone, v: show(args?.timezone) || (p.status === 'running' && p.args === undefined ? '…' : TOOL.defaultTimezone) });
   else if (p.name === 'use_skill') rows.push({ k: K.skill, v: show(res?.label) || show(args?.name) || '…' });
   else if (p.name === 'unit_convert') rows.push({ k: K.convert, v: args ? `${show(args.value)} ${show(args.from_unit)} → ${show(args.to_unit)}` : p.argsText || '…', mono: true });
   else if (p.name === 'date_calc') rows.push({ k: K.calc, v: args ? [show(args.operation), show(args.date), show(args.other_date), args.days != null ? TOOL.days(show(args.days)) : ''].filter(Boolean).join(', ') : p.argsText || '…' });

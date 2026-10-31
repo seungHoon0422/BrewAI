@@ -15,6 +15,7 @@ import { ScopeBreadcrumb } from '../features/scope/components/ScopeBreadcrumb';
 import { ScopeProvider } from '../features/scope/context';
 import SettingsScreen from '../features/settings/components/SettingsScreen';
 import TracesScreen from '../features/traces/components/TracesScreen';
+import UsageScreen from '../features/usage/components/UsageScreen';
 import UsersScreen from '../features/users/components/UsersScreen';
 import { ToastProvider } from '../shared/toast';
 import { SHELL_COPY as C } from './copy';
@@ -25,6 +26,7 @@ import { MENU, hrefOf, restOf, routeFromHash, type RouteId } from './routes';
 const SCREENS: Record<RouteId, ComponentType> = {
   overview: OverviewScreen,
   models: ModelsScreen,
+  usage: UsageScreen,
   catalog: CatalogScreen,
   approvals: ApprovalsScreen,
   traces: TracesScreen,

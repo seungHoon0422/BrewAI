@@ -6,8 +6,10 @@ import { TOOL, TRACE } from '../copy';
 import type { ToolPart } from '../model';
 import { TOOL_ICON, TOOL_STATE_ICON, toolRows } from '../tools';
 
-export function ToolCard({ p }: { p: ToolPart }) {
+// took = 보여 줄 시간 글 (병렬 묶음 = 실행 시간 · 없으면 부르기 시작 ~ 결과)
+export function ToolCard({ p, took }: { p: ToolPart; took?: string }) {
   const icon = TOOL_STATE_ICON[p.status];
+  const tm = took ?? (p.ms != null ? seconds(p.ms) : '');
   return (
     <div className="tp-tool" data-kind="tool" data-state={p.status} data-tool={p.name} role="group"
       aria-label={p.name === 'use_skill' ? TOOL.skillGroup : TOOL.group(p.label)}>
@@ -18,7 +20,7 @@ export function ToolCard({ p }: { p: ToolPart }) {
         <span className="tst">
           {p.status === 'running' ? <Spinner size="xs" /> : icon && <Icon name={icon} size="sm" />}
           <span>{TOOL.state[p.status]}</span>
-          {p.ms != null && p.status !== 'running' && <span className="tm ui-num">{seconds(p.ms)}</span>}
+          {p.status !== 'running' && tm && <span className="tm ui-num">{tm}</span>}
         </span>
       </div>
       <dl>

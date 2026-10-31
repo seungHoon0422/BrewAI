@@ -12,6 +12,13 @@
 .sg .ui-icon{color:var(--text-faint)}
 .sg:hover .ui-icon{color:var(--text-2)}
 .sg .need{margin-left:auto;font-size:var(--fs-xs);color:var(--text-muted)}
+.sg .sg-t{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* 도구 시험 = 작은 묶음 머리 + 같은 줄 모양 */
+.suggest-h{margin:var(--space-1) 0 var(--space-0-5);padding:0 var(--space-3);font-size:var(--fs-xs);font-weight:var(--fw-medium);color:var(--text-faint);letter-spacing:var(--tracking-title)}
+.suggest-box>.suggest:last-child{margin-bottom:var(--space-3)}
+.suggest-box>.suggest:first-child{margin-bottom:var(--space-1)}
+/* 홈을 떠날 때 그 자리에 남기는 복제본 (motion.ts · 그림만 · 누르기 없음) */
+.home-ghost{position:fixed;margin:0;box-sizing:border-box;pointer-events:none;z-index:var(--z-sticky)}
 
 /* 입력창 = 회색 받침(위 줄) + 흰 상자 */
 .composer{position:relative;background:var(--surface-sunken);border-radius:var(--radius-2xl)}
@@ -41,6 +48,10 @@
 .col{width:min(var(--width-read),calc(100% - 64px));margin:0 auto}
 .dock2{padding:var(--space-2) 0 var(--space-4)}
 .enter{animation:ui-fade var(--dur-slow) var(--ease-out)}
+/* 새 질문 말풍선 = 아래(입력창 쪽)에서 떠오른다 */
+.msg.user.enter{animation:bubble-in var(--dur-slow) var(--ease-standard)}
+.msg.user .bubble{transform-origin:100% 100%}
+@keyframes bubble-in{from{opacity:0;transform:translateY(14px) scale(.98)}}
 
 /* 메시지 */
 .msg{margin:0 0 var(--space-4)}
@@ -173,6 +184,20 @@
 .tp-tool dd.mono{font-family:var(--font-mono);font-size:var(--fs-xs)}
 .tp-tool .err dd{color:var(--danger-text)}
 
+/* 동시에 돈 도구 묶음 = 머리 줄 · 시간 막대(도구마다 시작 ~ 끝) · 카드들. 왼쪽 선으로 한 묶음임을 보인다 */
+.tp-par{display:grid;gap:var(--space-1-5);padding-left:var(--space-2-5);border-left:2px solid var(--border)}
+.tp-par-h{display:flex;align-items:center;gap:var(--space-1-5);margin:0;font-size:var(--fs-xs);font-weight:var(--fw-semibold);color:var(--text-2);min-width:0}
+.tp-par-h .ui-icon{color:var(--text-muted);flex:none}
+.tp-par-meta{margin-left:var(--space-1);font-weight:var(--fw-regular);color:var(--text-muted)}
+.tp-par-list{list-style:none;margin:0;padding:0;display:grid;gap:var(--space-1-5)}
+.tp-lanes{list-style:none;margin:0 0 var(--space-0-5);padding:0;display:grid;gap:3px}
+.tp-lane{position:relative;height:4px;border-radius:var(--radius-pill);background:var(--surface-chip)}
+/* 앞 칸 = 모델이 부르는 중 (옅게 · 도구마다 엇갈림) · 뒤 칸 = 실행 (진하게 · 같은 자리에서 같이 시작 = 동시에) */
+.tp-lane i{position:absolute;top:0;bottom:0;border-radius:inherit}
+.tp-lane .call{left:calc(var(--from) * 100%);width:calc((var(--go) - var(--from)) * 100%);background:var(--border-strong);opacity:.45}
+.tp-lane .run{left:calc(var(--go) * 100%);width:calc((var(--to) - var(--go)) * 100%);min-width:3px;background:var(--text-2)}
+.tp-lane[data-running="true"] .run{background:var(--text-faint)}
+
 @keyframes breath{0%,100%{opacity:.3}50%{opacity:1}}
 @keyframes blink{50%{opacity:0}}
 @media (prefers-reduced-motion: reduce){
@@ -182,6 +207,7 @@
   .breath i{animation:none;opacity:.7}
   .caret{display:none}
   .md-w{animation:none}
+  .msg.user.enter{animation:none}
 }
 
 /* 프로젝트 화면 대화 목록 — 줄 하나 = 버튼 하나 (rows 상자 안) */

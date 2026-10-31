@@ -16,7 +16,8 @@ import { Avatar, Badge, Callout, Card, CardHeader, Chip, EmptyState, Kbd, KeyVal
 import { Table, type Column, type SortState } from '../table';
 import { Breadcrumb, PageHeader, Tabs, Toolbar, ToolbarSpacer } from '../navigation';
 import { kindIcon } from '../scope';
-import { COPY, KIND_LABEL, LONG_PATH, MODEL_CAPS, MODELS, SCOPE_PATH, STATE_TEXT, type SampleModel } from './copy';
+import { BarList, ShareBar, StatTile, TimeSeriesChart, deltaOf, vizSlot } from '../charts';
+import { CHART_DAYS, CHART_ERRORS, CHART_MODELS, CHART_ORGS, CHART_RUNS, COPY, KIND_LABEL, LONG_PATH, MODEL_CAPS, MODELS, SCOPE_PATH, STATE_TEXT, type SampleModel } from './copy';
 
 type ThemeMode = 'both' | 'light' | 'dark';
 
@@ -81,6 +82,7 @@ function Showcase() {
       <DisplayBits />
       <Cards />
       <TableDemo />
+      <Charts />
       <Overlays />
       <Nav />
       <Icons />
@@ -94,6 +96,7 @@ const SWATCHES = [
   ['surface-app', 'surface', 'surface-sunken', 'surface-chip', 'surface-hover', 'surface-active'],
   ['text', 'text-2', 'text-muted', 'text-faint', 'border-strong', 'border', 'border-subtle'],
   ['accent', 'info', 'ok', 'warn', 'danger', 'info-soft', 'ok-soft', 'warn-soft', 'danger-soft'],
+  ['viz-1', 'viz-2', 'viz-3', 'viz-4', 'viz-5', 'viz-6', 'viz-7', 'viz-8', 'viz-other', 'viz-grid', 'viz-axis'],
 ];
 const TYPE = ['2xs', 'xs', 'sm', 'base', 'md', 'lg', 'xl', '2xl'];
 const RADII = ['sm', 'md', 'lg', 'xl', '2xl', 'pill'];
@@ -355,6 +358,31 @@ function TableDemo() {
       <Table label="빈 표" density="compact" columns={columns.slice(0, 2)} rows={[]} rowKey={(m) => m.id}
         empty={<EmptyState variant="plain" title="조건에 맞는 모델이 없어요">검색어를 지워 보세요.</EmptyState>} />
       <Table label="불러오는 표" density="compact" columns={columns.slice(0, 2)} rows={[]} rowKey={(m) => m.id} loading />
+    </Sec>
+  );
+}
+
+/* 차트 (인라인 SVG · 축 하나 · 색 = --viz-N 순서 고정 · 표 보기) */
+const dayLabel = (d: string) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;
+
+function Charts() {
+  const half = CHART_RUNS.length / 2;
+  const sum = (a: readonly number[]) => a.reduce((n, v) => n + v, 0);
+  const now = sum(CHART_RUNS.slice(half));
+  const before = sum(CHART_RUNS.slice(0, half));
+  return (
+    <Sec title={COPY.sections.charts}>
+      <div className="gal-stats">
+        <StatTile label="호출 수" value={now.toLocaleString('ko-KR')} delta={deltaOf(now, before)} sub="지난 7일 대비" trend={CHART_RUNS.slice(half)} icon="chat" href="#/ui" />
+        <StatTile label="실패율" value="3.1%" delta={deltaOf(4, 3, { upIsGood: false })} trend={CHART_ERRORS.slice(half)} icon="alert" />
+        <StatTile label="추정 비용" value="$1.24" sub="가격 모르는 모델 제외" icon="receipt" />
+      </div>
+      <TimeSeriesChart label="호출 추이" x={CHART_DAYS} xLabel={dayLabel} area
+        series={[{ id: 'runs', label: '호출', values: CHART_RUNS, color: 1 }, { id: 'errors', label: '실패', values: CHART_ERRORS, color: 2 }]} />
+      <TimeSeriesChart label="한 계열" x={CHART_DAYS.slice(0, 7)} xLabel={dayLabel} height={120} area
+        series={[{ id: 'tokens', label: '토큰', values: [1200, 3400, 2100, 0, 5100, 4300, 3900], color: 1 }]} />
+      <BarList label="조직별 호출" items={CHART_ORGS.map((o) => ({ ...o, href: '#/ui', aside: `${Math.round((o.value / 1945) * 100)}%` }))} />
+      <ShareBar label="모델별 비중" items={CHART_MODELS.map((m, i) => ({ ...m, color: m.key === 'other' ? 'other' : vizSlot(i) }))} />
     </Sec>
   );
 }

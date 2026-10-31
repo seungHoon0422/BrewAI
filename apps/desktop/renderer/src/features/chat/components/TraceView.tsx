@@ -4,14 +4,15 @@
 // 패널 = 나온 순서대로 생각 블록(조용한 글 · 왼쪽 선)과 도구 블록(카드: 이름 · 입력 · 결과 · 상태)이 확실히 다르게.
 // 생각 글과 도구 카드는 줄을 눌러야 보인다 (기본 접힘 · 흐르는 중에도). 색 점으로 상태를 나누지 않는다 — 글 · 아이콘 · 움직임으로만.
 import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { Icon, type IconName } from '@brewai/ui';
+import { Icon, Meta, type IconName } from '@brewai/ui';
+import type { CSSProperties } from 'react';
 import { seconds } from '../../../lib/format';
 import { reduceMotion, useNow, useThrottled } from '../../../lib/hooks';
 import { useSkillLabels, useToolLabels } from '../../skills/hooks';
-import { TRACE } from '../copy';
+import { TOOL, TRACE } from '../copy';
 import { Markdown } from '../markdown/render';
-import { isLive, type Answer, type ReasoningPart } from '../model';
-import { thought, thoughtParts, tracePhrase, usedTools } from '../trace';
+import { isLive, type Answer, type ReasoningPart, type ToolPart } from '../model';
+import { groupTiming, panelItems, shortDuration, thought, thoughtParts, tracePhrase, usedTools, type ToolGroup } from '../trace';
 import { ToolCard } from './ToolCard';
 
 const ANNOUNCE_MS = 2000;
@@ -119,12 +120,48 @@ function TracePanel({ a, now }: { a: Answer; now: number }) {
       {(items.length > 0 || silent) && (
         <ol className="tp-list">
           {silent && <li><ThinkBlock p={{ kind: 'reasoning', id: 'silent', text: '', live: false, ms: null, at: 0 }} now={now} /></li>}
-          {items.map((p) => <li key={p.id}>{p.kind === 'reasoning' ? <ThinkBlock p={p} now={now} /> : p.kind === 'tool' ? <ToolCard p={p} /> : null}</li>)}
+          {panelItems(items.filter((p): p is ReasoningPart | ToolPart => p.kind !== 'text')).map((it) =>
+            it.kind === 'think' ? <li key={it.part.id}><ThinkBlock p={it.part} now={now} /></li>
+            : it.kind === 'tool' ? <li key={it.part.id}><ToolCard p={it.part} /></li>
+            : <li key={`g${it.group.batch}:${it.group.tools[0].id}`}><ParallelGroup g={it.group} now={now} /></li>)}
         </ol>
       )}
       {items.length === 0 && !silent && <p className="tp-none">{live ? TRACE.noneLive : TRACE.noneDone}</p>}
       {foot.length > 0 && <p className="tp-foot ui-num">{foot.map((f) => <span key={f}>{f}</span>)}</p>}
     </>
+  );
+}
+
+// 동시에 돈 도구 묶음 = 머리 줄('동시에 3개' · 걸린 시간 · 하나씩이면) + 시간 막대(도구마다 시작 ~ 끝) + 카드들 (각자 상태 · 실행 시간)
+// 시간은 모두 실행 시간 (모델이 인자를 다 쓴 뒤 ~ 결과) = 머리 줄 '하나씩이면' = 카드 시간의 합
+function ParallelGroup({ g, now }: { g: ToolGroup; now: number }) {
+  const n = g.tools.length;
+  const timing = groupTiming(g, now);
+  const running = g.tools.filter((p) => p.status === 'running').length;
+  const meta = running > 0 ? [TOOL.parallelRunning(running)]
+    : timing?.done ? [TOOL.wall(shortDuration(timing.wall)), TOOL.serial(shortDuration(timing.sum))] : [];
+  return (
+    <section className="tp-par" data-kind="parallel" data-count={n} data-running={running > 0} role="group" aria-label={TOOL.parallel(n)}>
+      <h4 className="tp-par-h">
+        <Icon name="layers" size="sm" />
+        <span className="tp-par-n">{TOOL.parallel(n)}</span>
+        <Meta className="tp-par-meta ui-num" items={meta} />
+      </h4>
+      {timing && timing.lanes.length > 0 && (
+        <ol className="tp-lanes" aria-label={TOOL.lanes}>
+          {timing.lanes.map((l, i) => (
+            <li key={l.id} className="tp-lane" data-running={l.running} aria-label={g.tools[i].label}
+              style={{ '--from': l.from.toFixed(4), '--go': l.go.toFixed(4), '--to': Math.max(l.to, l.go + 0.015).toFixed(4) } as CSSProperties}>
+              <i className="call" aria-hidden="true" />
+              <i className="run" aria-hidden="true" />
+            </li>
+          ))}
+        </ol>
+      )}
+      <ol className="tp-par-list">
+        {g.tools.map((p) => <li key={p.id}><ToolCard p={p} took={timing?.done ? shortDuration(timing.run[p.id] ?? 0) : undefined} /></li>)}
+      </ol>
+    </section>
   );
 }
 
