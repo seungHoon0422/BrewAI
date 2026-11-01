@@ -6,11 +6,11 @@ import {
 } from './mcp';
 
 // slice 05 mcp-tokens (데스크톱 쪽): 모델 요청에 실리는 도구를 mock 게이트웨이 기록(FAKE_GATEWAY_RECORD)으로 센다
-//   요청 1 = 기본 도구 + use_app + search_tools · `<앱>__*` 0개 → use_app 뒤 4개 이하 → 다음 턴도 그대로 (새 use_app 없음)
+//   요청 1 = use_skill + use_app (내장 툴 · search_tools 없음) · `<앱>__*` 0개 → use_app 뒤 4개 이하 → 다음 턴도 그대로 (새 use_app 없음)
 //   MCP 바이트 예산 = 앱 목록 한 줄 + 공개된 도구 4개만 (서버 도구 30개를 다 싣지 않는다)
-// + 도구 카드: MCP 도구 = 앱 이름 · '<앱>: <도구>' · 쓰기 도구 = '쓰기' 배지 (쓰기 도구는 지금 바로 실행 · 승인은 slice 07)
+// + 도구 카드: 앱 고르기 = 한 줄 메모 (카드 아님) · MCP 도구 = 앱 이름 · '<앱>: <도구>' · 입력 = 인자 값 · 쓰기 도구 = '쓰기' 배지 (승인은 slice 07)
 const HOME_H1 = '무엇을 맡길까요?';
-const BUILTIN = ['calculator', 'current_time', 'unit_convert', 'date_calc', 'text_stats'];
+const GONE = ['calculator', 'current_time', 'unit_convert', 'date_calc', 'text_stats', 'search_tools']; // 없앤 도구
 
 test.describe.configure({ mode: 'serial' });
 let api: Client;
@@ -51,9 +51,8 @@ test('턴 1: 요청 1 에 앱 도구 0개 → use_app 뒤 4개 이하 · 앱 목
   expect(reqs.length).toBeGreaterThanOrEqual(3); // use_app → 도구 → 답
   const first = reqs[0];
   const names = toolNames(first);
-  for (const b of BUILTIN) expect(names).toContain(b);
+  for (const b of GONE) expect(names).not.toContain(b);
   expect(names).toContain('use_app');
-  expect(names).toContain('search_tools');
   expect(appTools(first)).toEqual([]);
   // 앱 목록 = 지침 안 한 줄 (설명 · 도구 정의는 안 실린다)
   const system = JSON.stringify(first.body?.messages?.filter((m) => m.role === 'system') ?? []);
@@ -82,7 +81,7 @@ test('턴 2: 같은 대화 = 공개된 도구가 그대로 (새 use_app 없이 �
   expect(reqs.some((r) => calledInTurn(r, 'use_app'))).toBe(false);
 });
 
-test('도구 카드: 앱 고르기 = 고른 도구 수 · MCP 도구 = 앱 이름 · 쓰기 도구 = 쓰기 배지', async () => {
+test('도구 카드: 앱 고르기 = 한 줄 메모 · MCP 도구 = 앱 이름 · 입력 = 인자 값 · 결과 = 목록 · 쓰기 도구 = 쓰기 배지', async () => {
   test.setTimeout(60_000);
   const m3 = `${MARK}c`;
   await ask(win, `[fake:app ${h} 이슈 만들기] [fake:tool ${h}__create_issue {"team":"ENG","title":"${m3}"}] ${m3} 이슈 만들어줘`);
@@ -90,14 +89,24 @@ test('도구 카드: 앱 고르기 = 고른 도구 수 · MCP 도구 = 앱 이�
   await idle(win);
   const panel = await openTrace(win);
   const pick = panel.locator('[data-tool="use_app"]');
-  await expect(pick.locator('.th b')).toHaveText(`앱: ${tracker.name}`);
-  await expect(pick).toContainText(new RegExp(`${tracker.name}에서 쓸 도구 [1-4]개를 골랐어요`));
-  await expect(pick).toContainText('Create Issue (쓰기)');
+  await expect(pick).toHaveAttribute('data-kind', 'app-pick'); // 카드가 아니라 한 줄 메모
+  await expect(pick.locator('.th, dl, .tkind')).toHaveCount(0);
+  await expect(pick.locator('.tn')).toHaveText(new RegExp(`^${tracker.name} 연결, 도구 [1-4]개$`));
+  await expect(pick.locator('.tn-tools')).toContainText('Create Issue (쓰기)');
   const write = panel.locator(`[data-tool="${h}__create_issue"]`);
   await expect(write).toHaveAttribute('data-write', 'true');
   await expect(write.locator('.twrite')).toHaveText('쓰기');
   await expect(write.locator('.th b')).toContainText(`${tracker.name}:`);
   await expect(write.locator('.ttile [data-icon="plug"]')).toHaveCount(1);
+  await expect(write.locator('[data-row="입력"] dd')).toHaveText(`${m3}, ENG`); // 인자 값만 (제목 먼저 · JSON 아님)
+  // 앞 턴의 검색 결과 = JSON 목록 → 제목 목록 (id + 제목)
+  const prev = chat(win).log.locator('.msg.agent').nth(-2);
+  await prev.locator('.trace-line').click();
+  const found = prev.locator(`[data-tool="${h}__search_issues"]`).first();
+  await expect(found.getByRole('list', { name: '결과 목록' }).getByRole('listitem')).toHaveCount(5);
+  await expect(found.getByRole('list', { name: '결과 목록' }).getByRole('listitem').first()).toHaveText(/^ENG-1 /);
+  // 요약 줄 = 앱 이름으로 묶은 횟수 ('앱:' 겹침 없이)
+  expect(await chat(win).last.locator('.trace-line .trace-txt .seg').allTextContents()).toContain(`${tracker.name} 1회`);
   await win.screenshot({ path: shot('desktop-mcp-tool-cards'), animations: 'disabled' });
   await win.emulateMedia({ colorScheme: 'dark' });
   await win.screenshot({ path: shot('desktop-mcp-tool-cards-dark'), animations: 'disabled' });

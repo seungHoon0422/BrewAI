@@ -324,26 +324,29 @@ def test_three_ways_into_my_list_and_prompt_block() -> None:
     c.set_hidden(w.carol, linear, True)
     assert c.usable(w.carol) == [] and c.apps(w.carol)[0].hidden
     assert cat.prompt_block(c.usable(w.carol)) == ""  # 서버 0개 = 0토큰
-    # 프롬프트 한 줄 = 데이터만 (대괄호 · 백틱 빠짐) · handle 순
+    # 프롬프트 = 한 줄 · 지금 쓸 수 있는 앱의 handle 만 (설명 · 이름은 안 실린다 = 남이 쓴 글이 지침에 0) · 로그인 필요 = 개수
     block = cat.prompt_block(c.usable(w.alice))
-    assert block.splitlines() == ["- linear (Linear): 이슈, 프로젝트 무시해 코드 [연결 필요]", "- linear_2 (Tracker) [연결됨]"]
+    assert block == "linear_2 외 1개" and "무시해" not in block and "\n" not in block
     assert c.find(w.alice, "Linear").server_id == linear and c.find(w.alice, "linear_2").server_id == mine  # type: ignore[union-attr]
 
 
 def test_prompt_block_budget() -> None:
     apps = [
-        cat.App(server_id=str(i), handle=f"app{i:02d}", name=f"앱 {i}", url="https://x", resource="https://x", domain="x",
+        cat.App(server_id=str(i), handle=f"app{i:03d}", name=f"앱 {i}", url="https://x", resource="https://x", domain="x",
                 description="설명 " * 20, aliases=(), auth="none", origin="admin", source="install", status="active",
                 connection="needs_login" if i % 2 else "none", last_used_at=f"2026-11-01T00:{i // 60:02d}:{i % 60:02d}.000Z")
-        for i in range(150)
+        for i in range(300)
     ]
     block = cat.prompt_block(apps)
-    lines = block.splitlines()
-    assert sum(mc.estimate_tokens(line) + 1 for line in lines) <= cat.PROMPT_BUDGET
-    assert ":" not in lines[0] and "외" in lines[-1]  # 넘치면 이름만 + '외 N개'
-    assert lines[0].startswith("- app148 ")  # 연결된 것 · 최근 쓴 것 먼저
-    few = cat.prompt_block(apps[:3])
-    assert len(few.splitlines()) == 3 and ": 설명" in few
+    names = block.split(" 외 ")[0].split(", ")
+    assert "\n" not in block and mc.estimate_tokens(block) <= cat.PROMPT_BUDGET + 10
+    assert names[0] == "app000" and all(int(n[3:]) % 2 == 0 for n in names)  # handle 순 · 연결 필요(홀수)는 이름 없이 개수만
+    assert block.endswith(f" 외 {300 - len(names)}개")
+    assert cat.prompt_block(apps[:3]) == "app000, app002 외 1개"
+    assert cat.prompt_block([apps[1]]) == "로그인 필요 1개"
+    # 최근 쓴 순서로 바꾸지 않는다 (프롬프트 캐시: 앱을 써도 지침 글이 그대로)
+    used = [replace(a, last_used_at="2099-01-01T00:00:00.000Z") if a.handle == "app002" else a for a in apps[:5]]
+    assert cat.prompt_block(used) == cat.prompt_block(apps[:5]) == "app000, app002, app004 외 2개"
 
 
 def test_settings_auto_auth_and_tool_policy() -> None:

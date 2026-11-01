@@ -57,10 +57,11 @@ test('unset: 카드 A (처음 한 번 묻기) → [켜고 로그인] = on + 브�
   await expect(card.locator('.ac-title')).toHaveText(`${tracker.name} 연결이 필요해요`);
   await expect(card).toContainText('다음부터 연결이 필요하면 바로 로그인 화면을 열까요?');
   await idle(win);
-  // 멈춘 도구 = 연결 기다림 (앱 고르기 카드)
+  // 멈춘 도구 = 연결 기다림 (앱 고르기 = 한 줄 메모)
   const panel = await openTrace(win);
   await expect(panel.locator('[data-tool="use_app"]')).toHaveAttribute('data-state', 'waiting');
-  await expect(panel.locator('[data-tool="use_app"] .tst')).toHaveText('연결 기다림');
+  await expect(panel.locator('[data-tool="use_app"] .tn')).toHaveText(`${tracker.name} 연결을 기다려요`);
+  expect(await chat(win).last.locator('.trace-line .trace-txt .seg').allTextContents()).toContain(`${tracker.name} 연결`); // 요약 줄
   expect(await separatorsOnScreen(win)).toEqual([]);
   await win.screenshot({ path: shot('desktop-mcp-card-a'), animations: 'disabled' });
   await win.emulateMedia({ colorScheme: 'dark' });

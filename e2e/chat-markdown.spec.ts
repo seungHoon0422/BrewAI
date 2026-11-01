@@ -7,7 +7,16 @@ import { cutAt, revealStep } from '../apps/desktop/renderer/src/features/chat/ma
 
 // trace.ts 는 model.ts → @brewai/ui 타입까지 끌고 와서 e2e tsc(nodenext)가 못 읽는다 → 돌릴 때만 읽는다 (타입 검사는 데스크톱 typecheck 가 한다)
 const TRACE_MODULE = '../apps/desktop/renderer/src/features/chat/trace';
+const TOOLS_MODULE = '../apps/desktop/renderer/src/features/chat/tools'; // 도구 카드 내용 (같은 이유로 돌릴 때만)
 type Summary = (a: Record<string, unknown>) => string[];
+type Link = { title: string; url: string | null; domain: string };
+type ToolsMod = {
+  argSummary: (args: unknown) => string;
+  parseRecords: (text: string) => Link[] | null;
+  parseList: (v: unknown) => Link[] | null;
+  toolView: (p: Record<string, unknown>) => { rows: { k: string; v: string }[]; links: Link[]; more: number; note: string; raw: string };
+  appNote: (p: Record<string, unknown>, apps?: Record<string, string>) => { text: string; tools: string };
+};
 
 // 답 글 = 마크다운 (흐르는 중에도 날것 문법 없음) · 생각 블록 ↔ 도구 블록 · 최소한의 모델 메뉴.
 // 위 = 단위 (앱 없이 parse · stream · reveal) · 아래 = 데스크톱 (mock [fake:md] = 마크다운 답을 3글자씩 잘게)
@@ -120,16 +129,56 @@ test.describe('마크다운 (단위)', () => {
       startedAt: 0, durationMs: 1200, usage: null, fromHistory: false,
     };
     const empty = { kind: 'reasoning', id: 'r0', text: '', live: false, ms: 3, at: 0 } as const;
-    const tool = { kind: 'tool', id: 't', name: 'calculator', label: '계산기', argsText: '', args: {}, result: { result: 1 }, status: 'done', ms: 5, at: 0 } as const;
+    const exa = { handle: 'exa', name: 'Exa 웹 검색', write: false };
+    const pick = { kind: 'tool', id: 'p', name: 'use_app', label: '앱: Exa 웹 검색', argsText: '', args: { need: '검색' }, result: { app: 'exa', app_name: 'Exa 웹 검색', tools: [] }, status: 'done', ms: 2, at: 0, app: exa } as const;
+    const tool = { kind: 'tool', id: 't', name: 'exa__web_search_exa', label: 'Exa 웹 검색: Web Search', argsText: '', args: {}, result: { result: 'x' }, status: 'done', ms: 5, at: 0, app: exa } as const;
     // 시작 · 끝 신호만 온 빈 생각 + 생각 토큰 0 = 생각을 건너뜀
     expect(doneSummary({ ...base, parts: [empty], usage: { input_tokens: 1, output_tokens: 1, requests: 1, tool_calls: 0, reasoning_tokens: 0 } }))
       .toEqual(['생각 없이 바로 답함', '1.2초']);
     // 글 없이 토큰만 = 시간 없이 '생각함'
-    expect(doneSummary({ ...base, parts: [empty, tool], usage: { input_tokens: 1, output_tokens: 1, requests: 2, tool_calls: 1, reasoning_tokens: 30 } }))
-      .toEqual(['생각함', '계산기 1회']);
+    // 앱 고르기는 세지 않고 · 앱 도구는 앱 이름으로 묶는다 ('앱: Exa 웹 검색 1회' · 'Exa 웹 검색: Web Search 2회' 대신)
+    expect(doneSummary({ ...base, parts: [empty, pick, tool, { ...tool, id: 't2' }], usage: { input_tokens: 1, output_tokens: 1, requests: 3, tool_calls: 3, reasoning_tokens: 30 } }))
+      .toEqual(['생각함', 'Exa 웹 검색 2회']);
+    // 앱 도구를 고르기만 하고 끝남 (연결 기다림 등) = '<앱> 연결'
+    expect(doneSummary({ ...base, reasoning: 'off', parts: [pick] })).toEqual(['Exa 웹 검색 연결', '1.2초']);
+    // 고르기가 실패 · 취소됨 = 연결된 적 없다 → '연결 못 함'
+    expect(doneSummary({ ...base, reasoning: 'off', parts: [{ ...pick, result: { error: 'app_not_found', apps: ['exa'] } }] })).toEqual(['Exa 웹 검색 연결 못 함', '1.2초']);
+    expect(doneSummary({ ...base, reasoning: 'off', parts: [{ ...pick, status: 'cancelled', result: null }] })).toEqual(['Exa 웹 검색 연결 못 함', '1.2초']);
     // 생각 글은 왔지만 너무 짧게 잰 시간 = 시간 없이
     expect(doneSummary({ ...base, parts: [{ ...empty, text: '생각', ms: 20 }] })).toEqual(['생각함']);
     expect(doneSummary({ ...base, parts: [{ ...empty, text: '생각', ms: 2300 }] })).toEqual(['2.3초 동안 생각함']);
+  });
+
+  test('도구 카드 내용: 입력 = 핵심 인자 값 · Title/URL 기록과 JSON 목록 = 제목 + 도메인 · 그 밖 = 깔끔한 발췌 · 앱 고르기 = 한 줄', async () => {
+    const t = (await import(TOOLS_MODULE)) as ToolsMod;
+    expect(t.argSummary({ objective: '푸들 종류 정리', query: '푸들 종류', numResults: 5, filters: { a: 1 } })).toBe('푸들 종류, 푸들 종류 정리, 5');
+    expect(t.argSummary({})).toBe('');
+    const exa = ['Title: 푸들 - 위키백과', 'URL: https://ko.wikipedia.org/wiki/푸들', 'Published: N/A', 'Author: N/A', 'Text: 푸들은 …', '',
+      'Title: Poodle Varieties', 'URL: https://www.akc.org/poodle', 'Published: 2026-10-01', 'Highlights: Toy, Miniature, Standard'].join('\n');
+    expect(t.parseRecords(exa)).toEqual([
+      { title: '푸들 - 위키백과', url: 'https://ko.wikipedia.org/wiki/푸들', domain: 'ko.wikipedia.org' },
+      { title: 'Poodle Varieties', url: 'https://www.akc.org/poodle', domain: 'akc.org' },
+    ]);
+    expect(t.parseRecords('그냥 글')).toBeNull();
+    expect(t.parseList({ account: 'a', items: [{ id: 'ENG-1', title: '버그' }, { title: '문서', url: 'https://x.example.com/d' }] }))
+      .toEqual([{ title: 'ENG-1 버그', url: null, domain: '' }, { title: '문서', url: 'https://x.example.com/d', domain: 'x.example.com' }]);
+    expect(t.parseList({ notes: [] })).toEqual([]);
+    expect(t.parseList({ saved: true })).toBeNull();
+    const part = (over: Record<string, unknown>) => ({ kind: 'tool', id: 'c', name: 'exa__web_search_exa', label: 'Exa 웹 검색: Web Search', argsText: '', status: 'done', ms: 2400, at: 1, ready: null, batch: 1, app: { handle: 'exa', name: 'Exa 웹 검색', write: false }, ...over });
+    const v = t.toolView(part({ args: { query: '푸들 종류' }, result: { source: 'exa', untrusted: true, result: exa, truncated: true, note: '결과 2개, 긴 본문은 앞부분만' } }));
+    expect(v.rows).toEqual([{ k: '입력', v: '푸들 종류' }, { k: '결과', v: '2개' }]);
+    expect(v.links.map((l) => l.domain)).toEqual(['ko.wikipedia.org', 'akc.org']);
+    expect(v.note).toBe('결과 2개, 긴 본문은 앞부분만');
+    expect(v.raw).toContain('"query": "푸들 종류"');
+    // 목록이 아닌 글 = 공백을 줄인 발췌 (날것 그대로 아님)
+    expect(t.toolView(part({ args: {}, result: { result: '첫 줄\n\n  둘째   줄' } })).rows).toEqual([{ k: '결과', v: '첫 줄 둘째 줄' }]);
+    expect(t.toolView(part({ args: {}, result: { result: { saved: true, count: 3 } } })).rows).toEqual([{ k: '결과', v: 'saved true, count 3' }]);
+    // 한 칸짜리 겉봉 (DeepWiki {"result": "…"}) = 키 이름 없이 값만
+    expect(t.toolView(part({ args: {}, result: { result: '{"result":"Available pages:\\n- 1 Overview"}' } })).rows).toEqual([{ k: '결과', v: 'Available pages: - 1 Overview' }]);
+    // 앱 고르기 = 'Exa 웹 검색 연결, 도구 2개' (도구 이름은 따로)
+    const pick = part({ name: 'use_app', args: { app: 'exa', need: '웹 검색' }, result: { app: 'exa', app_name: 'Exa 웹 검색', tools: [{ name: 'a', title: 'Web Search' }, { name: 'b', title: 'Fetch Web Pages' }] } });
+    expect(t.appNote(pick)).toEqual({ text: 'Exa 웹 검색 연결, 도구 2개', tools: 'Web Search, Fetch Web Pages' });
+    expect(t.appNote({ ...pick, status: 'waiting', result: undefined, app: undefined }, { exa: 'Exa 웹 검색' }).text).toBe('Exa 웹 검색 연결을 기다려요');
   });
 
   test('펼침 속도: 밀릴수록 빨리 · 최소 속도 · 이모지를 가르지 않음', () => {
@@ -268,14 +317,14 @@ test.describe('데스크톱: 답 글 · 생각/도구 · 모델 메뉴', () => {
   });
 
   test('생각 블록 ↔ 도구 블록이 다르게 · 요약은 칸 나눔(가운뎃점 없음) · 답 아래에 생각 깊이 없음', async () => {
-    await ask(win, '[fake:think] 6 곱하기 7은?\n[fake:calc] 6*7');
+    await ask(win, '[fake:think] 이 대화를 요약해 줘\n[fake:skill summarize]');
     const answer = ui(win).last;
-    await expect(answer).toContainText('계산 결과는 42예요', { timeout: 20_000 });
+    await expect(answer).toContainText("스킬 '요약' 지침을 따랐어요", { timeout: 20_000 });
     await expect(answer).toHaveAttribute('aria-busy', 'false');
     const line = answer.locator('.trace-line');
     await expect(line).toHaveAttribute('data-step', 'done');
-    await expect(line.locator('.trace-txt .seg')).toHaveText([/^\d+(\.\d)?초 동안 생각함$/, '계산기 1회']);
-    await expect(line).toHaveAccessibleName(/^\d+(\.\d)?초 동안 생각함, 계산기 1회$/);
+    await expect(line.locator('.trace-txt .seg')).toHaveText([/^\d+(\.\d)?초 동안 생각함$/, '스킬 사용 1회']);
+    await expect(line).toHaveAccessibleName(/^\d+(\.\d)?초 동안 생각함, 스킬 사용 1회$/);
     await expect(line).not.toHaveAccessibleName(/0\.0초/);
     expect(await line.textContent()).not.toContain('·');
     // 답 아래 = 모델 · 걸린 시간만 (생각 깊이 · 가운뎃점 없음)
@@ -292,9 +341,9 @@ test.describe('데스크톱: 답 글 · 생각/도구 · 모델 메뉴', () => {
     const tool = panel.locator('[data-kind="tool"]');
     await expect(think.locator('.tp-h')).toContainText('생각');
     await expect(think.locator('.tp-body')).toContainText('질문을 살펴보는 중이에요');
-    await expect(tool.locator('.th b')).toHaveText('계산기');
+    await expect(tool.locator('.th b')).toHaveText('스킬 사용');
     await expect(tool.locator('.tkind')).toHaveText('도구');
-    await expect(tool.locator('dl')).toContainText('결과42');
+    await expect(tool.locator('dl')).toContainText(/결과지침 불러옴 \(\d+줄\)/);
     // 모양이 다르다: 생각 = 왼쪽 선만 · 도구 = 테두리 카드
     const style = (sel: typeof think) => sel.evaluate((el) => {
       const s = getComputedStyle(el);

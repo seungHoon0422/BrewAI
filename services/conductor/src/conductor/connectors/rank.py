@@ -1,4 +1,4 @@
-"""need(한국어 · 영어) → 도구 순위. LLM 없이 서버 안에서 (use_app · search_tools · ADR-0013).
+"""need(한국어 · 영어) → 도구 순위. LLM 없이 서버 안에서 (use_app 의 도구 고르기 · 앱 이름 없을 때 앱 고르기 · ADR-0013).
 
 문서 하나 = 도구 하나: 이름 낱말(search_issues · issues.search · searchIssues 쪼갬) ×3 · 제목 · 별칭 ×2 · 설명 ×1.
 낱말 = 영문 소문자 + 간단한 복수형 정리(issues → issue) · 한글은 이어진 글자를 bigram 으로(이슈검색 → 이슈 · 슈검 · 검색) — 띄어쓰기 · 조사에 덜 흔들린다.
@@ -6,7 +6,7 @@ need 에는 작은 한→영 사전을 더한다 (이슈 → issue · 검색 →
 점수 = BM25 (k1 1.2 · b 0.75). 읽기 도구 ×1.15 (기본 우선) · need 가 '만들기 · 고치기 · 지우기' 쪽이면 쓰기 도구 ×1.15 (쓰기도 허용)
 · 아니면 쓰기 도구 ×0.5 (찾기 요청에 '이슈 지우기' 가 '이슈' 한 낱말로 끼지 않게).
 점수가 모두 0 = 읽기 도구 먼저 원래 순서. 같은 점수 = 원래 순서 (결정적 = 같은 need 면 같은 도구 = 프롬프트 캐시가 산다).
-pydantic 기본 search_tools 는 `[a-z0-9]+` 라 한글을 버린다 → 이 파일이 대신한다.
+pydantic 기본 검색(search_tools)은 `[a-z0-9]+` 라 한글을 버린다 → 이 파일이 대신한다 (search_tools 는 안 싣는다).
 """
 
 from __future__ import annotations
@@ -143,7 +143,7 @@ def rank_tools(
 
 
 def search(tools: Sequence[Tool], query: str, *, k: int = 8, aliases: Mapping[str, Iterable[str]] | None = None) -> list[Tool]:
-    """search_tools — 점수 0 은 안 돌려준다 (못 찾음 = 빈 목록)."""
+    """앱 고르기 (session.pick: app 없이 use_app) — 점수 0 은 안 돌려준다 (못 찾음 = 빈 목록)."""
     scored = score(tools, query, aliases=aliases)
     order = sorted((i for i, s in enumerate(scored) if s.score > 0), key=lambda i: (-scored[i].score, i))
     return [scored[i].tool for i in order[:k]]

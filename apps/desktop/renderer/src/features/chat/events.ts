@@ -156,7 +156,14 @@ export function apply(a: Answer, ev: AgUiEvent, labels: () => Labels): Answer {
       const p = a.parts[i] as ToolPart;
       const parts = a.parts.slice();
       if (ev.type === 'TOOL_CALL_ARGS') parts[i] = { ...p, argsText: p.argsText + s_(ev.delta) };
-      else if (ev.type === 'TOOL_CALL_END') parts[i] = { ...p, args: parseJson(p.argsText || '{}'), ready: at };
+      else if (ev.type === 'TOOL_CALL_END') {
+        const args = parseJson(p.argsText || '{}');
+        parts[i] = { ...p, args, ready: at };
+        // use_app 인자에 아는 앱 이름이 있으면 결과 전에도 그 앱으로 (연결 기다림 메모 · 요약 줄 '<앱> 연결')
+        const handle = p.name === 'use_app' && isObj(args) ? s_(args.app) : '';
+        const name = handle ? labels().apps[handle] : undefined;
+        if (name && !p.app) parts[i] = { ...(parts[i] as ToolPart), app: { handle, name, write: false } };
+      }
       else {
         const content = s_(ev.content);
         const result = parseJson(content) ?? content;

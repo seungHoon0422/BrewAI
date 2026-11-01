@@ -1,6 +1,6 @@
 // 생각 · 도구 상태 줄 한 칸 = 단계 훅(data-step) · 국면(data-phase) · 글. 진행 상황 화면도 같은 문구를 쓴다.
 // 답 상태 → 글 조각 (문구는 copy.ts). 결정적 — 시간과 상태로만 고른다.
-// 끝난 줄 = 조각 여럿 ('3.2초 동안 생각함' · '계산기 1회' · '1.4초'). 화면은 조각마다 칸을 나누고(가운뎃점 없음), text = 쉼표로 이은 한 줄.
+// 끝난 줄 = 조각 여럿 ('3.2초 동안 생각함' · 'Exa 웹 검색 2회' · '1.4초'). 화면은 조각마다 칸을 나누고(가운뎃점 없음), text = 쉼표로 이은 한 줄.
 import { seconds } from '../../lib/format';
 import { READING_RESULT, TRACE, WAITING_PHRASE, joinParts, parallelPhrase, stepPhrase } from './copy';
 import { isLive, type Answer, type ReasoningPart, type ToolPart } from './model';
@@ -22,13 +22,26 @@ export const usedTools = (a: Answer) => a.parts.some(isTool);
 export const skippedThinking = (a: Answer) =>
   a.status === 'done' && a.reasoning !== 'off' && !thought(a) && a.usage?.reasoning_tokens === 0;
 
-// 도구 쓴 횟수 조각: ['계산기 1회'] · ['계산기 1회', '단위 변환 2회'] · 세 종류 이상이면 ['도구 3회']
+// 앱 도구 고르기(use_app) = 실제 일이 아니라 준비 단계 (패널엔 한 줄 메모 · 횟수엔 안 센다)
+export const isAppPick = (p: ToolPart) => p.name === 'use_app';
+// 도구 쓴 횟수 조각: ['스킬 사용 1회'] · ['Exa 웹 검색 2회'] (앱 도구는 앱 이름으로 묶는다) · 세 종류 이상이면 ['도구 3회']
+// 앱 도구를 고르기만 하고 끝난 답(연결 기다림 등) = ['Exa 웹 검색 연결'] · 고르기가 실패 · 취소로만 끝남 = ['Exa 웹 검색 연결 못 함']
+const linked = (p: ToolPart) => {
+  const r = p.result;
+  return p.status === 'waiting' || (p.status === 'done' && !(typeof r === 'object' && r !== null && 'error' in r));
+};
 export function toolTally(a: Answer, tools: Record<string, string> = {}): string[] {
-  const used = a.parts.filter(isTool);
-  if (!used.length) return [];
+  const all = a.parts.filter(isTool);
+  const used = all.filter((p) => !isAppPick(p));
+  if (!used.length) {
+    if (!all.length) return [];
+    const ok = all.filter(linked);
+    const name = (ok.length ? ok : all).findLast((p) => p.app?.name)?.app?.name ?? null;
+    return [ok.length ? TRACE.appLinked(name) : TRACE.appMissed(name)];
+  }
   const counts = new Map<string, number>();
   for (const p of used) {
-    const label = tools[p.name] ?? p.label ?? p.name;
+    const label = p.app?.name || (tools[p.name] ?? p.label ?? p.name);
     counts.set(label, (counts.get(label) ?? 0) + 1);
   }
   if (counts.size > 2) return [TRACE.toolsMany(used.length)];
@@ -89,13 +102,19 @@ export function tracePhrase(a: Answer, now: number, tools: Record<string, string
 
 // 도구 묶음 (패널) — 같은 batch 가 이어진 도구들. 하나뿐이면 묶지 않는다
 export type ToolGroup = { batch: number; tools: ToolPart[] };
-export type PanelItem = { kind: 'think'; part: ReasoningPart } | { kind: 'tool'; part: ToolPart } | { kind: 'group'; group: ToolGroup };
+// note = 앱 도구 고르기 (카드 대신 한 줄 메모 · 묶음에 안 넣는다)
+export type PanelItem =
+  | { kind: 'think'; part: ReasoningPart } | { kind: 'tool'; part: ToolPart } | { kind: 'note'; part: ToolPart } | { kind: 'group'; group: ToolGroup };
 
 export function panelItems(items: readonly (ReasoningPart | ToolPart)[]): PanelItem[] {
   const out: PanelItem[] = [];
   for (const p of items) {
     if (p.kind === 'reasoning') {
       out.push({ kind: 'think', part: p });
+      continue;
+    }
+    if (isAppPick(p)) {
+      out.push({ kind: 'note', part: p });
       continue;
     }
     const last = out.at(-1);
@@ -108,30 +127,27 @@ export function panelItems(items: readonly (ReasoningPart | ToolPart)[]): PanelI
 
 // 묶음 시간. 한 응답의 툴은 모델이 다 부른 뒤(마지막 TOOL_CALL_END = go) 한꺼번에 돈다 →
 //   wall = go 부터 마지막 결과까지 (실제로 걸린 시간) · sum = 도구마다 go 부터 제 결과까지의 합 (하나씩 했으면) · done = 다 끝났다
-// lanes = 도구마다 [부르기 시작, go, 결과] 를 묶음 전체(첫 시작 ~ 마지막 결과)에 대한 비율로 — 앞 칸(모델이 부르는 중)은 엇갈리고
-//   뒤 칸(실행)은 같은 자리에서 같이 시작한다 = 동시에 돌았다. 도는 중이면 now 까지. 기록에서 연 답(시간 없음) = null
-// run = 도구마다 실행 시간(go ~ 제 결과) — 묶음 안 카드의 시간도 이것 (머리 줄 '실행' · '하나씩이면' 과 같은 뜻 · 모델이 인자를 쓰는 시간 빼고)
-// lanes 는 실행이 전체의 1% 도 안 되면(내장 도구 몇 ms) 비운다 — 실행 칸이 안 보이는 막대는 아무것도 말하지 않는다
-export type Lane = { id: string; from: number; go: number; to: number; running: boolean };
+// lanes = 도구마다 실행 막대: 모두 go 에서 같이 시작하고(왼쪽 끝이 같다) 길이 = 제 실행 시간 / wall. 모델이 인자를 쓰는 시간
+//   (부르기 시작 ~ go)은 그리지 않는다 — 도구마다 엇갈려 '따로 시작한 것처럼' 보였다. 도는 중이면 now 까지. 기록에서 연 답(시간 없음) = null
+// run = 도구마다 실행 시간(go ~ 제 결과) — 묶음 안 카드의 시간도 이것 (머리 줄 '실행' · '하나씩이면' 과 같은 뜻)
+// lanes 는 다 끝났는데 wall 이 너무 짧으면(MIN_LANE_MS) 비운다 — 몇 ms 짜리 막대는 아무것도 말하지 않는다
+export type Lane = { id: string; to: number; running: boolean };
 export type GroupTiming = { wall: number; sum: number; done: boolean; lanes: Lane[]; run: Record<string, number> };
-const MIN_RUN_SHARE = 0.01;
+const MIN_LANE_MS = 150;
 export function groupTiming(g: ToolGroup, now: number): GroupTiming | null {
   const t = g.tools;
   if (t.some((p) => p.at <= 0)) return null;
   const end = (p: ToolPart) => p.at + (p.ms ?? Math.max(0, now - p.at));
-  const start = Math.min(...t.map((p) => p.at));
   const all = t.every((p) => p.ready != null);
   const go = all ? Math.max(...t.map((p) => p.ready ?? 0)) : now;
   const last = Math.max(...t.map(end));
-  const span = Math.max(1, last - start);
   const run = (p: ToolPart) => Math.max(0, end(p) - go);
   const done = t.every((p) => p.status !== 'running' && p.ms != null);
-  const pos = (x: number) => Math.min(1, Math.max(0, (x - start) / span));
   const wall = Math.max(0, last - go);
-  const lanes = done && wall / span < MIN_RUN_SHARE ? []
-    : t.map((p) => ({ id: p.id, from: pos(p.at), go: all ? pos(go) : pos(end(p)), to: pos(end(p)), running: p.status === 'running' }));
+  const lanes = !all || (done && wall < MIN_LANE_MS) ? []
+    : t.map((p) => ({ id: p.id, to: wall > 0 ? Math.min(1, run(p) / wall) : 0, running: p.status === 'running' }));
   return { wall, sum: t.reduce((n, p) => n + run(p), 0), done, lanes, run: Object.fromEntries(t.map((p) => [p.id, run(p)])) };
 }
 
-// 묶음 시간 글: 1초 아래는 ms (내장 도구는 몇 ms 만에 끝난다 · '0.0초' 대신)
+// 묶음 시간 글: 1초 아래는 ms ('0.0초' 대신)
 export const shortDuration = (ms: number) => (ms < 1000 ? `${Math.round(ms)}ms` : seconds(ms));

@@ -8,9 +8,9 @@ handle = 사람마다 겹치지 않게 (내 별칭 > 서버 handle · 겹치면 
   처음 목록에 오를 때 정한 handle 을 내 줄(mcp_user_servers.handle)에 적어 둔다 = 서버를 더하거나 빼도 이미 쓰던 이름이 다른 서버로 옮겨 가지 않는다
   (대화에 고정된 `<handle>__<tool>` 이 남의 서버로 가지 않게 · 대화 기록 쪽 확인은 session.call 의 pinned)
 관리자 정책(사용자 서버 허용 · 주소 허용 목록)은 추가할 때만이 아니라 목록 · 대화 · 연결 때마다 본다 (blocked = 막힌 사용자 서버).
-프롬프트 블록 = 정렬 고정(handle) 한 줄씩 `- linear (Linear): 이슈, 프로젝트 [연결됨]` · 합계 900토큰 상한
-  → 넘으면 이름만 (연결됨 · 최근 쓴 것 먼저) → 그래도 넘으면 '… 외 N개'. 서버 0개 = 빈 문자열 (0토큰).
-설명 · 이름은 서버를 추가한 사람이 쓴 데이터 → 한 줄 · 80자 · 대괄호 · 백틱 빼고 싣는다 (지시처럼 보이지 않게).
+프롬프트 블록 = 한 줄 `exa, linear 외 3개` · 지금 바로 쓸 수 있는 앱(인증 없음 · 연결됨)의 handle 만 · handle 순 고정 · 300토큰 상한
+  (로그인이 필요한 앱 · 넘친 앱은 개수만 · 이름으로 use_app 을 부르면 서버가 찾는다). 설명은 안 싣는다. 서버 0개 = 빈 문자열 (0토큰).
+handle = 소문자 · 숫자 · _ 만 (HANDLE_RE) → 지시처럼 보이는 글이 실릴 수 없다. 설명 · 이름(서버를 추가한 사람이 쓴 데이터)은 use_app 검색 · 화면용.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ HANDLE_MIN, HANDLE_MAX = 2, 20
 DESC_MAX = 80
 NAME_MAX = 40
 ALIASES_MAX = 10
-PROMPT_BUDGET = 900
+PROMPT_BUDGET = 300  # 앱 목록 한 줄 상한 (handle 만 · 넘치면 ' 외 N개')
 AUTO_AUTH = ("unset", "on", "off")  # users.mcp_auto_auth (unset = 처음 한 번 묻는다 · 꺼짐으로 셈)
 TOOL_MODES = ("hidden", "auto", "approval")  # mcp_tool_policy.mode (approval = slice 07 승인 카드 뒤)
 META_ALLOW_USER = "mcp.allow_user_servers"
@@ -46,7 +46,6 @@ SHARE_KINDS = MCP_SHARE_KINDS  # = scopes.share_kinds() (설치본 + 맨 위 층
 
 Source = Literal["install", "own", "imported"]
 Connection = Literal["none", "connected", "expired", "needs_login"]
-CONNECTION_LABEL = {"none": "연결됨", "connected": "연결됨", "expired": "다시 로그인 필요", "needs_login": "연결 필요"}
 
 
 def valid_handle(h: str | None) -> bool:
@@ -578,39 +577,28 @@ def _json_list(raw: str | None) -> list[str]:
 # ── 프롬프트 블록 ─────────────────────────────────────────────────────────────────
 
 
-def app_line(a: App, *, compact: bool = False) -> str:
-    state = CONNECTION_LABEL[a.connection]
-    name = clean_name(a.name)
-    if compact:
-        return f"- {a.handle} ({name}) [{state}]"
-    desc = clean_description(a.description)
-    return f"- {a.handle} ({name}): {desc} [{state}]" if desc else f"- {a.handle} ({name}) [{state}]"
+def app_line(a: App) -> str:
+    """앱 목록 한 줄에 실리는 이 앱의 몫 = handle 하나 (관리자 화면 '에이전트가 보는 목록' 도 같은 값)."""
+    return a.handle
 
 
 def prompt_block(apps: Iterable[App], *, budget: int = PROMPT_BUDGET) -> str:
-    """대화 요청에 싣는 앱 목록 (지침 뒤 · 순서 고정 = 프롬프트 캐시). 쓸 수 있는 앱만. 0개 = ''."""
+    """대화 요청에 싣는 앱 목록 한 줄 (지침 뒤 · handle 순 고정 = 프롬프트 캐시 · 최근 쓴 순서로 바꾸지 않는다).
+    지금 바로 쓸 수 있는 앱(인증 없음 · 연결됨)만 이름(handle)으로 · 로그인이 필요한 앱은 개수만 (이름으로 use_app 을 부르면
+    서버가 찾아 로그인 안내). 설명은 안 싣는다 (use_app 이 서버에서 도구를 고른다). 쓸 수 있는 앱 0개 = '' (0토큰)."""
     live = sorted((a for a in apps if a.usable), key=lambda a: a.handle)
     if not live:
         return ""
-    full = [app_line(a) for a in live]
-    if sum(estimate_tokens(line) + 1 for line in full) <= budget:
-        return "\n".join(full)
-    # 넘침: 이름만 · 연결된 것 · 최근 쓴 것 먼저 (같으면 handle)
-    ordered = sorted(live, key=lambda a: a.handle)
-    ordered.sort(key=lambda a: a.last_used_at or "", reverse=True)  # 안정 정렬 세 번 = (연결됨, 최근 쓴 순, handle)
-    ordered.sort(key=lambda a: not a.ready)
-    tail = lambda n: f"- … 외 {n}개 (이름으로 use_app 을 부르면 찾아요)"  # noqa: E731
-    reserve = estimate_tokens(tail(len(ordered))) + 1
-    lines: list[str] = []
+    ready = [app_line(a) for a in live if a.ready]
+    later = len(live) - len(ready)
+    shown: list[str] = []
     used = 0
-    for i, a in enumerate(ordered):
-        line = app_line(a, compact=True)
-        cost = estimate_tokens(line) + 1
-        last = i == len(ordered) - 1
-        if used + cost > (budget if last else budget - reserve):
-            lines.append(tail(len(ordered) - i))
+    for i, h in enumerate(ready):
+        cost = estimate_tokens(h) + 1
+        if used + cost > budget:
+            later += len(ready) - i  # 넘치면 나머지는 개수로 (이름으로 부르면 찾는다)
             break
-        lines.append(line)
+        shown.append(h)
         used += cost
-    return "\n".join(lines)
-
+    tail = f"로그인 필요 {later}개" if later and not shown else (f" 외 {later}개" if later else "")
+    return ", ".join(shown) + tail

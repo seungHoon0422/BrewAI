@@ -35,11 +35,11 @@ test.describe('데스크톱: 가운뎃점 없음', () => {
     await expect(ui(win).menu).toBeHidden();
   });
 
-  test('대화: 생각 → 도구 → 답, 펼친 과정 · 답 아래 줄', async () => {
-    await ui(win).box.fill('[fake:think] 6 곱하기 7은?\n[fake:calc] 6*7');
+  test('대화: 생각 → 스킬 → 답, 펼친 과정 · 답 아래 줄', async () => {
+    await ui(win).box.fill('[fake:think] 이 대화를 요약해 줘\n[fake:skill summarize]');
     await ui(win).send.click();
     const answer = ui(win).last;
-    await expect(answer).toContainText('계산 결과는 42예요', { timeout: 20_000 });
+    await expect(answer).toContainText("스킬 '요약' 지침을 따랐어요", { timeout: 20_000 });
     await expect(answer).toHaveAttribute('aria-busy', 'false');
     await answer.locator('.trace-line').click();
     await expect(answer.getByRole('region', { name: '생각과 도구 사용 과정' }).locator('[data-kind="tool"]')).toBeVisible();

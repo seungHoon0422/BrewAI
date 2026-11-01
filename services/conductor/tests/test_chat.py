@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import ast
 import gc
 import json
+from datetime import UTC, datetime
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -14,15 +16,57 @@ from pydantic_ai.models.function import AgentInfo, DeltaThinkingPart, DeltaToolC
 from conductor.agent import ChatRuntime, _Activity, _RunStream
 from conductor.models import ModelChoice
 from conductor.store import Store
+from conductor.tools import NOW_PREFIX, ToolSpec
 
-TOOL_NAMES = ("current_time", "calculator", "unit_convert", "date_calc", "text_stats")
+# 테스트 툴 (내장 툴은 없다 — 툴 왕복 · 병렬 · 상한 · 시간 제한 · 취소를 이 두 개로 본다). CLOCK["now"] = 테스트가 바꾼다
+CLOCK: dict[str, Any] = {"now": lambda: datetime.now(UTC)}
+
+
+def current_time(timezone: str = "Asia/Seoul") -> dict[str, Any]:
+    """지금 시각 (테스트 툴).
+
+    Args:
+        timezone: 시간대 이름.
+    """
+    moment = CLOCK["now"]()
+    return {"timezone": timezone, "iso": moment.isoformat(timespec="seconds")}
+
+
+def calculator(expression: str) -> dict[str, Any]:
+    """곱셈 · 덧셈만 (테스트 툴).
+
+    Args:
+        expression: 수식.
+    """
+    tree = ast.parse(expression, mode="eval")
+    ops = {ast.Add: lambda a, b: a + b, ast.Mult: lambda a, b: a * b}
+
+    def ev(n: ast.AST) -> int:
+        if isinstance(n, ast.Constant):
+            return int(n.value)
+        assert isinstance(n, ast.BinOp)
+        return ops[type(n.op)](ev(n.left), ev(n.right))
+
+    return {"expression": expression, "result": str(ev(tree.body))}
+
+
+TOOLS = (
+    ToolSpec(name="current_time", label="현재 시각", description="지금 시각.", function=current_time),
+    ToolSpec(name="calculator", label="계산기", description="수식 계산.", function=calculator),
+)
+TOOL_NAMES = ("current_time", "calculator")
 
 THOUGHT = "질문을 나눠 보면"
 DROP = {"extra_body": {"drop_params": True}}  # 생각을 보낼 때만: LiteLLM 이 모르는 파라미터는 400 대신 버린다
+# Claude = + 명시 캐시 칸 (LiteLLM cache_control_injection_points · 생각을 끈 요청에도)
+CLAUDE = {"extra_body": {"drop_params": True, "cache_control_injection_points": [
+    {"location": "message", "role": "system"}, {"location": "message", "index": -1}]}}
 
 
 def user_texts(messages: list[ModelMessage]) -> list[str]:
-    return [p.content for m in messages if isinstance(m, ModelRequest) for p in m.parts if isinstance(p, UserPromptPart)]
+    """사용자 질문만 (턴마다 앞에 붙는 날짜 · 시각 줄은 뺀다)."""
+    return [p.content for m in messages if isinstance(m, ModelRequest) for p in m.parts
+            if isinstance(p, UserPromptPart) and not str(p.content).startswith(NOW_PREFIX)]
 
 
 def answer_texts(messages: list[ModelMessage]) -> list[str]:
@@ -168,7 +212,7 @@ def test_reasoning_streams_as_ag_ui_reasoning_events(make_api, h) -> None:
     assert events[1]["value"] | {"reasoning": "high", "reasoning_requested": "high", "provider": "anthropic"} == events[1]["value"]
     # LiteLLM 으로 가는 설정: reasoning_effort + Anthropic thinking 이 들어갈 max_tokens
     # + LiteLLM 요청 user = users.id (ADR-0011)
-    assert seen["settings"][0] == {"openai_reasoning_effort": "high", "max_tokens": 16000, **DROP, "openai_user": api.me["id"]}
+    assert seen["settings"][0] == {"openai_reasoning_effort": "high", "max_tokens": 16000, **CLAUDE, "openai_user": api.me["id"]}
     thread = api.client.get("/api/threads/thread-1").json()
     assert thread["messages"][1]["reasoning"] == f"{THOUGHT} 두 단계예요."
     assert [p["type"] for p in thread["messages"][1]["parts"]] == ["reasoning", "text"]
@@ -177,7 +221,8 @@ def test_reasoning_streams_as_ag_ui_reasoning_events(make_api, h) -> None:
     second = seen["messages"][1]
     assert not any(isinstance(p, ThinkingPart) for m in second if isinstance(m, ModelResponse) for p in m.parts)
     assert answer_texts(second) == ["결론입니다."]
-    assert seen["settings"][1] == {"openai_user": api.me["id"]}  # reasoning 기본 = off → user 만
+    # reasoning 기본 = off → user + (Claude 라) 캐시 칸만 · drop_params 없음
+    assert seen["settings"][1] == {"openai_user": api.me["id"], "extra_body": {"cache_control_injection_points": CLAUDE["extra_body"]["cache_control_injection_points"]}}
 
 
 def test_reasoning_ignored_for_models_without_it(make_api) -> None:
@@ -215,7 +260,7 @@ def _calculator_model(seen: dict[str, Any]) -> FunctionModel:
 
 def test_tool_call_round_trip_streams_tool_events_and_steps(make_api, h) -> None:
     seen: dict[str, Any] = {}
-    api = make_api(lambda _: _calculator_model(seen))
+    api = make_api(lambda _: _calculator_model(seen), tools=TOOLS)
     events = api.chat("12*(3+4) 는?")
     t = h.types(events)
     assert t[:3] == ["RUN_STARTED", "CUSTOM", "STEP_STARTED"]
@@ -262,19 +307,19 @@ def test_claude_thinking_is_only_sent_before_the_tool_call(make_api, h) -> None:
         yield f"답 {returns[-1].content['result']}"
 
     claude = h.group("claude-think", ["anthropic"], supports_reasoning=True, supports_function_calling=True, max_output_tokens=64000)
-    api = make_api(lambda _: FunctionModel(stream_function=stream), [*h.fixture_items(), claude], bootstrap_models=("claude-think",))
+    api = make_api(lambda _: FunctionModel(stream_function=stream), [*h.fixture_items(), claude], bootstrap_models=("claude-think",), tools=TOOLS)
     events = api.chat("3*3 은?", reasoning="low")
     assert events[-1]["type"] == "RUN_FINISHED" and events[1]["value"]["reasoning"] == "low"
     user = {"openai_user": api.me["id"]}
-    assert calls == [{"openai_reasoning_effort": "medium", "max_tokens": 16000, **DROP, **user}, {"max_tokens": 16000, **DROP, **user}]
+    assert calls == [{"openai_reasoning_effort": "medium", "max_tokens": 16000, **CLAUDE, **user}, {"max_tokens": 16000, **CLAUDE, **user}]
     api.chat("한 번 더", reasoning="low")  # 새 턴의 첫 호출 = 다시 생각 (지난 턴의 tool_use 는 서명이 없어도 된다)
-    assert calls[2] == {"openai_reasoning_effort": "medium", "max_tokens": 16000, **DROP, **user}
-    assert calls[3] == {"max_tokens": 16000, **DROP, **user}
+    assert calls[2] == {"openai_reasoning_effort": "medium", "max_tokens": 16000, **CLAUDE, **user}
+    assert calls[3] == {"max_tokens": 16000, **CLAUDE, **user}
 
     # OpenAI 계열은 그대로 (reasoning 을 툴 왕복 내내 보낸다)
     calls.clear()
     gpt = h.group("gpt-think", ["openai"], supports_reasoning=True, supports_function_calling=True)
-    api2 = make_api(lambda _: FunctionModel(stream_function=stream), [*h.fixture_items(), gpt], bootstrap_models=("gpt-think",))
+    api2 = make_api(lambda _: FunctionModel(stream_function=stream), [*h.fixture_items(), gpt], bootstrap_models=("gpt-think",), tools=TOOLS)
     api2.chat("3*3 은?", reasoning="high")
     user = {"openai_user": api2.me["id"]}
     assert calls == [{"openai_reasoning_effort": "high", **DROP, **user}, {"openai_reasoning_effort": "high", **DROP, **user}]
@@ -287,7 +332,7 @@ def test_tools_are_not_offered_to_models_without_function_calling(make_api) -> N
         seen["tools"] = info.function_tools
         yield "ok"
 
-    api = make_api(lambda _: FunctionModel(stream_function=stream))
+    api = make_api(lambda _: FunctionModel(stream_function=stream), tools=TOOLS)
     events = api.chat("질문", model="fake-chat-large")  # fixture: supports_function_calling false
     assert seen["tools"] == [] and events[1]["value"]["tools"] == []
 
@@ -297,7 +342,7 @@ def test_tool_loop_is_capped(make_api, h) -> None:
         n = sum(isinstance(m, ModelResponse) for m in messages)
         yield {0: DeltaToolCall(name="calculator", json_args='{"expression": "1+1"}', tool_call_id=f"c{n}")}
 
-    api = make_api(lambda _: FunctionModel(stream_function=stream))
+    api = make_api(lambda _: FunctionModel(stream_function=stream), tools=TOOLS)
     events = api.chat("끝없이")
     assert events[-1] | {"type": "RUN_ERROR", "code": "run_limit"} == events[-1]
     # 툴 단계는 결과가 오면 닫힌다 → 상한에 걸리는 9번째 요청 땐 열린 단계가 없다 (모든 STEP_STARTED 는 짝이 있다)
@@ -327,13 +372,11 @@ def _parallel_model(seen: dict[str, Any]) -> FunctionModel:
 
 
 def _slow_clock(monkeypatch: pytest.MonkeyPatch, spans: list[tuple[float, float]], wait: float = 0.25) -> None:
-    """current_time 이 wait 초 걸리게 (툴은 스레드에서 돈다) · 시작 · 끝 시각을 남긴다."""
+    """current_time(테스트 툴)이 wait 초 걸리게 (툴은 스레드에서 돈다) · 시작 · 끝 시각을 남긴다."""
     import threading
     import time as _time
 
-    from conductor import tools as tools_mod
-
-    real = tools_mod._now
+    real = CLOCK["now"]
     lock = threading.Lock()
 
     def slow() -> Any:
@@ -343,14 +386,14 @@ def _slow_clock(monkeypatch: pytest.MonkeyPatch, spans: list[tuple[float, float]
             spans.append((start, _time.monotonic()))
         return real()
 
-    monkeypatch.setattr(tools_mod, "_now", slow)
+    monkeypatch.setitem(CLOCK, "now", slow)
 
 
 def test_parallel_tool_calls_run_concurrently_with_ordered_events(make_api, h, monkeypatch: pytest.MonkeyPatch) -> None:
     spans: list[tuple[float, float]] = []
     _slow_clock(monkeypatch, spans)
     seen: dict[str, Any] = {}
-    api = make_api(lambda _: _parallel_model(seen))
+    api = make_api(lambda _: _parallel_model(seen), tools=TOOLS)
     events = api.chat("서울이랑 뉴욕 지금 몇 시야?")
     assert events[-1]["type"] == "RUN_FINISHED"
     # 둘 다 시작한 뒤에야 하나가 끝난다 = 동시에 돌았다
@@ -392,7 +435,7 @@ def test_parallel_tools_respect_cap_and_mode(make_api, monkeypatch: pytest.Monke
         monkeypatch.setattr(agent_mod, "TOOL_EXECUTION", "sequential")
     spans: list[tuple[float, float]] = []
     _slow_clock(monkeypatch, spans, wait=0.1)
-    api = make_api(lambda _: _parallel_model({}))
+    api = make_api(lambda _: _parallel_model({}), tools=TOOLS)
     assert api.chat("서울이랑 뉴욕")[-1]["type"] == "RUN_FINISHED"
     (s1, e1), (s2, e2) = sorted(spans)
     assert e1 <= s2  # 겹치지 않는다
@@ -415,7 +458,7 @@ def test_slow_tool_times_out_and_the_model_hears_it(make_api, monkeypatch: pytes
         heard.append(retries[-1].model_response())
         yield "시각을 확인하지 못했어요."
 
-    api = make_api(lambda _: FunctionModel(stream_function=stream))
+    api = make_api(lambda _: FunctionModel(stream_function=stream), tools=TOOLS)
     events = api.chat("지금 몇 시?")
     assert events[-1]["type"] == "RUN_FINISHED" and "Timed out" in heard[0]
     result = next(e for e in events if e["type"] == "TOOL_CALL_RESULT")
@@ -428,9 +471,7 @@ def test_parallel_tool_failure_cancels_siblings_and_closes_every_tool_step(make_
     import threading
     import time as _time
 
-    from conductor import tools as tools_mod
-
-    real, lock, calls = tools_mod._now, threading.Lock(), []
+    real, lock, calls = CLOCK["now"], threading.Lock(), []
 
     def flaky() -> Any:
         with lock:
@@ -442,8 +483,8 @@ def test_parallel_tool_failure_cancels_siblings_and_closes_every_tool_step(make_
         _time.sleep(0.4)
         return real()
 
-    monkeypatch.setattr(tools_mod, "_now", flaky)
-    api = make_api(lambda _: _parallel_model({}))
+    monkeypatch.setitem(CLOCK, "now", flaky)
+    api = make_api(lambda _: _parallel_model({}), tools=TOOLS)
     events = api.chat("서울이랑 뉴욕")
     t = h.types(events)
     assert t[-1] == "RUN_ERROR" and t.count("STEP_STARTED") == t.count("STEP_FINISHED")
@@ -459,7 +500,7 @@ def test_client_disconnect_during_parallel_tools_cancels_every_open_tool(make_ap
     import anyio
 
     _slow_clock(monkeypatch, [], wait=0.5)
-    api = make_api(lambda _: _parallel_model({}))
+    api = make_api(lambda _: _parallel_model({}), tools=TOOLS)
     body = json.dumps(h.chat_body("서울이랑 뉴욕", run="run-cut")).encode()
     headers = [(b"host", b"127.0.0.1"), (b"content-type", b"application/json"), (b"authorization", f"Bearer {api.client.bearer}".encode())]
     scope = {
@@ -658,6 +699,8 @@ def test_litellm_anthropic_thinking_stream_becomes_ag_ui_reasoning(make_api, h) 
     # 요청: LiteLLM 이 Anthropic thinking 으로 바꿀 reasoning_effort + thinking 이 들어갈 출력 한도 + drop_params
     assert sent[0]["reasoning_effort"] == "high" and sent[0]["max_completion_tokens"] == 16000 and sent[0]["drop_params"] is True
     assert sent[0]["stream"] is True and sent[0]["stream_options"] == {"include_usage": True}
+    # Claude = 명시 캐시: LiteLLM 1.106.2 이 받는 칸 (provider 로는 안 간다) · system 메시지 + 마지막 메시지에 cache_control
+    assert sent[0]["cache_control_injection_points"] == [{"location": "message", "role": "system"}, {"location": "message", "index": -1}]
     summary = next(e for e in events if e["type"] == "CUSTOM" and e["name"] == "brewai.run_summary")
     assert summary["value"]["usage"]["reasoning_tokens"] == 12
     thread = api.client.get("/api/threads/thread-1").json()

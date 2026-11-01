@@ -5,7 +5,7 @@ import { expectHeading, shot } from './helpers';
 
 // 대화 관통 2 (모델 통신): 멀티턴 · 생각(추론) · 도구 카드 · 상태 줄 · 모델 고르기 · 기록 다시 열기 · 진행 상황 · 멈추기
 // + P2-1 (관리자가 숨기면 사용자 모델 메뉴에서 빠진다). 서버 = config.webServer (mock 게이트웨이 · conductor · 관리자 preview)
-// mock 표시(마지막 질문에): [fake:think] 생각 조각 · [fake:calc] <수식> 계산기 (줄 끝까지가 수식 → 마지막 줄에) · [fake:slow] 조각마다 250ms
+// mock 표시(마지막 질문에): [fake:think] 생각 조각 · [fake:skill <이름>] 스킬 불러오기 (내장 도구는 없다) · [fake:slow] 조각마다 250ms
 const HOME_H1 = '무엇을 맡길까요?';
 const browserChannel = process.platform === 'darwin' ? 'chrome' : process.platform === 'win32' ? 'msedge' : undefined;
 
@@ -216,7 +216,9 @@ test.describe('모델 · 생각 · 도구 · 상태 줄', () => {
     await expect(line.locator('.trace-txt')).not.toHaveClass(/run/);
     await expect(panel).toBeVisible();
     await expect(panel.locator('.tp-think .tp-body')).toContainText('필요한 도구가 있는지 확인해요');
-    await expect(panel.locator('.tp-foot span')).toHaveText([/^요청 1회$/, /^토큰 입력 \d+ \/ 출력 \d+$/, /^생각 토큰 \d+$/]);
+    await expect(panel.locator('.tp-foot span')).toHaveText([/^요청 1회$/, /^토큰 입력 \d[\d,]* \/ 출력 \d[\d,]*$/, /^생각 토큰 \d[\d,]*$/]);
+    // 숫자 = 천 단위 쉼표 (1234 → 1,234)
+    for (const n of ((await panel.locator('.tp-foot').textContent()) ?? '').match(/\d[\d,]*/g) ?? []) expect(n).toBe(Number(n.replace(/,/g, '')).toLocaleString('ko-KR'));
     await expect(ui(win).last.locator('.by')).not.toContainText('생각'); // 생각 깊이는 답 아래에 안 보인다
     await win.screenshot({ path: shot('desktop-chat-reasoning') });
     // Esc = 패널 접고 줄로
@@ -226,7 +228,7 @@ test.describe('모델 · 생각 · 도구 · 상태 줄', () => {
     await expect(line).toBeFocused();
   });
 
-  test('모델이 생각 글을 안 보내면 (display omitted) 패널에 그렇게 말한다', async () => {
+  test('모델이 생각 글을 안 보내면 (display omitted) 빈 생각 블록 없이 한 줄로 말한다', async () => {
     await ask(win, '[fake:omitted] 생각만 하고 글은 숨겨');
     const line = ui(win).last.locator('.trace-line');
     await expect(line).toHaveAttribute('data-step', 'done', { timeout: 15_000 });
@@ -234,7 +236,9 @@ test.describe('모델 · 생각 · 도구 · 상태 줄', () => {
     await expect(line.locator('.trace-txt')).toHaveText('생각함');
     await expect(line).toHaveAttribute('data-glyph', 'think');
     await line.click();
-    await expect(ui(win).last.getByRole('region', { name: '생각과 도구 사용 과정' })).toContainText('모델이 생각 내용을 보내지 않았어요');
+    const region = ui(win).last.getByRole('region', { name: '생각과 도구 사용 과정' });
+    await expect(region.locator('.tp-none')).toHaveText('모델이 생각 내용을 보내지 않았어요');
+    await expect(region.locator('.tp-think')).toHaveCount(0); // 빈 생각 블록을 그리지 않는다
   });
 
   test('생각 깊이를 켰는데 모델이 생각을 건너뛰면 (adaptive) "생각 없이 바로 답함" — 고장이 아니라 모델의 선택', async () => {
@@ -246,34 +250,34 @@ test.describe('모델 · 생각 · 도구 · 상태 줄', () => {
     await expect(line).toHaveAccessibleName(/^생각 없이 바로 답함/); // 버튼 이름 = 보이는 글 (시간 빼고 · 늦지 않게)
   });
 
-  test('도구: 상태 줄이 생각 → 계산하는 중 → 답을 다듬는 중 → "생각함 · 계산기 1회" · 패널에 계산기 카드', async () => {
+  test('도구: 상태 줄이 생각 → 스킬을 펼치는 중 → 답을 다듬는 중 → "생각함 · 스킬 사용 1회" · 패널에 스킬 카드', async () => {
     await recordSteps(win);
-    await ask(win, '[fake:slow] 2의 10제곱에 1을 더하면?\n[fake:calc] 2**10 + 1');
+    await ask(win, '[fake:slow] 이 대화를 짧게 요약해 줘\n[fake:skill summarize]');
     const line = ui(win).last.locator('.trace-line');
-    await expect(line).toHaveAttribute('data-step', 'tool:calculator', { timeout: 10_000 });
-    await expect(line.locator('.trace-txt')).toHaveText(/계산하는 중|결과를 살펴보는 중/);
-    await line.click(); // 흐르는 중에 펼치면 흐르는 대로 보인다
-    const card = ui(win).last.getByRole('group', { name: '계산기 도구' });
+    // 스킬 단계는 짧다 (지침 읽기 = 몇 ms) → 지나간 글은 기록(recordSteps)으로 본다. 생각하는 동안 펼치면 흐르는 대로 보인다
+    await expect(line).toHaveAttribute('data-step', 'thinking', { timeout: 10_000 });
+    await line.click();
+    const card = ui(win).last.getByRole('group', { name: '스킬 사용' });
     await expect(card).toBeVisible();
     await expect(card).toContainText('완료', { timeout: 15_000 });
-    await expect(card.locator('dl')).toContainText('수식2**10 + 1');
-    await expect(card.locator('dl')).toContainText('결과1025');
-    await expect(ui(win).last).toContainText('계산 결과는 1025예요. (수식 2**10 + 1)', { timeout: 15_000 });
+    await expect(card.locator('dl')).toContainText('스킬요약');
+    await expect(card.locator('dl')).toContainText(/결과지침 불러옴 \(\d+줄\)/);
+    await expect(ui(win).last).toContainText("스킬 '요약' 지침을 따랐어요.", { timeout: 15_000 });
     await expect(line).toHaveAttribute('data-step', 'done');
-    await expect(line.locator('.trace-txt .seg')).toHaveText([/^\d+(\.\d)?초 동안 생각함$/, '계산기 1회']);
-    await expect(line).toHaveAccessibleName(/^\d+(\.\d)?초 동안 생각함, 계산기 1회$/);
+    await expect(line.locator('.trace-txt .seg')).toHaveText([/^\d+(\.\d)?초 동안 생각함$/, '스킬 사용 1회']);
+    await expect(line).toHaveAccessibleName(/^\d+(\.\d)?초 동안 생각함, 스킬 사용 1회$/);
     await expect(line).toHaveAttribute('data-glyph', 'think');
-    await expect(ui(win).last.locator('.trace > .sr[aria-live]')).toHaveText(/초 동안 생각함, 계산기 1회$/); // 끝나면 바로 알린다 (2초 묶음 없이)
+    await expect(ui(win).last.locator('.trace > .sr[aria-live]')).toHaveText(/초 동안 생각함, 스킬 사용 1회$/); // 끝나면 바로 알린다 (2초 묶음 없이)
     const rec = await recorded(win);
-    expect(rec.steps).toEqual(['thinking', 'tool:calculator', 'writing', 'done']);
-    // 화면 글: 질문을 살펴보는 중 → 계산하는 중 → (결과를 살펴보는 중) → 답을 다듬는 중 → 요약
+    expect(rec.steps).toEqual(['thinking', 'skill:summarize', 'writing', 'done']);
+    // 화면 글: 질문을 살펴보는 중 → 스킬을 펼치는 중 → (결과를 살펴보는 중) → 답을 다듬는 중 → 요약
     const texts = rec.texts.filter((x) => x !== '결과를 살펴보는 중');
-    expect(texts.slice(0, -1)).toEqual(['질문을 살펴보는 중', '계산하는 중', '답을 다듬는 중']);
-    expect(texts.at(-1)).toMatch(/초 동안 생각함, 계산기 1회$/);
+    expect(texts.slice(0, -1)).toEqual(['질문을 살펴보는 중', "'요약' 스킬을 펼치는 중", '답을 다듬는 중']);
+    expect(texts.at(-1)).toMatch(/초 동안 생각함, 스킬 사용 1회$/);
     // 패널 = 나온 순서대로 (생각 → 도구) · 글 사이에 카드가 끼지 않는다
     const panel = ui(win).last.getByRole('region', { name: '생각과 도구 사용 과정' });
     await expect(panel.locator('.tp-think, .tp-tool')).toHaveCount(2);
-    await expect(panel.locator('.tp-tool b')).toHaveText(['계산기']);
+    await expect(panel.locator('.tp-tool b')).toHaveText(['스킬 사용']);
     await expect(panel.locator('.tp-foot')).toContainText('요청 2회');
     await expect(ui(win).last.locator('> .tp-tool, > .tcard')).toHaveCount(0);
     await win.screenshot({ path: shot('desktop-chat-tool') });
@@ -330,12 +334,12 @@ test.describe('기록 · 진행 상황', () => {
     await expect(lines).toHaveCount(4);
     await expect(lines.nth(0)).toHaveAttribute('aria-expanded', 'false');
     await expect(lines.nth(0).locator('.trace-txt')).toHaveText('생각함');
-    const calc = log.locator('.msg.agent').filter({ hasText: '계산 결과는 1025예요' });
-    await expect(calc.locator('.trace-txt .seg')).toHaveText(['생각함', '계산기 1회']);
+    const calc = log.locator('.msg.agent').filter({ hasText: "스킬 '요약' 지침을 따랐어요" });
+    await expect(calc.locator('.trace-txt .seg')).toHaveText(['생각함', '스킬 사용 1회']);
     // 생각을 건너뛴 답도 기록에서 그대로 (시간 없이)
     await expect(log.locator('.msg.agent').filter({ hasText: '[fake:nothink]' }).locator('.trace-txt')).toHaveText('생각 없이 바로 답함');
     await calc.locator('.trace-line').click();
-    await expect(calc.getByRole('group', { name: '계산기 도구' })).toContainText('결과1025');
+    await expect(calc.getByRole('group', { name: '스킬 사용' })).toContainText(/결과지침 불러옴 \(\d+줄\)/);
     await expect(log.locator('.msg.agent').first().locator('.by svg')).toHaveAttribute('data-provider', 'anthropic');
     // 이어서 묻기 = 같은 thread (서버가 앞 기록을 모델에 준다)
     await ask(win, '기록 다음 질문');

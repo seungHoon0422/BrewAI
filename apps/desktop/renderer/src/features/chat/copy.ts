@@ -1,6 +1,7 @@
 // 대화 화면 문구 한곳 (한국어). 서버 글은 그대로 띄우지 않고 code → 문구.
 // 사용자 앱이라 '관리자' 같은 말은 쓰지 않는다 (e2e desktop.spec). 고치는 곳(LiteLLM 관리 화면 · .env)은 P1 이라 같이 보여 준다.
 import type { Failure } from '../../lib/api';
+import { count } from '../../lib/format';
 
 export const UNTITLED = '제목 없는 대화';
 export const CONV_FALLBACK = '대화';
@@ -77,7 +78,7 @@ export const detailText = (detail: string | null | undefined) =>
 // ── 단계 이름 · 지금 하는 일 (상태 줄 · 진행 상황 화면) ──
 // 문구는 시간으로만 고른다 (결정적 · 테스트가 본다). 무작위로 돌리지 않는다.
 
-// 단계 이름 → 화면 이름. 툴 이름은 /api/tools 의 label (계산기 · 현재 시각) · 스킬은 /api/skills 의 label (스킬: 요약)
+// 단계 이름 → 화면 이름. 툴 이름은 /api/tools 의 label (스킬 사용) · 스킬은 /api/skills 의 label (스킬: 요약)
 // 앱 = app:<handle> → '앱: <이름>' (연결된 앱 목록의 이름 · 모르면 handle) · MCP 도구 이름표는 brewai.app_tool 이 바꾼다
 export const appStepLabel = (name: string) => `앱: ${name}`;
 export function stepLabel(name: string, tools: Record<string, string>, skills: Record<string, string> = {}, apps: Record<string, string> = {}): string {
@@ -105,13 +106,6 @@ export function thinkingPhrase(ms: number): string {
   if (ms < 10_000) return '생각을 정리하는 중';
   return '깊이 따져 보는 중';
 }
-const TOOL_PHRASE: Record<string, string> = {
-  calculator: '계산하는 중',
-  current_time: '지금 시각을 확인하는 중',
-  unit_convert: '단위를 바꾸는 중',
-  date_calc: '날짜를 세는 중',
-  text_stats: '글자를 세는 중',
-};
 const skillPhrase = (label: string) => `'${label}' 스킬을 펼치는 중`;
 // 도구 여럿이 동시에 도는 중 (병렬 툴 · 한 응답에서 같이 불렸다)
 export const parallelPhrase = (n: number) => `도구 ${n}개를 동시에 쓰는 중`;
@@ -127,7 +121,7 @@ export function stepPhrase(name: string | null, inStepMs: number, tools: Record<
   if (name?.startsWith('app:')) return '쓸 앱 도구를 고르는 중';
   if (name?.startsWith('tool:')) {
     const tool = name.slice(5);
-    return TOOL_PHRASE[tool] ?? `${tools[tool] ?? tool} 쓰는 중`;
+    return `${tools[tool] ?? tool} 쓰는 중`;
   }
   return WAITING_PHRASE;
 }
@@ -139,6 +133,8 @@ export const TRACE = {
   stopped: '중간에 멈춤',
   toolsMany: (n: number) => `도구 ${n}회`,
   toolCount: (label: string, n: number) => `${label} ${n}회`,
+  appLinked: (name: string | null) => (name ? `${name} 연결` : '앱 연결'), // 앱 도구만 고르고 끝난 답 (연결 기다림 등)
+  appMissed: (name: string | null) => (name ? `${name} 연결 못 함` : '앱 연결 못 함'), // 앱 고르기가 실패 · 취소로 끝난 답
   // 줄 · 패널
   openTitle: '생각과 도구 사용 과정 보기',
   closeTitle: '과정 접기',
@@ -152,9 +148,10 @@ export const TRACE = {
   // 패널 아래 사용량 = 칸 나눔 (가운뎃점 없이 · 화면이 칸마다 span 으로 띄운다)
   usage: (u: { requests: number; input_tokens: number | null; output_tokens: number | null; reasoning_tokens: number | null }): string[] =>
     [
-      `요청 ${u.requests}회`,
-      u.input_tokens != null || u.output_tokens != null ? `토큰 입력 ${u.input_tokens ?? '—'} / 출력 ${u.output_tokens ?? '—'}` : '',
-      u.reasoning_tokens ? `생각 토큰 ${u.reasoning_tokens}` : '',
+      `요청 ${count(u.requests)}회`,
+      u.input_tokens != null || u.output_tokens != null
+        ? `토큰 입력 ${u.input_tokens == null ? '—' : count(u.input_tokens)} / 출력 ${u.output_tokens == null ? '—' : count(u.output_tokens)}` : '',
+      u.reasoning_tokens ? `생각 토큰 ${count(u.reasoning_tokens)}` : '',
     ].filter(Boolean),
 } as const;
 
@@ -177,32 +174,37 @@ export const TOOL = {
   appGroup: (label: string) => `${label} 앱 도구`,
   write: '쓰기',
   writeTitle: '앱의 데이터를 바꾸는 도구예요',
-  appPicked: (app: string, n: number) => (n ? `${app}에서 쓸 도구 ${n}개를 골랐어요` : `${app}에서 맞는 도구를 찾지 못했어요`),
   waitingAuth: '앱 연결을 기다려요',
-  rows: {
-    expression: '수식', timezone: '시간대', skill: '스킬', convert: '변환', calc: '계산', text: '글', input: '입력', error: '오류', result: '결과',
-    app: '앱', need: '찾는 일', tools: '고른 도구', state: '상태',
-  },
-  defaultTimezone: 'Asia/Seoul',
-  days: (d: string) => `${d}일`,
-  received: (n: number) => `${n}자 받음`,
-  skillLoaded: (lines: number | null) => `지침 불러옴${lines != null ? ` (${lines}줄)` : ''}`,
-  dayCount: (text: string, days: string) => `${text} (${days}일)`,
-  textStats: (r: { characters: string; noSpaces: string; words: string; lines: string }) =>
-    `${r.characters}자, 공백 빼고 ${r.noSpaces}자, 단어 ${r.words}, ${r.lines}줄`,
+  rows: { skill: '스킬', input: '입력', error: '오류', result: '결과', state: '상태' },
+  skillLoaded: (lines: number | null) => `지침 불러옴${lines != null ? ` (${count(lines)}줄)` : ''}`,
+  found: (n: number) => `${count(n)}개`,
+  none: '결과 없음',
+  more: (n: number) => `외 ${count(n)}개`,
+  links: '결과 목록',
+  raw: '원문',
+  rawShow: '원문 보기',
+  rawHide: '원문 접기',
+  // 앱 도구 고르기 = 카드 대신 한 줄 메모 (TraceView AppNote)
+  appNote: (app: string, n: number) => (n ? `${app} 연결, 도구 ${n}개` : `${app}에서 맞는 도구를 찾지 못했어요`),
+  appPicking: (app: string) => `${app} 도구를 고르는 중`,
+  appPickingAny: '쓸 앱 도구를 고르는 중',
+  appWaiting: (app: string) => `${app} 연결을 기다려요`,
+  appStopped: '앱 도구 고르기를 멈췄어요',
+  appFailed: (why: string) => `앱 도구를 고르지 못했어요${why ? `: ${why}` : ''}`,
+  appAny: '앱',
   // 한 응답에서 같이 불려 동시에 돈 도구 묶음 (머리 줄 · 칸 나눔)
   parallel: (n: number) => `동시에 ${n}개`,
   parallelRunning: (n: number) => `${n}개 실행 중`,
   wall: (t: string) => `실행 ${t}`,
   serial: (t: string) => `하나씩이면 ${t}`,
-  lanes: '도구마다 부른 때와 실행한 때', // 시간 막대 (화면 읽기 이름)
+  lanes: '도구마다 실행한 시간', // 시간 막대 (화면 읽기 이름 · 모두 같은 때 시작)
 } as const;
 
 // 대화 화면 (홈 · 대화 · 입력창 · 실패)
 export const CHAT = {
   homeTitle: '무엇을 맡길까요?', // e2e 계약 (첫 화면 h1)
   log: '대화 내용',
-  placeholderHome: '예: 이번 주 메일에서 할 일만 뽑아줘',
+  placeholderHome: '예: 이 글을 세 줄로 요약해 줘',
   placeholderThread: '이어서 요청하거나 질문하세요',
   placeholderLoading: '대화 기록을 불러오는 중이에요',
   loadingHistory: '대화 기록을 불러오는 중…',
@@ -222,27 +224,23 @@ export const CHAT = {
   moveFailed: '옮기지 못했어요',
 } as const;
 
-// 새 대화 홈의 제안 — 누르면 입력창에 넣지 않고 바로 보낸다
-export type Starter = { icon: 'mail' | 'team' | 'calendar' | 'clock' | 'ruler' | 'layers'; text: string; prompt: string; need?: string; tag?: string };
+// 새 대화 홈의 제안 — 누르면 입력창에 넣지 않고 바로 보낸다. 늘 보이는 것 = 스킬(요약 · 비교표) · 앱 제안 = 지금 쓸 수 있는 앱이 있을 때만
+export type Starter = { icon: 'text' | 'grid' | 'plug' | 'search' | 'layers'; text: string; prompt: string; tag?: string };
 export const SUGGESTIONS: readonly Starter[] = [
-  { icon: 'mail', text: "'견적 요청' 메일에 답장 초안 쓰기", prompt: "'견적 요청' 메일에 답장 초안 써줘", need: '연결 필요' },
-  { icon: 'team', text: '노트북 3종 비교표 — 여럿이 나눠서 조사', prompt: '노트북 3종 가격, 무게, 배터리 비교표 만들어줘' },
-  { icon: 'calendar', text: '내일 10시 회의 자료 준비', prompt: '내일 10시 회의 자료 준비해줘', need: '연결 필요' },
+  { icon: 'text', text: '재택근무의 장단점 세 줄 요약', prompt: '재택근무의 장점과 단점을 세 줄로 요약해 줘' },
+  { icon: 'grid', text: '노트북 3종 가격, 무게, 배터리 비교표', prompt: '노트북 3종 가격, 무게, 배터리 비교표 만들어줘' },
 ];
 
-// 도구 시험 — 도구 · 스킬 실행 흐름을 바로 확인하는 질문 (진짜 모델이 자연스럽게 도구를 부르게 쓴 글 · E2E 는 mock 표시로 본다)
+// 앱으로 해 보기 — 연결된 앱(첫 번째)으로 도구 흐름을 바로 확인하는 질문 (진짜 모델이 자연스럽게 앱 도구를 부르게 쓴 글 · E2E 는 mock 표시로 본다)
 export const TOOL_TRY = {
-  label: '도구 시험',
+  label: '앱으로 해 보기',
   parallel: '동시 실행',
   chain: '여러 단계',
 } as const;
-export const TOOL_STARTERS: readonly Starter[] = [
-  { icon: 'clock', text: '서울과 뉴욕 지금 시각, 시차까지', prompt: '서울이랑 뉴욕 지금 몇 시인지 알려 주고 시차도 계산해 줘', tag: TOOL_TRY.parallel },
-  { icon: 'ruler', text: '마일, 섭씨, GiB 세 가지를 한 번에 바꾸기', prompt: '마라톤 42.195km 는 몇 마일인지, 68°F 는 섭씨로 몇 도인지, 2TB 는 몇 GiB 인지 한 번에 알려 줘', tag: TOOL_TRY.parallel },
-  {
-    icon: 'layers', text: '크리스마스까지 D-day 세고 송년회 준비표 만들기', tag: TOOL_TRY.chain,
-    prompt: '오늘 날짜를 확인하고, 올해 크리스마스까지 며칠 남았는지 센 다음, 회의 준비 스킬로 그날 송년회 준비 체크리스트를 만들어 줘',
-  },
+export const appStarters = (app: string): readonly Starter[] => [
+  { icon: 'search', text: `${app}에서 찾아 정리하기`, prompt: `${app} 앱에서 최근 항목을 찾아서 정리해 줘` },
+  { icon: 'plug', text: `${app}에서 두 가지를 동시에 찾기`, prompt: `${app} 앱에서 두 가지를 동시에 찾아서 나란히 보여 줘`, tag: TOOL_TRY.parallel },
+  { icon: 'layers', text: `${app}에서 찾고 요약 스킬로 정리`, prompt: `${app} 앱에서 찾은 내용을 요약 스킬로 세 줄 정리해 줘`, tag: TOOL_TRY.chain },
 ];
 
 // 사이드바 최근 대화

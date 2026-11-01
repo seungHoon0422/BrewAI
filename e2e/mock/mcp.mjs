@@ -8,6 +8,7 @@
 //                      Streamable HTTP · JSON 응답 · 새 방식(server/discover 2026-07-28) + 옛 방식(initialize) 둘 다
 //                      토큰 없음 · 만료 = 401 + WWW-Authenticate: Bearer resource_metadata="…/.well-known/oauth-protected-resource/mcp", scope="issues:read"
 //   POST /noauth/mcp   인증 없음 'notes' · 도구 4개 · 옛 방식(initialize)만 (FAKE_MCP_NOAUTH_MODERN=1 이면 새 방식도)
+//                      search_notes = 검색 MCP 모양 글 (Title/URL 기록 3개 · 진짜 주소로는 안 나간다 = example.com)
 // OAuth (issuer = BASE · RFC 8414 · iss 광고 · PKCE S256 만 · resource 필수)
 //   GET  /.well-known/oauth-protected-resource[/mcp]   RFC 9728 {resource: BASE/mcp, authorization_servers: [BASE]}
 //   GET  /.well-known/oauth-authorization-server       메타데이터 (registration_endpoint = DCR)
@@ -295,6 +296,14 @@ function fakeResult(server, name, args, who) {
       notes.push(n('text'));
       return { saved: true, count: notes.length };
     }
+    // search_notes = 검색 MCP(Exa 등) 모양의 글: 'Title: … / URL: … / Published: … / 본문' 기록 여럿 (화면이 제목 + 도메인 목록으로 그린다)
+    if (name === 'search_notes') {
+      const q = n('query') || '메모';
+      return Array.from({ length: 3 }, (_, i) => [
+        `Title: ${q} 메모 ${i + 1}`, `URL: https://notes.example.com/n/${i + 1}`, `Published: 2026-10-${String(28 + i).padStart(2, '0')}`, 'Author: N/A',
+        `Text: ${q} 에 관한 메모 본문 ${i + 1}. 긴 글은 앞부분만 보여요.`,
+      ].join('\n')).join('\n\n');
+    }
     return { notes: notes.filter((x) => !args?.query || x.includes(args.query)) };
   }
   if (name === 'get_viewer') return { account: who, name: `${who} (fake)` };
@@ -364,7 +373,7 @@ async function mcp(req, res, server) {
       const whoName = who?.account ?? 'anon';
       calls.push({ server, tool: name, account: whoName, token_sha: tokenSha, args: params.arguments ?? {} });
       const data = fakeResult(server, name, params.arguments ?? {}, whoName);
-      return ok({ content: [{ type: 'text', text: JSON.stringify(data) }], isError: false });
+      return ok({ content: [{ type: 'text', text: typeof data === 'string' ? data : JSON.stringify(data) }], isError: false });
     }
     default:
       return fail(-32601, 'Method not found');

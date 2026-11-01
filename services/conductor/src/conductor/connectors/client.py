@@ -1,7 +1,7 @@
 """MCP 클라이언트 = 공식 SDK `mcp.Client` + Streamable HTTP 만 (ADR-0013). 요청마다 짧게 연결하고 닫는다 (P1 규모 · 서버가 stateless 여도 됨).
 
   list_tools   tools/list 를 cursor 로 끝까지(최대 20쪽) → 다듬기(trim_tool) → Tool 목록. 캐시는 ToolCache (사람마다 · 공통 '*')
-  call_tool    tools/call → cap_result (12KB 상한 · 목록이면 '나머지 N개')
+  call_tool    tools/call → cap_result (8KB 상한 · 목록이면 '나머지 N개' · Title/URL 기록 글이면 기록마다 본문을 줄여 전부)
   probe        토큰 없이 한 번: 401 이면 OAuth 서버 (WWW-Authenticate 의 resource_metadata · scope) · 아니면 도구 목록 + 서버 이름(serverInfo)
                POST 가 401 · 403 을 한 번 받으면 그 연결의 다음 POST 는 바깥으로 안 보낸다 (auto 모드 discover → initialize 두 번 요청 = 1번으로)
                GET(SSE 스트림) · DELETE 의 401 · 403 은 보지 않는다 (SDK 가 무시하고 요청은 계속된다)
@@ -54,7 +54,8 @@ NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 DESC_MAX = 400
 PROP_DESC_MAX = 120
 SCHEMA_DEPTH = 12
-MAX_RESULT_BYTES = 12 * 1024
+MAX_RESULT_BYTES = 8 * 1024  # 실측 (slice 05 토큰): 검색 결과 2개 = 12KB 24,450B → 8KB 16,258B · 기록 줄이기로 10개 다 보인다
+RECORD_BODY_MIN = 160  # Title/URL 기록 하나의 본문 최소 바이트 (기록이 많아도 이만큼은)
 MAX_PAGES = 20
 MAX_TOOLS = 500  # 서버 하나에서 받는 도구 수 상한 (넘으면 버림 · 로그)
 DEFAULT_TTL_MS = 10 * 60 * 1000
@@ -291,8 +292,42 @@ def content_of(result: types.CallToolResult) -> tuple[Any, bool]:
     return text, bool(result.is_error)
 
 
+_RECORD_START = re.compile(r"(?m)^(?=Title: )")
+_RECORD_HEAD = re.compile(r"^(Title|URL|Published|Author|Date|Score|ID|Id|Source): ")
+
+
+def trim_records(text: str, budget: int) -> str | None:
+    """검색 결과 글 (Exa 같은 'Title: … / URL: … / Published: … / 본문' 기록 여러 개) → 기록마다 머리 줄 + 본문 앞부분.
+    기록이 2개 미만이거나 URL 이 없으면 None (일반 글로 자른다). 모든 기록이 budget 안에 들도록 본문 몫을 나눈다."""
+    records = [r.strip() for r in _RECORD_START.split(text) if r.strip()]
+    lead = records.pop(0) if records and not records[0].startswith("Title: ") else ""  # 첫 기록 앞의 머리말 ('Search results for …')
+    if len(records) < 2 or not all("\nURL: " in r for r in records):
+        return None
+    heads: list[str] = []
+    bodies: list[str] = []
+    for r in records:
+        lines = r.replace("\r\n", "\n").split("\n")
+        n = 0
+        while n < len(lines) and _RECORD_HEAD.match(lines[n]):
+            n += 1
+        heads.append("\n".join(x for x in lines[:n] if not x.endswith((": N/A", ": None"))))
+        body = " ".join(ln.strip().lstrip("#").strip() for ln in lines[n:] if ln.strip() and ln.strip() not in ("...", "---"))
+        bodies.append(body.removeprefix("Highlights:").removeprefix("Text:").strip())
+    sep = "\n---\n"
+    lead_cut, lead_rest = _cut_text(" ".join(lead.split()), RECORD_BODY_MIN)
+    lead = lead_cut.rstrip() + ("…" if lead_rest else "") if lead else ""
+    fixed = _size({"result": sep.join([lead, *heads])}) + len(records) * 8
+    room = max(RECORD_BODY_MIN, (budget - fixed) // len(records))
+    out: list[str] = [lead] if lead else []
+    for head, body in zip(heads, bodies, strict=True):
+        cut, rest = _cut_text(body, room)
+        out.append(f"{head}\n{cut.rstrip()}…" if rest else (f"{head}\n{body}" if body else head))
+    return sep.join(out)
+
+
 def cap_result(body: Any, *, is_error: bool = False, limit: int = MAX_RESULT_BYTES) -> dict[str, Any]:
-    """도구 결과 → 모델에 줄 dict (12KB 아래). 목록은 뒤에서부터 빼고 '나머지 N개' · 글은 자르고 '나머지 N바이트'."""
+    """도구 결과 → 모델에 줄 dict (8KB 아래). 목록은 뒤에서부터 빼고 '나머지 N개' · Title/URL 기록 글은 기록마다 본문을 줄여 전부
+    · 그 밖의 글은 자르고 '나머지 N바이트'."""
     if is_error:
         text = body if isinstance(body, str) else json.dumps(body, ensure_ascii=False)
         cut, _ = _cut_text(text, 2000)
@@ -301,6 +336,11 @@ def cap_result(body: Any, *, is_error: bool = False, limit: int = MAX_RESULT_BYT
     budget = limit - 200  # 표시 칸 몫
     if _size(out) <= limit:
         return out
+    if isinstance(body, str):
+        trimmed = trim_records(body, budget)
+        if trimmed is not None and _size({"result": trimmed}) <= budget:
+            n = sum(1 for r in _RECORD_START.split(body) if r.startswith("Title: "))
+            return {"result": trimmed, "truncated": True, "note": f"결과 {n}개, 긴 본문은 앞부분만"}
     items, key = _largest_list(body)
     if items is not None:
         kept = list(items)

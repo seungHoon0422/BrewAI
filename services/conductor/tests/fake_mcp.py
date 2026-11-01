@@ -3,7 +3,7 @@
   https://mcp.fake.test/mcp        OAuth 보호 (PRM · 401 + WWW-Authenticate) · 도구 20개(읽기 · 쓰기) · tools/list 8개씩 페이지
                                    modern(server/discover 2026-07-28) 기본 · modern=False 면 옛 initialize 만
   https://auth.fake.test           AS 메타데이터(RFC 8414 · iss 광고) · /register(DCR) · /token(code + PKCE + resource · refresh 회전)
-  https://open.fake.test/mcp       인증 없음 · 도구 3개 · 옛 initialize 만
+  https://open.fake.test/mcp       인증 없음 · 도구 3개 · 옛 initialize 만 (big_list {n, format: "records"} = Exa 모양 검색 결과 글)
   https://login.other.test         다른 사이트의 AS (같은 처리기 · AS mix-up 시험: prm_as=OTHER_AS 면 PRM 이 이것을 가리킨다)
   https://hybrid.fake.test/mcp     목록은 공개 · tools/call 만 401 (Google 원격 MCP 모양) · PRM = 401 헤더의 /custom/prm 로만
   prm_header_only = PRM 을 /.well-known 에 두지 않고 401 WWW-Authenticate 의 resource_metadata(/custom/prm)로만 알린다
@@ -270,6 +270,11 @@ class Fake:
             if protected and name in {n for n, _, _ in WRITE_TOOLS} and "issues:write" not in (who or {}).get("scope", "").split():
                 return httpx2.Response(403, headers={"www-authenticate": 'Bearer error="insufficient_scope", scope="issues:write"'})
             self.calls.append((account, name))
+            if name == "big_list" and args.get("format") == "records":  # 검색 결과 글 (Exa 모양: Title / URL / Published / 본문)
+                text = "\n\n---\n\n".join(
+                    f"Title: 결과 {i}\nURL: https://site{i}.example/page\nPublished: N/A\nHighlights:\n" + f"본문 {i} " * 400
+                    for i in range(int(args.get("n", 10))))
+                return ok({"content": [{"type": "text", "text": text}], "isError": False})
             if name == "big_list":
                 rows = [{"id": i, "title": f"row {i} " + "x" * 40} for i in range(int(args.get("n", 10)))]
                 return ok({"content": [{"type": "text", "text": json.dumps(rows)}], "isError": False})

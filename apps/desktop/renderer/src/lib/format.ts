@@ -1,5 +1,8 @@
 // 숫자 · 시간을 읽는 말로 (여러 기능이 같이 쓴다). 결정적 — 같은 값이면 같은 글 (테스트가 본다).
 
+// 1234567 → 1,234,567 (천 단위 쉼표 · 토큰 · 횟수 · 글자 수)
+export const count = (n: number) => n.toLocaleString('ko-KR');
+
 // 128000 → 128K · 1000000 → 1M
 export const tokensShort = (n: number | null | undefined) =>
   n == null ? null : n >= 1_000_000 ? `${+(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${Math.round(n / 1000)}K` : String(n);

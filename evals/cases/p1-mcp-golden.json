@@ -1,0 +1,16 @@
+{
+  "kind": "golden",
+  "task": "conductor_mcp",
+  "input": {
+    "scenario": "golden",
+    "ask": "버그 이슈 찾아줘",
+    "plan": [["use_app", {"need": "이슈 검색"}], ["tracker__search_issues", {"query": "버그"}]]
+  },
+  "expected": {
+    "answer": "끝",
+    "steps": ["app:tracker", "tool:tracker__search_issues", "writing"],
+    "tool_calls": 1,
+    "first_request_tools": ["use_app"]
+  },
+  "note": "골든: 앱 이름 없이 use_app (search_tools 를 합친 메타 도구 하나) → 서버가 Tracker 를 골라 도구 공개 → 한 번 부르고 답. 첫 요청 = 메타 도구 하나뿐 (내장 툴 0 · 앱 도구 정의 0 · search_tools 0)."
+}

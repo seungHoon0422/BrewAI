@@ -24,7 +24,7 @@ const toolRow = (page: Page, title: string) => tools(page).getByRole('row').filt
 const toast = (page: Page, text: string | RegExp) => page.getByRole('region', { name: '알림' }).getByText(text);
 const h1 = (page: Page) => page.getByRole('heading', { level: 1 });
 
-type Server = { id: string; url: string; origin: string; tool_count: number | null; connected_count?: number };
+type Server = { id: string; handle: string; url: string; origin: string; tool_count: number | null; connected_count?: number };
 let admin: Client;
 let me: Awaited<ReturnType<typeof userApi>>; // 관리자 계정의 사용자 API (데스크톱처럼 Bearer) — 자기 계정으로 tracker 로그인
 
@@ -138,7 +138,8 @@ test('MCP 서버 탭: 표 머리 · 추가 (로그인 없음) → 찾은 내용 
   await expect(done).toContainText('4개, 쓰기 1개');
   await expect(done.locator('.mcp-write')).toHaveText('쓰기');
   await expect(done).toContainText(/약 \d+토큰/);
-  await expect(done.locator('.mcp-line-code')).toContainText(`(${NOTES.name}): ${NOTES.desc} [연결됨]`);
+  await expect(done.locator('.mcp-line-code')).toHaveText(/^[a-z0-9_]+$/); // 대화에 실리는 몫 = 부르는 이름만 (이름 · 설명 · 상태 없음)
+  await expect(done.locator('.mcp-line-code')).not.toContainText(NOTES.desc);
   expect(await separatorsOnScreen(page), 'added dialog').toEqual([]);
   await page.screenshot({ path: shot('admin-mcp-added') });
   await done.getByRole('button', { name: '닫기' }).first().click();
@@ -183,7 +184,8 @@ test('자세히 페이지: 에이전트가 보는 줄 + 토큰 · 도구 표 (�
   await expect(page.getByRole('link', { name: 'MCP 서버' })).toHaveAttribute('href', '#/catalog');
 
   const line = part(page, '에이전트가 보는 목록');
-  await expect(line.locator('.mcp-line-code')).toContainText(`(${NOTES.name}): ${NOTES.desc} [연결됨]`);
+  // 대화마다 실리는 몫 = 부르는 이름(handle)만 (이름 · 설명 · 상태는 안 싣는다 = 토큰. 설명은 use_app 이 서버에서 도구를 고를 때 쓴다)
+  await expect(line.locator('.mcp-line-code')).toHaveText(s.handle);
   await expect(line).toContainText(/약 \d+토큰/);
   await expect(line).toContainText('대화마다');
 
@@ -215,13 +217,14 @@ test('자세히 페이지: 에이전트가 보는 줄 + 토큰 · 도구 표 (�
   await auto.click();
   await expect(auto).toHaveAttribute('aria-checked', 'true');
 
-  // 정보: 한 줄 설명을 바꾸면 에이전트가 보는 줄도 바뀐다 · 주소는 못 바꾼다
+  // 정보: 한 줄 설명을 바꿔도 대화에 실리는 줄은 그대로 (handle 만) · 주소는 못 바꾼다
   const info = part(page, '정보');
   await expect(info.getByRole('textbox', { name: '주소' })).toHaveAttribute('readonly', '');
   await info.getByRole('textbox', { name: '에이전트가 읽는 한 줄 설명' }).fill('메모를 저장하고 찾아요');
   await info.getByRole('button', { name: '저장' }).click();
   await expect(toast(page, '저장했어요')).toBeVisible();
-  await expect(line.locator('.mcp-line-code')).toContainText('메모를 저장하고 찾아요');
+  await expect(line.locator('.mcp-line-code')).toHaveText(s.handle);
+  expect((await admin.get<{ description: string }>(`/api/admin/mcp/servers/${s.id}`)).description).toBe('메모를 저장하고 찾아요');
 
   // 끄기 → 꺼짐 → 켜기
   const use = page.getByRole('switch', { name: '사용' });
@@ -256,7 +259,7 @@ test('OAuth 서버: 추가 = 도구는 로그인 뒤 → 관리자 본인이 연
   const done = page.getByRole('dialog', { name: '추가했어요' });
   await expect(done).toContainText('OAuth');
   await expect(done).toContainText('로그인 뒤에 보여요');
-  await expect(done.locator('.mcp-line-code')).toContainText('[연결 필요]');
+  await expect(done.locator('.mcp-line-code')).toHaveText(/^[a-z0-9_]+$/); // 로그인 필요 앱도 부르는 이름만 (대화에는 개수만 실린다)
   await done.getByRole('button', { name: '닫기' }).first().click();
 
   const row = rowOf(page, TRACKER.name);

@@ -251,7 +251,7 @@ def test_models_endpoints_from_litellm_fixture(make_api) -> None:
     assert rows["fake-embed"]["exposed"] is False and rows["fake-embed"]["state"] == "hidden"  # 임베딩 = 후보도 아님
     assert rows["fake-chat-small"]["max_input_tokens"] == 128000 and rows["fake-chat-small"]["input_cost_per_token"] == 1.5e-7
     assert [r["order"] for r in rows.values()] == [1, 2, 3]
-    assert c.get("/api/tools").json()[1] == {"name": "calculator", "label": "계산기", "description": c.get("/api/tools").json()[1]["description"]}
+    assert c.get("/api/tools").json() == []  # 내장 툴 없음 (스킬이 있으면 use_skill 하나 · test_skills)
 
 
 # ── CORS: /api/admin/* = 관리자 출처만, 나머지 = 데스크톱 출처만 ─────────────────────────

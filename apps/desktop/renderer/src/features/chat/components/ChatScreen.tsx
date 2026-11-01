@@ -1,10 +1,11 @@
-// 대화 — 홈(마크 · 제목 · 제안 · 도구 시험 · 입력창) / 프로젝트 화면(머리 · 입력창 · 그 대화들) → 보내면 대화 화면(경로 · 제목 · 공유 · 메시지 · 입력창).
+// 대화 — 홈(마크 · 제목 · 제안 · 앱으로 해 보기(쓸 수 있는 앱이 있을 때만) · 입력창) / 프로젝트 화면(머리 · 입력창 · 그 대화들) → 보내면 대화 화면(경로 · 제목 · 공유 · 메시지 · 입력창).
 // 제안을 누르면 입력창에 넣지 않고 바로 보낸다. 홈에서 보내면 홈이 빠지고 말풍선이 대화 자리로 올라간다 (motion.ts).
 // 상태는 hooks.ts (앱 전체 store): 메뉴를 옮겨도 답은 계속 받고, 진행 상황 화면이 같은 실행을 본다.
 // App 이 대화가 바뀔 때마다 key 를 바꿔 이 화면을 새로 만든다 → 입력 중인 글이 비고 입력창에 포커스.
 import { useEffect, useRef, useState } from 'react';
 import { Icon, Mark } from '@brewai/ui';
 import { openChat, openCrumb } from '../../../app/navigate';
+import { isReady, useConnections } from '../../connections/hooks';
 import { ProjectHeader } from '../../projects/components/ProjectHeader';
 import { ProjectPicker } from '../../projects/components/ProjectPicker';
 import { PROJECTS } from '../../projects/copy';
@@ -12,7 +13,7 @@ import { useProject } from '../../projects/hooks';
 import { ScopeBreadcrumb } from '../../scope/components/ScopeBreadcrumb';
 import { focusProject, useCurrentSpace, useScopeState } from '../../scope/hooks';
 import { ShareButton } from '../../sharing/components/ShareButton';
-import { CHAT, SUGGESTIONS, TOOL_STARTERS, TOOL_TRY, type Starter } from '../copy';
+import { CHAT, SUGGESTIONS, TOOL_TRY, appStarters, type Starter } from '../copy';
 import { send, stop, updateThread, useConvBusy, useCurrentConv } from '../hooks';
 import { leaveHome } from '../motion';
 import { Composer } from './Composer';
@@ -24,6 +25,8 @@ export function ChatScreen() {
   const busy = useConvBusy();
   const space = useCurrentSpace();
   const project = useProject(useScopeState((s) => s.projectId));
+  // 앱 제안 = 지금 바로 쓸 수 있는 앱(연결됨 · 인증 없음) 중 첫 번째 이름으로. 없으면 스킬 제안만
+  const readyApp = useConnections((s) => s.apps.data?.mine.find((a) => !a.hidden && isReady(a))?.name ?? null);
   const [text, setText] = useState('');
   const [moveError, setMoveError] = useState(false);
   const input = useRef<HTMLTextAreaElement>(null);
@@ -91,8 +94,12 @@ export function ChatScreen() {
         <div className="dock">
           <div className="suggest-box">
             <StarterList items={SUGGESTIONS} onPick={onStarter} />
-            <h2 className="suggest-h" id="tool-try">{TOOL_TRY.label}</h2>
-            <StarterList items={TOOL_STARTERS} onPick={onStarter} labelledBy="tool-try" />
+            {readyApp && (
+              <>
+                <h2 className="suggest-h" id="tool-try">{TOOL_TRY.label}</h2>
+                <StarterList items={appStarters(readyApp)} onPick={onStarter} labelledBy="tool-try" />
+              </>
+            )}
           </div>
           {composer}
         </div>
@@ -130,7 +137,7 @@ export function ChatScreen() {
   );
 }
 
-// 제안 줄 = 아이콘 · 글 · 오른쪽 꼬리표 (연결 필요 · 동시 실행 · 여러 단계). 누르면 바로 보낸다
+// 제안 줄 = 아이콘 · 글 · 오른쪽 꼬리표 (동시 실행 · 여러 단계). 누르면 바로 보낸다
 function StarterList({ items, onPick, labelledBy }: { items: readonly Starter[]; onPick: (s: Starter, el: HTMLElement) => void; labelledBy?: string }) {
   return (
     <ul className="suggest" aria-labelledby={labelledBy}>
@@ -139,7 +146,7 @@ function StarterList({ items, onPick, labelledBy }: { items: readonly Starter[];
           <button className="sg" type="button" data-prompt={s.prompt} onClick={(e) => onPick(s, e.currentTarget)}>
             <Icon name={s.icon} />
             <span className="sg-t">{s.text}</span>
-            {(s.need || s.tag) && <span className="need">{s.need ?? s.tag}</span>}
+            {s.tag && <span className="need">{s.tag}</span>}
           </button>
         </li>
       ))}

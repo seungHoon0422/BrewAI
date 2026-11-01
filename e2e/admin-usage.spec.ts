@@ -38,7 +38,7 @@ test.beforeAll(async () => {
   spaceId = (await me.post<{ id: string }>('/api/spaces', { name: SPACE, visibility: 'private', org_id: orgId })).id;
   await chat(me, SECRET, 'fake-chat-small', 1);
   expect(await chat(me, '[fake:500] 실패', 'fake-chat-small', 2)).toContain('RUN_ERROR');
-  await chat(me, '[fake:calc] 6*7', 'fake-chat-large', 3);
+  await chat(me, '[fake:skill summarize] 요약해 줘', 'fake-chat-large', 3); // 툴 호출 1번 (내장 계산기는 없어졌다 = 스킬)
   orgB = (await admin.post<{ id: string }>('/api/admin/orgs', { name: ORG_B })).id;
   spaceB = (await me.post<{ id: string }>('/api/spaces', { name: `생각 스페이스 ${STAMP}`, visibility: 'private', org_id: orgB })).id;
   await chat(me, '[fake:think] 생각해서 답', 'fake-chat-large', 4, spaceB);
@@ -61,7 +61,7 @@ test('API: 조직으로 거른 합계 · 묶음 · 비용 · 대화 내용 없�
   expect(u.totals.tokens).toBeGreaterThan(0);
   expect(u.totals.cost_usd).toBeGreaterThan(0); // mock 게이트웨이 가격 × 토큰
   expect(u.totals.cost_runs).toBe(2);
-  expect(u.totals.tool_calls).toBeGreaterThanOrEqual(1); // [fake:calc]
+  expect(u.totals.tool_calls).toBeGreaterThanOrEqual(1); // [fake:skill summarize]
   const models = await admin.get(`/api/admin/usage?${q}&group=model`);
   expect(models.groups.map((g: { key: string; runs: number }) => [g.key, g.runs])).toEqual([['fake-chat-small', 2], ['fake-chat-large', 1]]);
   const spaces = await admin.get(`/api/admin/usage?${q}&group=space`);

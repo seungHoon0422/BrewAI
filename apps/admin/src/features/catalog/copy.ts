@@ -147,7 +147,7 @@ export const PAGE_COPY = {
   removeConfirm: '삭제',
   // 카드 = section (이름 = 카드 제목 · E2E 가 이름으로 찾는다)
   partLine: '에이전트가 보는 목록',
-  lineHint: '대화마다 지침 뒤에 한 줄씩 실려요. 도구 정의는 에이전트가 이 앱을 쓸 때 4개만 꺼내요.',
+  lineHint: '쓸 수 있는 앱은 부르는 이름만 대화마다 한 줄 목록에 실려요. 설명은 싣지 않고, 도구 정의는 에이전트가 이 앱을 쓸 때 4개만 꺼내요.',
   lineTokens: (n: number) => `약 ${n}토큰`,
   lineEvery: '대화마다',
   allTools: '도구 정의 전체',

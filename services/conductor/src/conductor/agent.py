@@ -20,14 +20,23 @@ POST /api/chat 본문 = AG-UI RunAgentInput, 응답 = AG-UI SSE. 이벤트 순�
 범위 = forwardedProps.spaceId · projectId (새 대화만 · 판정은 app.py prepare). 프로젝트 지침은 시스템 프롬프트 '뒤'에 붙는다
 (conductor 규칙을 덮지 못하게) · LiteLLM 요청 `user` = users.id (ADR-0011).
 MCP 앱 (ADR-0013 · slice 05 · 판단은 connectors/session.py · 여기는 Pydantic AI 접착만)
-  앱이 0개 = 프롬프트 · 도구 0 추가. 1개 이상 = 실행 지침에 앱 목록 블록(프로젝트 지침 앞) + 상시 도구 use_app(app, need)
-  + MCP 도구 전부 deferred (ToolDefinition.defer_loading · 공개 전엔 요청에 안 실림) + 자동 search_tools (우리 검색 전략 = 한글 bigram)
+  앱이 0개 = 프롬프트 · 도구 0 추가. 1개 이상 = 실행 지침에 앱 목록 한 줄(프로젝트 지침 앞) + 메타 도구 하나 use_app(app?, need)
+  (app 을 비우면 서버가 캐시된 도구를 검색해 앱을 고른다 · search_tools 는 없다). MCP 도구는 공개된 것만 요청에 싣는다
+  (defer_loading 을 안 쓴다 = Pydantic AI 의 자동 search_tools 도, 공개 때 끼우는 '도구가 생겼다' 시스템 글도 없다) · 도구 배열 = 고정 도구 뒤에 공개 순서대로
   use_app → ToolReturn(tools=[…4개]) = 그 대화에 고정 (기록의 ToolAvailabilityDeltaPart) · 대화당 12개
   활동 단계 = app:<handle> (tool:use_app 대신) · MCP 도구 = tool:<handle>__<도구> + CUSTOM brewai.app_tool {call_id, app, app_name, server_id, tool, write, label}
   연결 없음 = CallDeferred → 툴 단계 status waiting → CUSTOM brewai.app_auth {call_id, server{id, handle, name, domain}, mode ask|auto|manual,
     reason not_connected|expired|insufficient_scope, auto_open, scope} → run_summary.pending = [그 호출들] → runs.pending_json
   공유됐지만 안 가져온 앱 = CUSTOM brewai.app_needs_import {server{id, name, domain}, via} (실행은 계속 · 모델이 안내)
   이어서 하기 = forwardedProps.resume {call_id} (메시지 없이) → 서버가 기록의 그 호출을 다시 계산(UI 는 근거 아님) → deferred_tool_results
+요청 토큰 (slice 05 '토큰' · tests/test_tokens.py 가 상한을 못 박는다)
+  고정 앞부분 = 도구 정의 + 시스템 지침 (날짜 · 시각 없음 · 정렬 고정 = 대화 · 턴 · 분이 바뀌어도 같은 바이트)
+  날짜 · 시각 = 그 턴의 사용자 메시지 앞에 한 줄 (tools.now_line · 기록에 남는다 = 다음 턴에도 같은 바이트)
+  지난 턴의 도구 결과 = 앞부분 + '줄임' (HISTORY_RESULT_BYTES · 저장은 원본 그대로 · use_app 결과는 그대로) · 이번 턴은 원본
+  Claude 모델 = LiteLLM cache_control_injection_points (system + 마지막 메시지 · LiteLLM 1.106.2 anthropic_cache_control_hook)
+  · OpenAI · Gemini = 앞부분이 같으면 저절로 캐시
+  앞 요청 = 다음 요청의 앞부분: 한 턴의 도구 루프 안, 그리고 지난 턴 결과가 HISTORY_RESULT_BYTES 아래일 때까지 (넘으면 다음 턴에 줄임으로 바뀐다)
+  · use_app 공개 = 도구 배열이 바뀐다 (Anthropic 은 도구 → system → 메시지 순이라 캐시가 처음부터)
 """
 
 from __future__ import annotations
@@ -40,7 +49,7 @@ import time
 from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Sequence
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, field, replace
-from typing import Annotated, Any, Literal, Protocol, TypedDict
+from typing import Annotated, Any, Literal, NotRequired, Protocol, TypedDict
 
 from ag_ui.core import (
     BaseEvent,
@@ -55,7 +64,6 @@ from openai import APIConnectionError, APIStatusError, AsyncOpenAI
 from pydantic import ValidationError
 from pydantic import Field, TypeAdapter
 from pydantic_ai import Agent, FunctionToolset, RunContext, Tool
-from pydantic_ai.capabilities import ToolSearch
 from pydantic_ai.exceptions import CallDeferred, ModelConnectionError, ModelHTTPError, UsageLimitExceeded
 from pydantic_ai.messages import (
     INTERRUPTED_TOOL_RETURN_CONTENT,
@@ -89,22 +97,22 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from . import diagnose as dx
-from .connectors.session import AppSession, AuthNeeded, Revealed, search_names
+from .connectors.client import split_public
+from .connectors.session import AppSession, AuthNeeded, Revealed
 from .models import ModelChoice
 from .skills import NAME_RE as SKILL_NAME_RE
 from .skills import SkillRegistry
-from .tools import BUILTIN_TOOLS, USE_APP, USE_SKILL, ToolSpec, step_label, tool_label
+from .tools import USE_APP, USE_SKILL, ToolSpec, now_line, step_label, tool_label
 
 log = logging.getLogger("conductor.agent")
 
-INSTRUCTIONS = (
-    "너는 BrewAI 의 conductor 에이전트다. 한국어로 짧고 정확하게 답한다. "
-    "숫자 계산은 calculator, 단위 환산은 unit_convert, 날짜 차이·며칠 뒤·요일은 date_calc, 글자 수는 text_stats, "
-    "오늘 날짜·지금 시각은 current_time 도구로 확인한 뒤 답한다 (암산·추측하지 않는다). "
-    "서로의 결과가 필요 없는 도구 호출은 한 번에 같이 부른다 (예: 두 도시의 시각 = current_time 두 번을 한 응답에 · 동시에 돈다). "
-    "앞 도구의 결과가 있어야 하는 호출만 차례로 부른다. "
-    "앞선 대화를 기억하고 이어서 답한다."
-)
+# 시스템 지침 = 날마다 같은 글 (날짜 · 시각은 사용자 메시지 앞 한 줄 = now_line) → 프롬프트 캐시의 고정 앞부분
+INSTRUCTIONS = "너는 BrewAI 에이전트다. 한국어로 짧고 정확하게 답한다. 서로 상관없는 도구 호출은 한 응답에 같이 부른다."
+HISTORY_RESULT_BYTES = 600  # 지난 턴 도구 결과 하나가 다시 실리는 크기 (실측: 12KB 결과 둘 = 후속 질문 입력의 70%)
+HISTORY_HEAD_BYTES = 400  # 그중 앞부분 (나머지는 '줄임' 표시)
+# Claude (Anthropic · Bedrock · Vertex 의 claude-*) = 명시 캐시 표시가 있어야 캐시한다. LiteLLM 이 받는 요청 칸 (1.106.2
+# integrations/anthropic_cache_control_hook.py · LITELLM_ONLY_PARAMS = provider 로는 안 간다): system 메시지 + 마지막 메시지
+CACHE_POINTS: list[dict[str, Any]] = [{"location": "message", "role": "system"}, {"location": "message", "index": -1}]
 
 Reasoning = Literal["off", "low", "high"]
 REASONING_LEVELS: tuple[Reasoning, ...] = ("off", "low", "high")
@@ -140,25 +148,20 @@ PUBLIC_ERRORS = {
 }
 
 
-USE_APP_DESCRIPTION = (
-    "연결된 앱(MCP)의 도구를 꺼낸다. 앱 목록의 handle 과 할 일(need)을 주면 맞는 도구를 골라 바로 부를 수 있게 해 준다. "
-    "같은 대화에서 이미 꺼낸 도구는 다시 꺼내지 않고 바로 부른다."
-)
-SEARCH_DESCRIPTION = (
-    "앱 도구를 낱말로 찾는다 (한국어 · 영어). 어느 앱인지 알면 use_app 을 먼저 쓴다. 못 찾으면 같은 낱말로 다시 찾지 않는다."
-)
-SEARCH_PARAM_DESCRIPTION = "찾을 낱말 목록 (예: ['이슈 검색', 'search issues']). 결과는 하나로 합친다."
+USE_APP_DESCRIPTION = "앱 도구를 꺼낸다. app = 목록의 이름 (모르면 비움), need = 할 일. 이미 꺼낸 도구는 바로 부른다."
+# 손으로 쓴 짧은 스키마 (설명 · 길이 제한은 서버가 본다: session.use_app 이 need 300자 · app 은 목록에서만 찾는다)
+USE_APP_SCHEMA: dict[str, Any] = {
+    "type": "object", "properties": {"app": {"type": "string"}, "need": {"type": "string"}}, "required": ["need"],
+}
 
 
 class _UseAppArgs(TypedDict):
-    app: Annotated[str, Field(description="앱 목록의 handle (예: linear)", max_length=80)]
-    need: Annotated[str, Field(description="이 앱으로 할 일 한 줄 (예: 내 이슈 검색)", max_length=300)]
+    app: NotRequired[Annotated[str, Field(max_length=200)]]
+    need: Annotated[str, Field(max_length=2000)]
 
 
 _USE_APP_ARGS = TypeAdapter(_UseAppArgs)
-_USE_APP_DEF = ToolDefinition(
-    name=USE_APP, description=USE_APP_DESCRIPTION, parameters_json_schema=_USE_APP_ARGS.json_schema(), timeout=APP_TOOL_TIMEOUT_S,
-)
+_USE_APP_DEF = ToolDefinition(name=USE_APP, description=USE_APP_DESCRIPTION, parameters_json_schema=USE_APP_SCHEMA, timeout=APP_TOOL_TIMEOUT_S)
 
 
 class ChatRequestError(Exception):
@@ -268,6 +271,12 @@ def _signed_thinking(model: ModelChoice) -> bool:
     return model.provider in _SIGNED_THINKING or "claude" in model.id.lower()
 
 
+def wants_cache_markers(model: ModelChoice) -> bool:
+    """명시 캐시 표시가 필요한 모델 = Claude (서명된 thinking 과 같은 판정: Anthropic · Bedrock · Vertex 의 claude-*). OpenAI · Gemini 는
+    앞부분이 같으면 저절로 (그쪽에 보내면 LiteLLM 이 메시지에 cache_control 칸을 붙일 수 있다 → 안 보낸다)."""
+    return _signed_thinking(model)
+
+
 def _in_tool_loop(messages: Sequence[ModelMessage]) -> bool:
     """이번 질문(마지막 사용자 메시지) 뒤에 모델이 이미 툴을 불렀나 = 툴 결과를 들고 다시 부르는 요청."""
     for m in reversed(messages):
@@ -315,16 +324,17 @@ def _user_text(message: UserMessage) -> str:
     return "".join(getattr(part, "text", "") or "" for part in content)
 
 
+def _tool(s: ToolSpec) -> Tool[None]:
+    if s.schema is None:
+        return Tool(s.function, takes_ctx=False, name=s.name, description=s.description, requires_approval=s.requires_approval)
+    t: Tool[None] = Tool.from_schema(s.function, s.name, s.description, s.schema)  # 손으로 쓴 짧은 스키마 (use_skill = 이름 enum)
+    t.requires_approval = s.requires_approval
+    return t
+
+
 def build_toolset(specs: Sequence[ToolSpec]) -> FunctionToolset[None]:
-    """툴 목록(tools.py) → Pydantic AI 툴셋. MCP 툴셋(slice 03+)은 run 의 toolsets 에 옆으로 더한다."""
-    return FunctionToolset(
-        [
-            Tool(s.function, takes_ctx=False, name=s.name, description=s.description, requires_approval=s.requires_approval)
-            for s in specs
-        ],
-        max_retries=1,
-        timeout=TOOL_TIMEOUT_S,
-    )
+    """툴 목록(ToolSpec) → Pydantic AI 툴셋. MCP 앱 툴셋(_AppTools)은 run 의 toolsets 에 뒤로 더한다 (도구 배열 = 고정 도구 먼저)."""
+    return FunctionToolset([_tool(s) for s in specs], max_retries=1, timeout=TOOL_TIMEOUT_S)
 
 
 @dataclass
@@ -371,7 +381,9 @@ class _AppRun:
 
 
 class _AppTools(AbstractToolset[None]):
-    """use_app (상시) + MCP 도구 (전부 deferred = 공개 전엔 요청에 0). 실행마다 만든다. 판단 = connectors/session.py."""
+    """use_app (상시 · 맨 앞) + 공개된 MCP 도구만 (공개 순서 · 대화 기록 + 이번 실행). 실행마다 만든다. 판단 = connectors/session.py.
+    defer_loading 을 안 쓴다: Pydantic AI 가 deferred 도구가 있으면 search_tools 를 저절로 싣고, 공개 때 '도구가 생겼다' 시스템 글을
+    끼운다 (Claude 는 LiteLLM 이 그 글을 system 으로 올려 캐시가 깨진다). 공개 전 도구는 아예 목록에 없다 = 요청에 0."""
 
     def __init__(self, run: _AppRun) -> None:
         self.run = run
@@ -380,23 +392,32 @@ class _AppTools(AbstractToolset[None]):
     def id(self) -> str:
         return "brewai_apps"
 
+    def revealed(self, ctx: RunContext[None]) -> list[str]:
+        """공개된 MCP 도구 이름 (공개 순서 = 도구 배열 순서 고정): 대화 기록 → 이번 실행의 장부 → 나머지(이름 순)."""
+        order = [*revealed_order(ctx.messages), *self.run.apps.revealed_now, *sorted(ctx.discovered_tool_names)]
+        return [n for n in dict.fromkeys(order) if split_public(n)]
+
     async def get_tools(self, ctx: RunContext[None]) -> dict[str, ToolsetTool[None]]:
         out: dict[str, ToolsetTool[None]] = {
             USE_APP: ToolsetTool(toolset=self, tool_def=_USE_APP_DEF, max_retries=1, args_validator=_USE_APP_ARGS.validator),  # type: ignore[arg-type]
         }
-        for t in self.run.apps.tools():
+        known = {t.public: t for t in self.run.apps.tools()}
+        for name in self.revealed(ctx):
+            t = known.get(name)
+            if t is None:
+                continue
             d = t.definition()
             out[d["name"]] = ToolsetTool(
                 toolset=self, max_retries=1, args_validator=TOOL_SCHEMA_VALIDATOR,
                 tool_def=ToolDefinition(name=d["name"], description=d["description"], parameters_json_schema=d["parameters"],
-                                        metadata=d["metadata"], defer_loading=True, timeout=APP_TOOL_TIMEOUT_S),
+                                        metadata=d["metadata"], timeout=APP_TOOL_TIMEOUT_S),
             )
         return out
 
     async def call_tool(self, name: str, tool_args: dict[str, Any], ctx: RunContext[None], tool: ToolsetTool[None]) -> Any:
         call_id = ctx.tool_call_id or ""
         if name == USE_APP:
-            got = await self.run.apps.use_app(tool_args.get("app"), tool_args.get("need"), revealed=ctx.discovered_tool_names)
+            got = await self.run.apps.use_app(tool_args.get("app"), tool_args.get("need"), revealed=self.revealed(ctx))
             if isinstance(got, AuthNeeded):
                 raise self.run.defer(call_id, name, got)
             return app_return(got)
@@ -413,22 +434,22 @@ def app_return(got: Revealed | dict[str, Any]) -> Any:
     return got
 
 
-def _search_apps(ctx: RunContext[Any], queries: Sequence[str], tools: Sequence[ToolDefinition]) -> list[str]:
-    """자동 search_tools 의 검색 전략 = 한글 되는 우리 BM25 (기본은 [a-z0-9]+ 라 한글을 버린다 · ADR-0013)."""
-    return search_names(queries, [(t.name, t.description, t.metadata) for t in tools], ctx.discovered_tool_names)
-
-
-def revealed_names(messages: Sequence[ModelMessage]) -> set[str]:
-    """기록에서 공개된 deferred 도구 이름 (use_app 의 ToolReturn.tools · search_tools 결과)."""
-    out: set[str] = set()
+def revealed_order(messages: Sequence[ModelMessage]) -> list[str]:
+    """기록에서 공개된 MCP 도구 이름 · 공개 순서 (use_app 의 ToolReturn.tools · 예전 기록의 search_tools 결과)."""
+    out: dict[str, None] = {}
     for m in messages:
         if isinstance(m, ModelRequest):
             for p in m.parts:
                 if isinstance(p, ToolAvailabilityDeltaPart):
-                    out.update(p.tools_added)
-                elif isinstance(p, ToolSearchReturnPart):
-                    out.update(x["name"] for x in p.discovered_tools)
-    return out
+                    out.update(dict.fromkeys(p.tools_added))
+                elif isinstance(p, ToolSearchReturnPart) and isinstance(p.content, dict):
+                    found = p.content.get("discovered_tools")
+                    out.update(dict.fromkeys(x["name"] for x in found if isinstance(x, dict) and isinstance(x.get("name"), str)) if isinstance(found, list) else {})
+    return list(out)
+
+
+def revealed_names(messages: Sequence[ModelMessage]) -> set[str]:
+    return set(revealed_order(messages))
 
 
 def pinned_servers(messages: Sequence[ModelMessage]) -> dict[str, str]:
@@ -466,11 +487,46 @@ def open_calls(messages: Sequence[ModelMessage]) -> dict[str, ToolCallPart]:
 def ready_history(blobs: Sequence[str], *, resume: bool) -> list[ModelMessage]:
     """모델에 줄 기록. 새 질문인데 마지막 응답에 결과 없는 툴 호출(연결을 기다리다 그만둔 것)이 있으면 닫는다
     (Pydantic AI 는 그대로면 새 질문을 거절한다). 이어서 하기 = 그대로 둔다 (deferred_tool_results 가 채운다).
-    더 앞의 열린 호출은 Pydantic AI 가 요청마다 스스로 닫는다."""
-    history = load_history(blobs)
+    더 앞의 열린 호출은 Pydantic AI 가 요청마다 스스로 닫는다. 지난 턴의 도구 결과는 줄인다 (compact_history ·
+    이어서 하기 = 마지막 질문부터는 이번 턴이라 그대로)."""
+    history = compact_history(load_history(blobs), keep_last_turn=resume)
     if not resume and open_calls(history):
         return repair_messages(history)
     return history
+
+
+def compact_result(content: Any) -> Any:
+    """지난 턴의 도구 결과 하나 → 앞부분 + '줄임' 표시 (HISTORY_RESULT_BYTES 아래면 그대로). untrusted · source 는 남긴다
+    (남이 쓴 데이터라는 표시는 줄여도 그대로). 다시 필요하면 모델이 도구를 다시 부른다."""
+    text = content if isinstance(content, str) else json.dumps(content, ensure_ascii=False, default=str)
+    size = len(text.encode("utf-8"))
+    if size <= HISTORY_RESULT_BYTES:
+        return content
+    body = content.get("result", content) if isinstance(content, dict) else content
+    body_text = body if isinstance(body, str) else json.dumps(body, ensure_ascii=False, default=str)
+    head = body_text.encode("utf-8")[:HISTORY_HEAD_BYTES].decode("utf-8", errors="ignore")
+    keep = {k: content[k] for k in ("source", "untrusted", "name", "label", "error") if isinstance(content, dict) and k in content}
+    return {**keep, "result": head.rstrip() + "…", "note": f"줄임: 지난 턴 결과 {size:,}바이트의 앞부분. 필요하면 다시 부른다."}
+
+
+def compact_history(messages: list[ModelMessage], *, keep_last_turn: bool = False) -> list[ModelMessage]:
+    """지난 턴들의 도구 결과를 compact_result 로 (메시지 수 · 순서 · call id · metadata 는 그대로 = on_complete 의 len(history) ·
+    pinned_servers 가 산다). use_app · 예전 search_tools 결과는 안 줄인다 (작고, 공개한 도구 이름을 기록이 갖고 있어야 한다).
+    keep_last_turn = 마지막 사용자 질문부터는 원본 (이어서 하기 = 그 턴이 아직 이번 턴이다)."""
+    stop = len(messages)
+    if keep_last_turn:
+        stop = next((i for i in range(len(messages) - 1, -1, -1) if isinstance(messages[i], ModelRequest)
+                     and any(isinstance(p, UserPromptPart) for p in messages[i].parts)), len(messages))
+    def shrink(p: Any) -> bool:  # 예전 기록의 search_tools 결과도 그대로 (discovered_tools = 공개한 이름 · revealed_order 가 읽는다)
+        return isinstance(p, ToolReturnPart) and not isinstance(p, ToolSearchReturnPart) and p.tool_name not in (USE_APP, "search_tools")
+
+    out: list[ModelMessage] = []
+    for i, m in enumerate(messages):
+        if i < stop and isinstance(m, ModelRequest) and any(shrink(p) for p in m.parts):
+            parts = [replace(p, content=compact_result(p.content)) if shrink(p) else p for p in m.parts]
+            m = replace(m, parts=parts)
+        out.append(m)
+    return out
 
 
 def load_history(blobs: Sequence[str]) -> list[ModelMessage]:
@@ -543,7 +599,9 @@ def render_run(blob: str | None, *, pending: Sequence[str] = (), carry: dict[str
                         if isinstance(p.metadata, dict) and isinstance(p.metadata.get("app"), str):  # MCP 도구 · use_app 카드
                             keys = ("app", "app_name", "write", "label")
                             t.update({k: p.metadata[k] for k in keys if k in p.metadata})
-                            if t["name"] != USE_APP and p.metadata.get("label"):
+                            if t["name"] == USE_APP:  # 실시간 단계 이름(app:<handle> → '앱: <앱 이름>')과 같게
+                                t["label"] = step_label(f"app:{p.metadata['app']}", {f"app:{p.metadata['app']}": p.metadata.get("app_name") or p.metadata["app"]})
+                            elif p.metadata.get("label"):
                                 t["label"] = p.metadata["label"]
                     elif isinstance(p, RetryPromptPart) and p.tool_call_id in tools:
                         tools[p.tool_call_id].update(status="error", result={"error": "retry", "message": p.model_response()})
@@ -693,8 +751,8 @@ class _RunStream:
             except ValueError:
                 args = {}
             args = args if isinstance(args, dict) else {}
-            if skill["tool"] == USE_APP:
-                found = apps.apps.find(args.get("app")) if apps else None
+            if skill["tool"] == USE_APP:  # use_app 과 같은 판단 (app 을 비워도 서버가 고를 앱)
+                found = apps.apps.pick(args.get("app"), args.get("need")) if apps else None
                 step = f"app:{found.handle if found else 'unknown'}"
             else:
                 name = args.get("name")
@@ -793,7 +851,7 @@ class ChatRuntime:
         gateway_url: str,
         gateway_key: str,
         model_factory: ModelFactory | None = None,
-        tools: Sequence[ToolSpec] = BUILTIN_TOOLS,
+        tools: Sequence[ToolSpec] = (),  # 내장 툴 없음 (테스트 · 나중 slice 가 ToolSpec 을 꽂는다)
         skills: SkillRegistry | None = None,
         openai_client: AsyncOpenAI | None = None,  # 테스트 = httpx2.MockTransport 를 단 클라이언트
     ) -> None:
@@ -807,13 +865,11 @@ class ChatRuntime:
         skill_tool = self.skills.tool()
         self.tools = (*tools, *([skill_tool] if skill_tool else []))
         self._toolset = build_toolset(self.tools)
-        # 점진 공개: 스킬 이름·설명만 시스템 프롬프트에 (본문은 use_skill 로)
+        # 점진 공개: 스킬 이름 한 줄만 시스템 프롬프트에 (본문은 use_skill 로)
         self.instructions = INSTRUCTIONS + self.skills.prompt()
-        # 출력 = 글 또는 연결 대기(DeferredToolRequests · MCP 앱 로그인 전). search_tools = deferred 도구가 있을 때만 생긴다 (앱 0개 = 0토큰)
+        # 출력 = 글 또는 연결 대기(DeferredToolRequests · MCP 앱 로그인 전). deferred 도구가 없다 = 자동 search_tools 도 없다
         self.agent: Agent[None, str | DeferredToolRequests] = Agent(
             name="conductor", instructions=self.instructions, output_type=[str, DeferredToolRequests],
-            capabilities=[ToolSearch(strategy=_search_apps, max_results=8, tool_description=SEARCH_DESCRIPTION,
-                                     parameter_description=SEARCH_PARAM_DESCRIPTION)],
         )
 
     async def __aenter__(self) -> ChatRuntime:  # 앱 수명 = provider HTTP 클라이언트 수명
@@ -905,7 +961,7 @@ class ChatRuntime:
         req = self.parse(adapter)
         model, blobs, sink, scope = await prepare(req)
         apps = _AppRun(scope.apps) if scope.apps is not None and model.supports_tools else None
-        labels = self.skills.labels() | (scope.apps.labels() if scope.apps is not None else {})
+        labels = {f"tool:{t.name}": t.label for t in self.tools} | self.skills.labels() | (scope.apps.labels() if scope.apps is not None else {})
         activity = _Activity(sink=sink, labels=labels, apps=apps)  # 여기부터 실행 기록이 열려 있다 → 어떤 길로 나가든 finish
         try:
             resumed = await self._resume(scope, apps, blobs) if req.resume else None
@@ -962,12 +1018,17 @@ class ChatRuntime:
         scope = scope or RunScope()
         history = ready_history(blobs, resume=resumed is not None)
         # 서버가 원본: 이번 질문(마지막 user 메시지)만 어댑터에 남긴다. 클라이언트가 보낸 앞 대화는 쓰지 않는다 · 이어서 하기 = 메시지 없음
-        keep = [] if resumed is not None else [adapter.run_input.messages[-1]]
+        # 질문 앞에 날짜 · 시각 한 줄 (사용자 메시지 · 기록에 남아 다음 턴에도 같은 바이트 = 캐시 앞부분이 산다 · 시스템 지침은 그대로)
+        last = adapter.run_input.messages[-1] if adapter.run_input.messages else None
+        keep = [] if resumed is not None or last is None else [UserMessage(id=f"{last.id}:now", content=now_line()), last]
         single = _Adapter(agent=self.agent, run_input=adapter.run_input.model_copy(update={"messages": keep}), accept=adapter.accept)
         settings = self.model_settings(model, req.reasoning)
         effective: Reasoning = req.reasoning if settings is not None else "off"
         if scope.user_id:  # LiteLLM 요청 user = users.id (게이트웨이 로그 · 예산 · trace)
             settings = OpenAIChatModelSettings(**(settings or {}), openai_user=scope.user_id)  # type: ignore[typeddict-item]
+        if wants_cache_markers(model):  # Claude = 명시 캐시 (LiteLLM 이 system · 마지막 메시지에 cache_control 을 붙인다)
+            extra = {**(settings or {}).get("extra_body", {}), "cache_control_injection_points": CACHE_POINTS}  # type: ignore[union-attr]
+            settings = OpenAIChatModelSettings(**{**(settings or {}), "extra_body": extra})  # type: ignore[typeddict-item]
         log.info(
             "chat run thread=%s run=%s model=%s reasoning=%s turns=%d user=%s space=%s",
             req.thread_id, req.run_id, model.id, effective, len(blobs), scope.user_id, scope.space_id,
@@ -1017,10 +1078,10 @@ class ChatRuntime:
             llm = _ThinkFirstOnly(llm)
         apps = activity.apps
         toolsets: list[AbstractToolset[None]] | None = None
-        if model.supports_tools:  # 실행마다 동시 실행 상한 하나 (기본 툴 · 앱 도구가 같이 센다)
+        if model.supports_tools:  # 실행마다 동시 실행 상한 하나 (스킬 · 앱 도구가 같이 센다) · 도구 배열 = 고정 도구 → use_app → 공개 순
             gate = asyncio.Semaphore(MAX_PARALLEL_TOOLS)
             toolsets = [bounded(self._toolset, gate=gate), *([bounded(_AppTools(apps), gate=gate)] if apps else [])]
-        # 실행 지침 = 앱 목록 블록 (정렬 고정 = 프롬프트 캐시) → 프로젝트 지침 (conductor 규칙 · 앱 목록 뒤에)
+        # 실행 지침 = 앱 목록 한 줄 (handle 순 고정 = 프롬프트 캐시) → 프로젝트 지침 (conductor 규칙 · 앱 목록 뒤에)
         block = apps.apps.prompt() if apps else ""
         instructions = "\n\n".join(x for x in (block, scope.instructions) if x) or None
         events = single.run_stream(

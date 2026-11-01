@@ -1,4 +1,4 @@
-// 스킬 · 도구 이름표 상태. 대화의 단계 이름(스킬 · 계산기 …)과 스킬 메뉴가 같이 본다.
+// 스킬 · 도구 이름표 상태. 대화의 단계 이름(스킬 사용 · 스킬: 요약 …)과 스킬 메뉴가 같이 본다.
 import { useMemo } from 'react';
 import { failureOf, type Failure } from '../../lib/api';
 import { createStore, loading, single, type Loadable } from '../../lib/store';

@@ -10,6 +10,7 @@
 // 구현: GET /health/liveliness (인증 없음) · GET /model_group/info · GET /v1/models · POST /v1/chat/completions
 //       (stream / non-stream, OpenAI chunk 형식, stream_options.include_usage). 답은 결정적인 한국어 문장.
 //       답 끝에 ', 이전 질문: <앞 user 메시지>' (멀티턴: conductor 가 기록을 보냈는지 E2E 가 본다)
+//       conductor 가 턴마다 질문 앞에 붙이는 user 한 줄 '지금: 2026-11-01 (일) 17:30 KST' (날짜 · 시각) 은 질문으로 세지 않는다
 // 생각: 요청에 reasoning_effort 가 있으면 (생각 지원 모델만 — 아니면 LiteLLM 처럼 400) reasoning_content 조각을 먼저 흘린다.
 //   Anthropic 모델 = LiteLLM 1.106.2 가 Claude thinking 을 바꾼 모양 그대로 (llms/anthropic/chat/handler.py):
 //   thinking_delta → delta {content:"", reasoning_content, thinking_blocks:[{type:"thinking", thinking}], provider_specific_fields:{thinking_blocks}}
@@ -26,17 +27,22 @@
 //   [fake:md] → 마크다운 답(제목 · 굵게 · 표 · 목록 · 코드 · 인용 · 링크)을 3글자씩 잘게 (흐르는 중 날것 문법이 안 보이는지 · chat-markdown.spec)
 //   [fake:md-big] → 다른 마크다운 답을 120글자씩 크게 (큰 조각으로 보내는 provider 흉내: 첫 조각도 펼쳐지는지 · 칸 안 <br> · 줄 넘는 굵게)
 //   [fake:think] → reasoning_effort 없이도 생각 조각 · [fake:system] → 답 끝에 ', 지침: <system 메시지 마지막 줄>' (프로젝트 지침이 모델까지 갔는지)
-//   툴 (적은 순서대로 하나씩 부른다 · 요청 tools 에 있을 때만): [fake:skill <이름>] → use_skill · [fake:convert <값> <단위> <단위>] → unit_convert
-//   · [fake:calc] <수식> → calculator (줄 끝까지가 수식, 없으면 12*(3+4)) · [fake:time] → current_time. 다 부르면 결과들로 답한다
-//   병렬 (한 응답에 tool_calls 여럿 = conductor 가 동시에 돌린다): [fake:parallel] → current_time 서울 · 뉴욕 + unit_convert 68 F → C 를 한 번에
-//   여러 단계 (한 응답에 하나씩 차례로): [fake:chain] → current_time → date_calc(오늘부터 12-25 까지) → use_skill meeting-prep → 답
-//   MCP 앱 (ADR-0013 · slice 05): [fake:app <handle> <need>] → use_app {app, need} · [fake:tool <이름> {json 인자}?] → 그 도구가
+//   툴 (적은 순서대로 하나씩 부른다 · 요청 tools 에 있을 때만 · 내장 툴은 없다 = 스킬 · MCP 앱만): [fake:skill <이름>] → use_skill
+//   병렬 (한 응답에 tool_calls 여럿 = conductor 가 동시에 돌린다 · 앱 도구가 공개된 뒤): [fake:parallel] → 공개된 앱 도구 중
+//   <앱>__search_notes {query: 회의} + <앱>__list_notes {} (없으면 공개된 앱 도구 앞 두 개 {}) 를 한 번에
+//   · [fake:parallel <이름> {json}, <이름> {json}] → 적은 도구들을 한 번에. 예: '[fake:app notes 메모] [fake:parallel]' (e2e/mock/mcp.mjs 의 notes)
+//   여러 단계 (한 응답에 하나씩 차례로): [fake:chain <handle>?] → use_app {app: handle(기본 notes), need: 메모 추가 목록}
+//   → <handle>__add_note {text: 회의 준비} → <handle>__list_notes {} → use_skill summarize → 답
+//   MCP 앱 (ADR-0013 · slice 05): [fake:app <handle> <need>] → use_app {app, need} (handle 자리에 '-' = app 없이 · 서버가 고른다)
+//   · [fake:tool <이름> {json 인자}?] → 그 도구가
 //   요청 tools 에 있을 때만 (= use_app 이 공개한 뒤 · 다음 턴엔 바로) 부른다. 적은 순서대로 차례 하나씩 → 결과로 답
 //   예: '[fake:app tracker 이슈 검색] [fake:tool tracker__search_issues {"query":"버그"}]' · FAKE_GATEWAY_RECORD 로 요청 tools 를 검사
 // drop_params: 요청에 drop_params true 면 (LiteLLM 처럼) 모델이 지원 안 하는 reasoning_effort 를 400 대신 버린다
 // 등록 출처: GET /v1/model/info (LiteLLM 모양: data[{model_name, litellm_params, model_info:{id, db_model, 가격}}]) — db_model true = 관리 화면(DB)
 //   model_info 의 캐시 가격 (cache_read_input_token_cost · cache_creation_input_token_cost) = conductor 가 캐시 비용을 셈 (/model_group/info 에는 없다)
-// 캐시 토큰 (usage · LiteLLM 모양, prompt_tokens 안에 들어 있다): Anthropic 모델 = 입력의 절반 읽기 + 4분의 1 쓰기
+// 프롬프트 캐시 칸: cache_control_injection_points (LiteLLM 1.106.2 이 받는 요청 칸 · conductor 가 Claude 모델에만 보낸다) — 배열이면 받고
+//   (Anthropic 모델의 캐시 토큰이 그때만 생긴다 = 진짜 Anthropic 처럼 표시가 있어야 캐시) · 배열이 아니면 400 (LiteLLM 은 무시하지만 conductor 실수를 잡는다)
+// 캐시 토큰 (usage · LiteLLM 모양, prompt_tokens 안에 들어 있다): Anthropic 모델 = (표시가 있을 때) 입력의 절반 읽기 + 4분의 1 쓰기
 //   (prompt_tokens_details.cached_tokens · cache_read_input_tokens · cache_creation_input_tokens) · OpenAI 모델 = 입력의 30% 읽기 (cached_tokens 만)
 //   [fake:cache-write] → OpenAI 모델도 입력의 4분의 1 을 캐시 쓰기로 (작은 모델은 쓰기 가격이 없다 = 관리자 사용량의 '어림' 흉내)
 // 테스트 조작 (Bearer 필요): POST /__fake/catalog {"late": true|false, "hide": ["fake-chat-large"], "broken": {"<모델>": "<FAILURES 이름>"}, "reset": true}
@@ -175,7 +181,10 @@ const textOf = (content) =>
       ? content.map((p) => (p && p.type === 'text' ? p.text : '')).join('')
       : '';
 
-const userTexts = (messages) => messages.filter((m) => m?.role === 'user').map((m) => textOf(m.content));
+// conductor 가 턴마다 질문 앞에 붙이는 날짜 · 시각 줄 (services/conductor/src/conductor/tools.py now_line) = 질문이 아니다
+const NOW_LINE = /^지금: \d{4}-\d{2}-\d{2} /;
+const userTexts = (messages) =>
+  messages.filter((m) => m?.role === 'user').map((m) => textOf(m.content)).filter((t) => !NOW_LINE.test(t));
 const lastUserText = (messages) => userTexts(messages).at(-1) ?? '';
 // system 메시지(들)의 마지막 글 줄 — conductor 는 프로젝트 지침을 시스템 프롬프트 맨 뒤에 붙인다
 const systemTail = (messages) =>
@@ -247,15 +256,11 @@ function sentenceFromTool(message) {
   if (out?.error) return `도구가 오류를 냈어요: ${out.message ?? out.error}`;
   if (out?.app && Array.isArray(out?.tools)) return `${out.app_name ?? out.app}에서 쓸 도구 ${out.tools.length}개를 골랐어요.`; // use_app
   if (out?.instructions !== undefined) return `스킬 '${out.label ?? out.name}' 지침을 따랐어요.`;
-  if (out?.text !== undefined && out?.from_unit !== undefined) return `변환 결과는 ${out.text}예요.`;
-  if (out?.result !== undefined && out?.expression === undefined) {
-    // MCP 도구 결과 (conductor cap_result 모양: {result, truncated?, note?})
+  if (out?.result !== undefined) {
+    // MCP 도구 결과 (conductor cap_result 모양: {source, untrusted, result, truncated?, note?})
     const body = typeof out.result === 'string' ? out.result : JSON.stringify(out.result);
     return `앱 결과를 받았어요: ${body.slice(0, 120)}${out.truncated ? ` (${out.note})` : ''}`;
   }
-  if (out?.result !== undefined) return `계산 결과는 ${out.result}예요. (수식 ${out.expression})`;
-  if (out?.iso) return `지금은 ${out.date} ${out.time} ${out.weekday}이에요. (${out.timezone})`;
-  if (out?.operation === 'diff') return `${out.to?.date}까지 ${out.days}일 남았어요.`;
   return `도구 결과를 받았어요: ${JSON.stringify(out)}`;
 }
 
@@ -272,25 +277,33 @@ function plannedRounds(body, question) {
   const found = [];
   const one = (at, name, args) => found.push({ at, calls: [{ name, args }] });
   for (const m of question.matchAll(/\[fake:skill\s+([a-z0-9-]+)\]/g)) one(m.index, 'use_skill', { name: m[1] });
-  for (const m of question.matchAll(/\[fake:convert\s+([-\d.]+)\s+(\S+)\s+([^\]\s]+)\]/g)) {
-    one(m.index, 'unit_convert', { value: Number(m[1]), from_unit: m[2], to_unit: m[3] });
+  const parallel = question.match(/\[fake:parallel(?:\s+([^\]]+))?\]/);
+  if (parallel) {
+    let calls = [];
+    if (parallel[1]) {
+      // '[fake:parallel a {..}, b {..}]' = 적은 도구들 (JSON 안에 ] 와 중첩 { } 는 안 쓴다)
+      for (const c of parallel[1].matchAll(/([A-Za-z0-9_-]+)(?:\s+(\{[^{}]*\}))?/g)) {
+        let args = {};
+        try {
+          args = c[2] ? JSON.parse(c[2]) : {};
+        } catch {
+          args = {};
+        }
+        calls.push({ name: c[1], args });
+      }
+    } else {
+      const apps = [...offered].filter((n) => n.includes('__'));
+      const search = apps.find((n) => n.endsWith('__search_notes'));
+      const list = apps.find((n) => n.endsWith('__list_notes'));
+      calls = search && list
+        ? [{ name: search, args: { query: '회의' } }, { name: list, args: {} }]
+        : apps.slice(0, 2).map((name) => ({ name, args: {} }));
+    }
+    found.push({ at: parallel.index, calls });
   }
-  const calc = question.match(/\[fake:calc\]\s*([^\n]*)/);
-  if (calc) one(calc.index, 'calculator', { expression: calc[1].trim() || '12*(3+4)' });
-  const time = question.indexOf('[fake:time]');
-  if (time >= 0) one(time, 'current_time', { timezone: 'Asia/Seoul' });
-  const parallel = question.indexOf('[fake:parallel]');
-  if (parallel >= 0) {
-    found.push({
-      at: parallel,
-      calls: [
-        { name: 'current_time', args: { timezone: 'Asia/Seoul' } },
-        { name: 'current_time', args: { timezone: 'America/New_York' } },
-        { name: 'unit_convert', args: { value: 68, from_unit: 'F', to_unit: 'C' } },
-      ],
-    });
+  for (const m of question.matchAll(/\[fake:app\s+([a-z0-9_-]+)\s+([^\]]+)\]/g)) {
+    one(m.index, 'use_app', m[1] === '-' ? { need: m[2].trim() } : { app: m[1], need: m[2].trim() });
   }
-  for (const m of question.matchAll(/\[fake:app\s+([a-z0-9_]+)\s+([^\]]+)\]/g)) one(m.index, 'use_app', { app: m[1], need: m[2].trim() });
   for (const m of question.matchAll(/\[fake:tool\s+([A-Za-z0-9_-]+)(?:\s+(\{[^\]]*\}))?\]/g)) {
     let args = {};
     try {
@@ -300,11 +313,13 @@ function plannedRounds(body, question) {
     }
     one(m.index, m[1], args);
   }
-  const chain = question.indexOf('[fake:chain]');
-  if (chain >= 0) {
-    one(chain, 'current_time', { timezone: 'Asia/Seoul' });
-    one(chain + 0.1, 'date_calc', { operation: 'diff', date: 'today', other_date: '2026-12-25' });
-    one(chain + 0.2, 'use_skill', { name: 'meeting-prep' });
+  const chain = question.match(/\[fake:chain(?:\s+([a-z0-9_]+))?\]/);
+  if (chain) {
+    const h = chain[1] ?? 'notes';
+    one(chain.index, 'use_app', { app: h, need: '메모 추가 목록' });
+    one(chain.index + 0.1, `${h}__add_note`, { text: '회의 준비' });
+    one(chain.index + 0.2, `${h}__list_notes`, {});
+    one(chain.index + 0.3, 'use_skill', { name: 'summarize' });
   }
   return found
     .sort((x, y) => x.at - y.at)
@@ -320,12 +335,12 @@ function chunks(text, size = 6) {
   return out;
 }
 
-function usage(messages, reply, reasoning = 0, info = null, cacheWrite = false) {
+function usage(messages, reply, reasoning = 0, info = null, cacheWrite = false, cacheMarked = false) {
   const prompt = messages.reduce((n, m) => n + Array.from(textOf(m?.content)).length, 0);
   const completion = Array.from(reply).length + reasoning;
   const out = { prompt_tokens: prompt, completion_tokens: completion, total_tokens: prompt + completion };
   if (reasoning) out.completion_tokens_details = { reasoning_tokens: reasoning };
-  if (info?.providers.includes('anthropic')) {
+  if (info?.providers.includes('anthropic') && cacheMarked) {
     const read = Math.floor(prompt / 2);
     const write = Math.floor(prompt / 4);
     out.prompt_tokens_details = { cached_tokens: read };
@@ -378,6 +393,11 @@ async function chatCompletions(req, res) {
     const [status, type, message] = FAILURES[failure];
     return error(res, status, message, type);
   }
+  const points = body.cache_control_injection_points;
+  if (points !== undefined && !Array.isArray(points)) {
+    return error(res, 400, 'cache_control_injection_points must be a list', 'invalid_request_error', 'cache_control_injection_points');
+  }
+  const cacheMarked = Array.isArray(points) && points.length > 0;
   if (body.reasoning_effort !== undefined && !info.supports_reasoning && body.drop_params === true) {
     delete body.reasoning_effort; // LiteLLM drop_params: 지원 안 하는 파라미터는 버린다
   }
@@ -401,7 +421,7 @@ async function chatCompletions(req, res) {
     }
   }
 
-  // 툴 결과 뒤에 system 한 줄이 붙을 수 있다 (Pydantic AI: deferred 도구 공개 알림 'The following tool(s) are now available')
+  // 툴 결과 뒤에 system 한 줄이 붙을 수 있다 (예전 conductor: deferred 도구 공개 알림 · 지금은 안 붙지만 받아 준다)
   const afterTool = messages.filter((m) => m?.role !== 'system').at(-1)?.role === 'tool';
   const lastUser = messages.findLastIndex((m) => m?.role === 'user');
   // 이번 질문에서 이미 지난 차례 수 = 툴을 부른 assistant 메시지 수
@@ -430,7 +450,7 @@ async function chatCompletions(req, res) {
       ...base,
       object: 'chat.completion',
       choices: [{ index: 0, message, logprobs: null, finish_reason: finish }],
-      usage: usage(messages, reply, reasoningTokens, info, question.includes('[fake:cache-write]')),
+      usage: usage(messages, reply, reasoningTokens, info, question.includes('[fake:cache-write]'), cacheMarked),
     });
   }
 
@@ -476,7 +496,7 @@ async function chatCompletions(req, res) {
   }
   chunk({}, finish);
   if (body.stream_options?.include_usage) {
-    event({ ...base, object: 'chat.completion.chunk', choices: [], usage: usage(messages, reply, reasoningTokens, info, question.includes('[fake:cache-write]')) });
+    event({ ...base, object: 'chat.completion.chunk', choices: [], usage: usage(messages, reply, reasoningTokens, info, question.includes('[fake:cache-write]'), cacheMarked) });
   }
   res.write('data: [DONE]\n\n');
   res.end();

@@ -5,10 +5,10 @@ SKILL.md = 머리말(frontmatter) + 본문(지침). 코드를 실행하지 않�
   name: compare-table            # 폴더 이름과 같아야 한다 · 소문자·숫자·- (48자까지)
   label: 비교표 만들기             # 화면 이름 (없으면 name)
   description: 여러 후보를 …       # 모델이 언제 쓸지 고르는 한 줄 (300자까지)
-  tools: [unit_convert, calculator]  # 선택. 이 스킬이 쓰는 내장 툴 (모르는 툴 이름 = 거절)
+  tools: [some_tool]               # 선택. 이 스킬이 기대는 툴 이름 (known_tools 를 주면 모르는 이름 = 거절 · 지금은 내장 툴이 없어 안 본다)
   ---
   본문 …
-점진 공개: 시스템 프롬프트엔 이름·설명만, 모델이 use_skill(name) 을 부르면 그때 본문을 준다.
+점진 공개: 시스템 프롬프트엔 이름 · 화면 이름 한 줄만 (description 은 관리자 카탈로그 · 화면용), 모델이 use_skill(name) 을 부르면 그때 본문.
 안전: 허용 폴더(root) 바로 아래 폴더만 · 심볼릭 링크·root 밖으로 나가는 경로 거절 · 파일 16KB · 스킬 50개 · 머리말 키 4개만.
 버전 = SKILL.md 의 sha256 앞 12자 (줄바꿈 LF 로 맞춘 뒤 · 관리자 카탈로그). 새 스킬 저장·등록(격리 → 테스트 → 승인)은 P5 — 여기는 읽기만.
 """
@@ -151,27 +151,19 @@ class SkillRegistry:
         return {s.name: s.label for s in self.skills.values()}
 
     def prompt(self) -> str:
-        """시스템 프롬프트에 붙는 목록 (이름 · 설명만). 본문은 use_skill 로."""
+        """시스템 프롬프트에 붙는 한 줄 (이름 + 화면 이름만 · 정렬 고정 = 프롬프트 캐시). 본문은 use_skill 로."""
         if not self.skills:
             return ""
-        lines = "\n".join(f"- {s.name}: {s.description}" for s in self.skills.values())
-        return (
-            "\n\n사용할 수 있는 스킬 (요청이 스킬 설명과 맞으면 먼저 use_skill 로 그 스킬의 지침을 불러와 그대로 따른다. "
-            "지침을 부르지 않고 스킬을 흉내 내지 않는다):\n" + lines
-        )
+        names = ", ".join(f"{s.name} {s.label}" for s in sorted(self.skills.values(), key=lambda s: s.name))
+        return f"\n스킬 (맞으면 use_skill 로 지침을 먼저 부른다): {names}"
 
     def tool(self) -> ToolSpec | None:
-        """use_skill 툴 (스킬이 없으면 None)."""
+        """use_skill 툴 (스킬이 없으면 None). 인자 스키마 = 스킬 이름 enum (짧게 · 모르는 이름은 모델이 못 고른다)."""
         if not self.skills:
             return None
         registry = self
 
         def use_skill(name: str) -> dict[str, Any]:
-            """스킬 지침을 불러온다. 시스템 프롬프트의 스킬 목록에 있는 이름만 쓴다.
-
-            Args:
-                name: 스킬 이름 (예: compare-table).
-            """
             skill = registry.get((name or "").strip())
             if skill is None:
                 return {
@@ -181,12 +173,8 @@ class SkillRegistry:
                 }
             return {"name": skill.name, "label": skill.label, "tools": list(skill.tools), "instructions": skill.body}
 
-        return ToolSpec(
-            name=USE_SKILL,
-            label="스킬 사용",
-            description="스킬(정해진 일 처리 지침)을 이름으로 불러온다. 요청이 스킬 설명과 맞으면 답하기 전에 먼저 부른다.",
-            function=use_skill,
-        )
+        schema = {"type": "object", "properties": {"name": {"type": "string", "enum": sorted(self.skills)}}, "required": ["name"]}
+        return ToolSpec(name=USE_SKILL, label="스킬 사용", description="스킬 지침을 불러온다.", function=use_skill, schema=schema)
 
 
 def load_skills(root: str | Path | None, *, known_tools: Iterable[str] = (), source: str = "runtime/skills") -> SkillRegistry:

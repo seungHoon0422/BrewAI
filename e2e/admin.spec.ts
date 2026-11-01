@@ -96,14 +96,15 @@ test('카탈로그 › Skill: runtime/skills 스타터 5개 (읽기 전용 · �
   const rows = table.locator('tbody tr');
   // 기대값 = 레포의 runtime/skills 폴더 (하드코딩 아님)
   const dirs = fs.readdirSync(path.join(ROOT, 'runtime', 'skills'), { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort();
-  expect(dirs).toHaveLength(5);
+  expect(dirs).toEqual(['compare-table', 'summarize']); // 평소에 쓰는 문서 스킬만 (메일 · 회의 · 스킬 만들기는 없앴다)
   await expect(rows).toHaveCount(dirs.length);
   expect(await rows.evaluateAll((trs) => trs.map((tr) => tr.getAttribute('data-skill')))).toEqual(dirs);
-  const creator = table.locator('tr[data-skill="skill-creator"]');
-  await expect(creator.locator('.skn b')).toHaveText('스킬 만들기');
-  await expect(creator.locator('.skn .chip')).toHaveText('내장');
-  await expect(creator).toContainText('runtime/skills');
-  await expect(creator.locator('.ver')).toHaveText(/^[0-9a-f]{12}$/);
+  const summarize = table.locator('tr[data-skill="summarize"]');
+  await expect(summarize.locator('.skn b')).toHaveText('요약');
+  await expect(summarize.locator('.skn .chip')).toHaveText('내장');
+  await expect(summarize).toContainText('runtime/skills');
+  await expect(summarize.locator('.ver')).toHaveText(/^[0-9a-f]{12}$/);
+  await expect(rows.locator('.skt')).toHaveText(['—', '—']); // 스킬이 쓰는 내장 도구는 없다
   await expect(page.getByRole('tabpanel')).toContainText('새 스킬 저장과 등록(격리 → 테스트 → 승인)은 P5');
   // 읽기 전용: 바꾸는 입력칸 · 버튼 없음
   await expect(page.getByRole('tabpanel').getByRole('textbox')).toHaveCount(0);

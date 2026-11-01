@@ -1,10 +1,13 @@
 """대화에서 MCP 앱 쓰기 (agent.py ↔ connectors/session.py · ADR-0013 · slice 05) — FunctionModel · 가짜 MCP · OAuth (tests/fake_mcp.py).
 
-토큰 예산(요청에 실제로 실린 것) · use_app → 4개 공개 → 다음 턴도 고정 · 쓰기 도구 허용 + 표시 · 연결 없음 = 대기 + brewai.app_auth
+토큰 예산(요청에 실제로 실린 것 · 상한은 test_tokens.py) · use_app → 4개 공개 → 다음 턴도 고정 · app 없이 use_app = 서버가 앱을 고른다
+· 쓰기 도구 허용 + 표시 · 연결 없음 = 대기 + brewai.app_auth
 · 자동 인증 알림 unset / on / off + 시간당 3번 · 이어서 하기(resume) · 공유 앱 = brewai.app_needs_import · 사용량 · 토큰 노출 0.
 """
 
 from __future__ import annotations
+
+import asyncio
 
 import json
 import secrets
@@ -19,9 +22,10 @@ from conductor.agent import INSTRUCTIONS
 from conductor.auth import tokens
 from conductor.connectors.catalog import PROMPT_BUDGET
 from conductor.connectors.client import Tool, estimate_tokens
+from conductor.connectors.session import PROMPT_HEADER
 from conductor.connectors.vault import generate_key
 
-TOOL_NAMES = ["current_time", "calculator", "unit_convert", "date_calc", "text_stats"]
+TOOL_NAMES: list[str] = []  # 내장 툴 없음 (스킬 없음 = 도구 0개)
 PORT = 50123
 
 
@@ -111,14 +115,14 @@ def mcp_tools(names: list[str]) -> list[str]:
     return [n for n in names if "__" in n]
 
 
-# ── 토큰 예산: 앱 0개 = 0 · 1개 · 10개 = 목록 줄 + use_app + search_tools 만 (MCP 도구 정의 0) ──────────────────
+# ── 토큰 예산: 앱 0개 = 0 · 1개 · 10개 = 목록 한 줄 + use_app 만 (MCP 도구 정의 0 · search_tools 없음) ──────────────────
 
 
 def test_zero_servers_add_nothing(make_api, fake_mcp) -> None:
     api, _, script = world(make_api, fake_mcp, lambda m, i, n: "안녕하세요")
     events = api.chat("안녕")
-    assert script.requests[0]["tools"] == TOOL_NAMES  # use_app · search_tools 없음
-    assert "연결된 앱" not in script.requests[0]["instructions"] and script.requests[0]["instructions"].startswith(INSTRUCTIONS[:20])
+    assert script.requests[0]["tools"] == TOOL_NAMES  # use_app 없음
+    assert script.requests[0]["instructions"] == INSTRUCTIONS
     assert events[1]["value"]["apps"] == []
 
 
@@ -132,13 +136,15 @@ def test_token_budget_one_and_ten_servers(make_api, fake_mcp) -> None:
     connect(api, fake, api.client, tracker)  # 연결 직후 tools/list 를 미리 받아 둔다 (캐시)
     api.chat("안녕", thread="t1")
     one = script.requests[-1]
-    assert one["tools"] == [*TOOL_NAMES, "use_app", "search_tools"] and mcp_tools(one["tools"]) == []  # 도구 20개 중 0개
-    assert "- tracker (Tracker): 이슈 추적 [연결됨]" in one["instructions"]
+    assert one["tools"] == [*TOOL_NAMES, "use_app"] and mcp_tools(one["tools"]) == []  # 도구 30개 중 0개 · search_tools 없음
+    assert one["instructions"].endswith(f"{PROMPT_HEADER}: tracker") and "이슈 추적" not in one["instructions"]  # 설명은 안 싣는다
+    assert one["defs"][-1] == {"name": "use_app", "description": one["defs"][-1]["description"], "parameters": {
+        "type": "object", "properties": {"app": {"type": "string"}, "need": {"type": "string"}}, "required": ["need"]}}
     one_extra = len(json.dumps(one["defs"], ensure_ascii=False)) + len(one["instructions"]) - base_bytes
     full = sum(t.tokens_est for t in api.app.state.connectors.cache.get(tracker, api.me["id"]).tools)
     assert estimate_tokens(" " * one_extra) < full / 2  # 20개를 다 싣는 것보다 훨씬 적다
 
-    # 서버 10개 × 도구 15개 (캐시만 채운 가짜) → 요청 정의는 그대로 · 앱 목록만 늘고 900토큰 상한 안
+    # 서버 10개 × 도구 15개 (캐시만 채운 가짜) → 요청 정의는 그대로 · 앱 목록 한 줄만 늘고 상한 안
     cat = api.app.state.connectors.catalog
     cache = api.app.state.connectors.cache
     for i in range(9):
@@ -148,11 +154,11 @@ def test_token_budget_one_and_ten_servers(make_api, fake_mcp) -> None:
             "q": {"type": "string", "description": "query " * 10}}}, write=False, tokens_est=450) for k in range(15)])
     api.chat("안녕", thread="t10")
     ten = script.requests[-1]
-    assert ten["tools"] == [*TOOL_NAMES, "use_app", "search_tools"]
-    block = ten["instructions"].split("연결된 앱 (MCP).", 1)[1]
-    assert block.count("\n- ") == 10 and estimate_tokens(block) <= PROMPT_BUDGET + 120
+    assert ten["tools"] == [*TOOL_NAMES, "use_app"]
+    block = ten["instructions"].split(f"{PROMPT_HEADER}: ", 1)[1]
+    assert block == "app0, app1, app2, app3, app4, app5, app6, app7, app8, tracker" and estimate_tokens(block) <= PROMPT_BUDGET
     ten_extra = len(json.dumps(ten["defs"], ensure_ascii=False)) + len(ten["instructions"]) - base_bytes
-    assert estimate_tokens(" " * ten_extra) < 1500  # 다 싣기 = 약 150 × 450 = 67,500 토큰
+    assert estimate_tokens(" " * ten_extra) < 300  # 다 싣기 = 약 150 × 450 = 67,500 토큰 (예전 목록 = 1,500 아래)
 
 
 def test_use_app_reveals_four_and_they_stay_pinned(make_api, fake_mcp) -> None:
@@ -350,6 +356,7 @@ def test_shared_app_not_imported_yet_shows_card_d(make_api, fake_mcp) -> None:
     assert card[0]["via"][0]["path"][-1]["name"] == "디자인팀"
     result = next(e for e in events if e["type"] == "TOOL_CALL_RESULT")
     assert json.loads(result["content"])["error"] == "needs_import"
+    assert [e["stepName"] for e in events if e["type"] == "STEP_STARTED"][0] == "app:unknown"  # 다른 앱(Notes)으로 바꿔 고르지 않는다
 
 
 def test_tokens_never_reach_the_model_or_the_stream(make_api, fake_mcp) -> None:
@@ -417,15 +424,15 @@ def test_wire_request_carries_only_revealed_mcp_tools(make_api, fake_mcp) -> Non
     fake = fake_mcp.Fake()
     api = make_api(None, openai_client=_wire(sent), secret_key=generate_key(), app_kw={"mcp_transport": fake.transport})
     api.chat("안녕", thread="w0")
-    assert [t["function"]["name"] for t in sent[0]["tools"]] == TOOL_NAMES  # 앱 0개 = 기본 도구만
+    assert "tools" not in sent[0]  # 앱 0개 · 스킬 0개 = 도구 0개 (요청에 tools 칸도 없다)
     tracker = add_tracker(api, fake_mcp)
     connect(api, fake, api.client, tracker)
     sent.clear()
     api.chat("버그 이슈 찾아줘", thread="w1")
     names = [[t["function"]["name"] for t in b["tools"]] for b in sent]
-    assert names[0] == [*TOOL_NAMES, "use_app", "search_tools"]  # 요청 1: tracker__* 0개
+    assert names[0] == [*TOOL_NAMES, "use_app"]  # 요청 1: tracker__* 0개 · search_tools 없음
     assert len(sent) == 3 and "tracker__search_issues" in names[1] and len(mcp_tools(names[1])) <= 4
-    assert mcp_tools(names[2]) == mcp_tools(names[1])
+    assert mcp_tools(names[2]) == mcp_tools(names[1]) and names[1][0] == "use_app"  # 고정 도구 먼저 · 공개 순서대로 뒤에
     defs = {t["function"]["name"]: t["function"] for t in sent[1]["tools"]}
     schema = defs["tracker__search_issues"]["parameters"]
     assert "$schema" not in json.dumps(schema) and "examples" not in schema  # 다듬은 스키마
@@ -436,24 +443,34 @@ def test_wire_request_carries_only_revealed_mcp_tools(make_api, fake_mcp) -> Non
     assert mcp_tools([t["function"]["name"] for t in sent[0]["tools"]]) == mcp_tools(names[1])
 
 
-def test_search_tools_understands_korean_and_respects_the_cap(make_api, fake_mcp) -> None:
+def test_use_app_without_app_name_lets_the_server_pick(make_api, fake_mcp) -> None:
+    """search_tools 를 use_app 하나로 합쳤다: app 을 비우면 캐시된 도구를 need 로 검색 (한글 bigram · 한→영 사전) → 1등 앱에서 고른다."""
     def plan(messages: list[ModelMessage], info: AgentInfo, n: int) -> Any:
-        return [("search_tools", {"queries": ["이슈 만들기"]})] if not returns(messages) else "찾았어요"
+        return [("use_app", {"need": "새 이슈 만들기"})] if not returns(messages) else "찾았어요"
 
     api, fake, script = world(make_api, fake_mcp, plan)
     tracker = add_tracker(api, fake_mcp)
     connect(api, fake, api.client, tracker)
-    api.chat("새 이슈를 만들 수 있어?")
+    add_open(api, fake_mcp)  # 앱이 둘 (Notes 는 도구 캐시 없음 = 연결 직후 미리 받기만 tracker)
+    events = api.chat("새 이슈를 만들 수 있어?")
+    assert [e["stepName"] for e in events if e["type"] == "STEP_STARTED"][0] == "app:tracker"  # 단계 이름도 서버가 고른 앱
     found = mcp_tools(script.requests[1]["tools"])
-    assert "tracker__create_issue" in found and len(found) <= 8  # 기본 검색([a-z0-9]+)이면 한글이라 0개
-    hits = returns(script.requests[1]["messages"])[0].content["discovered_tools"]
-    assert hits[0]["name"] == "tracker__create_issue"  # 순위 1등 = 만들기 + 이슈
-    # 대화당 12개 상한: 이미 12개를 꺼냈으면 search 도 더 안 꺼낸다
-    from conductor.connectors.session import REVEAL_MAX, search_names
+    assert found[0] == "tracker__create_issue" and len(found) <= 4  # 기본 검색([a-z0-9]+)이면 한글이라 0개
+    card = returns(script.requests[1]["messages"])[0].content
+    assert card["app"] == "tracker" and card["tools"][0]["name"] == "tracker__create_issue"
+    # 이름을 틀려도 (목록에 없는 앱 · 가져올 공유 앱도 아님) 같은 검색으로
+    from conductor.connectors.session import AppSession
 
-    entries = [(f"tracker__t{i}", "create issue", {"write": True}) for i in range(20)]
-    assert len(search_names(["create issue"], entries, [f"tracker__t{i}" for i in range(REVEAL_MAX)])) == 0
-    assert len(search_names(["create issue"], entries, [f"tracker__t{i}" for i in range(10)])) == 2
+    sess = AppSession(api.app.state.connectors, api.me["id"], api.app.state.connectors.catalog.usable(api.me["id"]))
+    assert sess.pick("리니어", "이슈 검색").handle == "tracker" and sess.pick("", "zzz 없는 낱말") is None  # type: ignore[union-attr]
+    # 이름을 바꿔 골랐다 = 결과에 asked + 쓰기 전에 앱을 확인하라는 메모 (다른 앱에 조용히 쓰지 않게)
+    got = asyncio.run(sess.use_app("리니어", "이슈 검색"))
+    res = got.result()  # type: ignore[union-attr]
+    assert res["app"] == "tracker" and res["asked"] == "리니어" and "먼저 묻는다" in res["note"]
+    assert "asked" not in asyncio.run(sess.use_app("tracker", "이슈 검색")).result()  # type: ignore[union-attr]
+    # 앱이 하나뿐이어도 댄 이름이 아무것도 안 맞으면 그 앱으로 바꾸지 않는다 (app_not_found + 목록 = 싼 재시도)
+    one = AppSession(api.app.state.connectors, api.me["id"], [a for a in sess.apps if a.handle == "tracker"])
+    assert one.pick("", "zzz 없는 낱말").handle == "tracker" and one.pick("slack", "zzz 없는 낱말") is None  # type: ignore[union-attr]
 
 
 # ── 대화에 고정된 이름 · 남이 쓴 결과 · 쓰기 대기 · 병렬 공개 상한 ─────────────────────────────────

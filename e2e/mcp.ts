@@ -37,6 +37,13 @@ export async function ensureTracker(admin: Client): Promise<AdminServer> {
 }
 
 export const myApps = (api: Client) => api.get<AppList>('/api/me/mcp/servers');
+
+// 내 앱 '메모' (notes · 인증 없음 = 바로 쓴다 · 부르는 이름 memo) — 도구 흐름 스펙용. 앞 실행이 남긴 것은 지우고 새로
+export const MEMO = { handle: 'memo', name: '메모' } as const;
+export async function addMemo(api: Client): Promise<App> {
+  for (const a of (await myApps(api)).mine.filter((x) => x.source === 'own' && x.handle === MEMO.handle)) await api.del(`/api/me/mcp/servers/${a.id}`);
+  return api.post<App>('/api/me/mcp/servers', { url: NOTES_URL, name: MEMO.name, handle: MEMO.handle, description: '메모 찾기와 저장' });
+}
 export const myApp = async (api: Client, id: string) => (await myApps(api)).mine.find((a) => a.id === id);
 
 // 연결 끊기 (연결 없음 = 404 not_connected 도 괜찮다)

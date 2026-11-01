@@ -138,7 +138,7 @@ test('[앱 추가] 추천 서버: 누르면 칸 채우기 → 미리 확인 (부
     await dlg.getByRole('button', { name: '미리 확인' }).click();
     const preview = dlg.getByRole('status', { name: '미리 확인' });
     await expect(preview).toContainText('로그인 없음, 도구 4개');
-    await expect(preview.locator('.app-line code')).toContainText('e2e_notes (E2E 추천 메모)'); // 추천의 부르는 이름
+    await expect(preview.locator('.app-line code')).toHaveText('e2e_notes'); // 추천의 부르는 이름 (대화에는 이름만 실린다)
     expect(await separatorsOnScreen(win)).toEqual([]);
     await win.screenshot({ path: shot('desktop-mcp-presets'), animations: 'disabled' });
     await dlg.getByRole('button', { name: '취소' }).click();
@@ -164,7 +164,7 @@ test('[앱 추가] 주소 → 미리 확인 (로그인 없음, 도구 4개, 쓰�
   await dlg.getByRole('button', { name: '미리 확인' }).click();
   const preview = dlg.getByRole('status', { name: '미리 확인' });
   await expect(preview).toContainText('로그인 없음, 도구 4개, 쓰기 1개, 예상 토큰 약');
-  await expect(preview.locator('.app-line code')).toContainText('메모장');
+  await expect(preview.locator('.app-line code')).toHaveText(/^[a-z0-9_]+$/); // 대화에 실리는 몫 = 부르는 이름만
   await win.screenshot({ path: shot('desktop-mcp-add-preview'), animations: 'disabled' });
   expect(await separatorsOnScreen(win)).toEqual([]);
   await dlg.getByRole('button', { name: '추가', exact: true }).click();

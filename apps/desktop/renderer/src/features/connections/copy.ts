@@ -1,6 +1,7 @@
 // 연결된 앱 문구 (한국어). 사용자 앱이라 '관리자' 라는 말은 쓰지 않는다 (e2e desktop.spec) — 관리자가 넣은 앱 = '전체 공통'.
 // 가운뎃점 같은 구분 글자 대신 칸 나눔 · 쉼표 (e2e/copy-rule.ts).
 import type { Note } from '../shell/components/Page';
+import { count } from '../../lib/format';
 import type { AppSource } from './api';
 
 export const CONNECTIONS = {
@@ -123,7 +124,7 @@ export function previewParts(p: { auth: 'oauth' | 'none'; issuer_domain: string 
     p.auth === 'oauth' ? `로그인 방식 OAuth (${p.issuer_domain ?? p.domain})` : '로그인 없음',
     p.tool_count == null ? '도구 수는 로그인 뒤에 알 수 있어요' : `도구 ${p.tool_count}개`,
     p.write_count ? `쓰기 ${p.write_count}개` : '',
-    p.tokens_est == null ? '' : `예상 토큰 약 ${p.tokens_est.toLocaleString('ko-KR')}`,
+    p.tokens_est == null ? '' : `예상 토큰 약 ${count(p.tokens_est)}`,
   ].filter(Boolean);
 }
 
@@ -138,7 +139,7 @@ export const DETAIL = {
   source: '출처',
   state: '상태',
   agentLine: '에이전트가 보는 줄',
-  tokens: (n: number) => `약 ${n.toLocaleString('ko-KR')}토큰`,
+  tokens: (n: number) => `약 ${count(n)}토큰`,
   tools: '도구',
   toolsEmptyOauth: '연결하면 도구 목록을 받아 와요',
   toolsEmpty: '아직 받은 도구가 없어요',

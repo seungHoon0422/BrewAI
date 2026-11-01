@@ -1,19 +1,21 @@
 // 생각 · 도구 상태 줄(.trace-line) = 유리 알약 하나 + 누르면 펼치는 유리 패널. 글은 trace.ts · 문구는 copy.ts.
 // 흐르는 동안 '질문을 살펴보는 중 → 계산하는 중 → 답을 다듬는 중' (글이 반짝이는 그라데이션),
-// 끝나면 '1.2초 동안 생각함' '계산기 1회' 조각을 칸 나눔으로 (가운뎃점 없음 · 생각 글이 없으면 시간 없이 '생각함').
+// 끝나면 '1.2초 동안 생각함' 'Exa 웹 검색 2회' 조각을 칸 나눔으로 (가운뎃점 없음 · 생각 글이 없으면 시간 없이 '생각함').
 // 패널 = 나온 순서대로 생각 블록(조용한 글 · 왼쪽 선)과 도구 블록(카드: 이름 · 입력 · 결과 · 상태)이 확실히 다르게.
+// 앱 도구 고르기 = 한 줄 메모 · 생각 글이 안 온 생각(토큰만)은 블록을 그리지 않는다 (빈 생각 블록 없음).
 // 생각 글과 도구 카드는 줄을 눌러야 보인다 (기본 접힘 · 흐르는 중에도). 색 점으로 상태를 나누지 않는다 — 글 · 아이콘 · 움직임으로만.
 import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Icon, Meta, type IconName } from '@brewai/ui';
 import type { CSSProperties } from 'react';
 import { seconds } from '../../../lib/format';
 import { reduceMotion, useNow, useThrottled } from '../../../lib/hooks';
+import { appLabels } from '../../connections/hooks';
 import { useSkillLabels, useToolLabels } from '../../skills/hooks';
 import { TOOL, TRACE } from '../copy';
 import { Markdown } from '../markdown/render';
 import { isLive, type Answer, type ReasoningPart, type ToolPart } from '../model';
 import { groupTiming, panelItems, shortDuration, thought, thoughtParts, tracePhrase, usedTools, type ToolGroup } from '../trace';
-import { ToolCard } from './ToolCard';
+import { AppNote, ToolCard } from './ToolCard';
 
 const ANNOUNCE_MS = 2000;
 
@@ -112,27 +114,28 @@ function TracePanel({ a, now }: { a: Answer; now: number }) {
   const thinking = new Set<Answer['parts'][number]>(thoughtParts(a));
   const items = a.parts.filter((p) => p.kind === 'tool' || thinking.has(p));
   const live = isLive(a);
-  // 생각 토큰은 있는데 글이 안 왔다 = 모델이 생각 내용을 보내지 않았다 (display omitted · redacted)
+  // 생각 토큰은 있는데 글이 안 왔다 = 모델이 생각 내용을 보내지 않았다 (display omitted · redacted) → 빈 블록 대신, 다른 게 없을 때만 한 줄
   const silent = !live && !items.some((p) => p.kind === 'reasoning') && (a.usage?.reasoning_tokens ?? 0) > 0;
   const foot = !live && a.usage ? TRACE.usage(a.usage) : [];
+  const apps = appLabels();
   return (
     <>
-      {(items.length > 0 || silent) && (
+      {items.length > 0 && (
         <ol className="tp-list">
-          {silent && <li><ThinkBlock p={{ kind: 'reasoning', id: 'silent', text: '', live: false, ms: null, at: 0 }} now={now} /></li>}
           {panelItems(items.filter((p): p is ReasoningPart | ToolPart => p.kind !== 'text')).map((it) =>
             it.kind === 'think' ? <li key={it.part.id}><ThinkBlock p={it.part} now={now} /></li>
+            : it.kind === 'note' ? <li key={it.part.id}><AppNote p={it.part} apps={apps} /></li>
             : it.kind === 'tool' ? <li key={it.part.id}><ToolCard p={it.part} /></li>
             : <li key={`g${it.group.batch}:${it.group.tools[0].id}`}><ParallelGroup g={it.group} now={now} /></li>)}
         </ol>
       )}
-      {items.length === 0 && !silent && <p className="tp-none">{live ? TRACE.noneLive : TRACE.noneDone}</p>}
+      {items.length === 0 && <p className="tp-none">{silent ? TRACE.thinkSilent : live ? TRACE.noneLive : TRACE.noneDone}</p>}
       {foot.length > 0 && <p className="tp-foot ui-num">{foot.map((f) => <span key={f}>{f}</span>)}</p>}
     </>
   );
 }
 
-// 동시에 돈 도구 묶음 = 머리 줄('동시에 3개' · 걸린 시간 · 하나씩이면) + 시간 막대(도구마다 시작 ~ 끝) + 카드들 (각자 상태 · 실행 시간)
+// 동시에 돈 도구 묶음 = 머리 줄('동시에 3개' · 걸린 시간 · 하나씩이면) + 실행 막대(모두 같은 때 시작 · 길이 = 실행 시간) + 카드들
 // 시간은 모두 실행 시간 (모델이 인자를 다 쓴 뒤 ~ 결과) = 머리 줄 '하나씩이면' = 카드 시간의 합
 function ParallelGroup({ g, now }: { g: ToolGroup; now: number }) {
   const n = g.tools.length;
@@ -151,8 +154,7 @@ function ParallelGroup({ g, now }: { g: ToolGroup; now: number }) {
         <ol className="tp-lanes" aria-label={TOOL.lanes}>
           {timing.lanes.map((l, i) => (
             <li key={l.id} className="tp-lane" data-running={l.running} aria-label={g.tools[i].label}
-              style={{ '--from': l.from.toFixed(4), '--go': l.go.toFixed(4), '--to': Math.max(l.to, l.go + 0.015).toFixed(4) } as CSSProperties}>
-              <i className="call" aria-hidden="true" />
+              style={{ '--to': l.to.toFixed(4) } as CSSProperties}>
               <i className="run" aria-hidden="true" />
             </li>
           ))}
@@ -188,7 +190,7 @@ function ThinkBlock({ p, now }: { p: ReasoningPart; now: number }) {
         {ms != null && ms >= 100 && <span className="tm ui-num">{seconds(ms)}</span>}
       </h4>
       <div ref={body} className="tp-body ui-scroll" tabIndex={0} data-scrolled={scrolled} onScroll={onScroll} aria-label={TRACE.thinkBody}>
-        {p.text ? <Markdown text={p.text} live={p.live} smooth={false} /> : p.live ? '…' : <span className="tp-empty">{TRACE.thinkSilent}</span>}
+        {p.text ? <Markdown text={p.text} live={p.live} smooth={false} /> : '…'}
         {p.live && !p.text && <span className="caret" aria-hidden="true">▍</span>}
       </div>
     </section>

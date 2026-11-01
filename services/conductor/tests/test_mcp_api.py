@@ -50,7 +50,7 @@ def test_admin_adds_common_server_tests_and_tunes_tools(make_api, fake_mcp) -> N
     assert res.status_code == 201, res.text
     s = res.json()
     assert (s["auth"], s["handle"], s["tool_count"], s["origin"], s["status"]) == ("none", "notes", 3, "admin", "active")
-    assert s["prompt_line"] == "- notes (Notes): 팀 메모 [연결됨]" and s["prompt_tokens"] > 0 and s["tool_tokens_est"] > 0
+    assert s["prompt_line"] == "notes" and s["prompt_tokens"] > 0 and s["tool_tokens_est"] > 0  # 목록 한 줄 속 handle 하나
     assert s["preview"]["tool_count"] == 3 and s["connected_count"] == 0
     oauth = api.client.post("/api/admin/mcp/servers", json={"url": f"{fake_mcp.MCP}/mcp", "name": "Tracker"}).json()
     assert (oauth["auth"], oauth["issuer"], oauth["tool_count"]) == ("oauth", fake_mcp.AS, None)  # 도구 수 = 누가 로그인한 뒤

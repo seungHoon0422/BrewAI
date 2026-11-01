@@ -1,4 +1,5 @@
 // 프로젝트 문구 (한국어) — 층 이름은 scope/copy.ts KIND_LABEL 에서 (이름을 바꾸면 여기 문구가 같이 바뀐다)
+import { count } from '../../lib/format';
 import { KIND_LABEL } from '../scope/copy';
 
 const P = KIND_LABEL.project;
@@ -26,7 +27,7 @@ export const PROJECTS = {
   instructions: '지침',
   instructionsPlaceholder: '예: 표로 답한다. 숫자는 출처를 붙인다',
   instructionsHint: `이 ${P} 대화마다 시스템 프롬프트 뒤에 붙어요. BrewAI 기본 규칙(도구, 승인)이 먼저예요`,
-  count: (n: number, max: number) => `${n.toLocaleString()} / ${max.toLocaleString()}자`,
+  count: (n: number, max: number) => `${count(n)} / ${count(max)}자`,
   hasInstructions: '지침 있음',
   by: (name: string) => `${name} 님이 만듦`,
   readOnly: `만든 사람과 ${KIND_LABEL.space} 운영 멤버만 바꿀 수 있어요`,

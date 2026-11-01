@@ -16,10 +16,12 @@
 ## 토큰 전략
 | 무엇이 요청에 실리나 | 크기 |
 |---|---|
-| 앱 목록 블록 (지침 뒤 · 정렬 고정 = 프롬프트 캐시 유지) `- linear (Linear): 이슈, 프로젝트 [연결됨]` | 한 줄 약 30토큰 · 합계 900 상한 (넘으면 이름만 · 연결됨 · 최근 쓴 것 먼저) |
-| 상시 도구 `use_app(app, need)` + 자동 `search_tools` (한글 bigram 검색 전략) | 약 260 |
-| MCP 도구 | 0 (전부 deferred) → `use_app` 이 need 로 순위 매긴 4개만 꺼냄 · 그 대화에 고정 · 대화당 최대 12개 |
-| 도구 결과 | 12KB 상한 + '나머지 N개' 표시 |
+| 앱 목록 한 줄 (지침 뒤 · handle 순 고정 = 프롬프트 캐시) `앱 (use_app 으로 …): exa, linear 외 3개` | 지금 바로 쓸 수 있는 앱의 handle 만 · 로그인 필요 앱은 개수 · 설명 없음 · 300 상한 |
+| 메타 도구 하나 `use_app(app?, need)` (search_tools 를 합침 · app 을 비우면 서버가 캐시된 도구를 검색해 앱을 고른다) | 약 80 |
+| MCP 도구 | 0 (공개 전엔 목록에 없음 · defer_loading 안 씀) → `use_app` 이 need 로 순위 매긴 4개만 · 그 대화에 고정 · 대화당 최대 12개 · 도구 배열 맨 뒤에 공개 순서대로 · 설명 200자 |
+| 도구 결과 | 이번 턴 = 8KB 상한 (Title/URL 기록 글 = 기록마다 본문을 줄여 전부) · 지난 턴 = 앞부분 400B + '줄임' (저장은 원본) |
+| 날짜 · 시각 | 그 턴의 사용자 메시지 앞 한 줄 `지금: 2026-11-01 (일) 17:30 KST` (시스템 지침엔 없음 = 매일 같은 앞부분) |
+| 캐시 | Claude = LiteLLM `cache_control_injection_points` (system + 마지막 메시지) · OpenAI · Gemini = 앞부분이 같으면 저절로 |
 
 `use_app` 은 서버 안에서 LLM 없이 처리(캐시 적중 30ms): 앱 찾기 → 연결 확인(없으면 아래 인증 흐름) → tools/list 캐시 → BM25 (이름 `_` `.` camelCase 쪼갬 · 설명 · 별칭 · 한글 bigram · 읽기 도구 우선) → 4개 공개. 이름 = `<handle>__<tool>` 64자 · `[A-Za-z0-9_-]` (넘으면 해시 + 역매핑). 스키마 다듬기 = `$schema` · `title` · `examples` 제거 · 설명 400 / 속성 120자.
 
@@ -43,6 +45,17 @@ MCP 몫 = 도구 정의(use_app · search_tools · 꺼낸 앱 도구) + 지침�
 - 서버 10개 · 앱 1개 = 17,866 → 845 (-95%). 서버 1 → 10개 = 요청 1 이 +120 (목록 한 줄 약 13토큰). 상시 도구 use_app + search_tools = 316.
 - 꺼낸 도구 1개 = 약 60 (mock 설명이 짧다 · 서버당 1,787 = 도구당 60). 진짜 서버(설명 · 스키마가 긴)면 다 보내기가 더 커진다.
 - 같은 대화 다음 턴 = 같은 4개 그대로 · 새 use_app 없음 (요청 1 부터 도구 12개). '다 보내기' 는 캐시의 다듬은 정의를 요청과 같은 모양(additionalProperties 포함)으로 만들어 센 값 · 꺼낸 8개는 실제 요청과 토큰이 똑같다.
+
+**다이어트 (2026-11-01 · 내장 툴 5개 · 스킬 3개 제거 · 위 표는 그 전)**: 요청 본문 JSON 전체 · o200k (estimate_tokens) · 상한 = `tests/test_tokens.py`.
+
+| 경우 | 전 | 후 | 상한 (est) |
+|---|---|---|---|
+| hello · 앱 0개 (스킬 2개) | 1,389 (1,505) | 223 (225) · -84% | 400 |
+| hello · 앱 54개 (바로 18 · 로그인 필요 36) | 2,538 (2,566) | 425 (413) · -83% | 700 |
+| 큰 결과 둘 다음 턴의 hello | 9,937 (9,397) | 1,089 (1,001) · -89% | 1,800 |
+
+- 줄인 것: 내장 툴 정의 749 · 지침 153 → 38 · 스킬 목록 318 → 24 · 앱 목록 812 → 약 90 · use_app + search_tools 278 → 약 80 · 지난 턴 도구 결과 6,993 → 약 300.
+- 검색 결과(Exa 실제 53KB · 21KB) = 8KB 상한 안에 기록 10개 다 (전: 12KB 에 앞 2~3개). 고정 앞부분(도구 + 지침)은 턴 · 분이 바뀌어도 같은 바이트 (test_stable_prefix…). 앞 요청이 다음 요청의 앞부분 그대로인 건 한 턴의 도구 루프 안, 그리고 지난 턴 결과가 600B 아래일 때까지 (넘으면 다음 턴에 '줄임'으로 바뀐다). use_app 공개 = 도구 배열이 바뀌어 Anthropic 캐시는 처음부터 (순서 = 도구 → system → 메시지). 고정 앞부분이 1,024토큰 아래라 캐시는 주로 공개 뒤 두 번째 도구 왕복부터 산다 (마지막 메시지 표시).
 
 ## 자동 인증 알림 (`users.mcp_auto_auth` · 기본 unset = 꺼짐)
 | 상태 | 에이전트가 연결 안 된 앱이 필요할 때 | 버튼 → 결과 |
@@ -102,11 +115,11 @@ AG-UI: `CUSTOM brewai.app_auth` {call_id, server(+ issuer_domain), mode, reason 
 |---|---|
 | admin-mcp | 공통 서버 추가 · 연결 테스트 · 도구 수 · 예상 토큰 · 쓰기 도구는 쓰기 표시 |
 | mcp-connect | 설정 '연결 필요' → 가짜 로그인 → 연결됨 · 재시작 유지 · 끊기 |
-| mcp-tokens | 요청 1 의 tools = 기본 + use_app + search_tools, `tracker__*` 0개 → use_app 뒤 4개 이하 → 다음 턴도 고정(새 use_app 없음) · MCP 바이트 예산 |
+| mcp-tokens | 요청 1 의 tools = use_skill + use_app (내장 툴 · search_tools 없음), `tracker__*` 0개 → use_app 뒤 4개 이하 → 다음 턴도 고정(새 use_app 없음) · MCP 바이트 예산 |
 | mcp-auth-flag | unset = 카드 A → 승인 → 브라우저 → 같은 대화에서 답 · revoke 뒤 다음 요청은 카드 없이 바로 브라우저 · off = 카드 C + 설정 링크 |
 | mcp-share | A 가 추가 + 스페이스 S 공유 → 멤버 B 가 가져와 다른 가짜 계정으로 연결(mock 이 B 토큰 ≠ A 확인) · 비멤버 C 는 안 보임 |
 
-pytest: vault 왕복 · AAD 불일치 · iss 불일치 · SSRF(사설 · link-local · rebinding) · policy 표 · 한글 need 순위 · 64자 이름 · 결과 상한 · refresh single-flight. eval: 기존 '비밀 노출' 제약에 케이스 1개(MCP 토큰이 프롬프트 · trace 에 0) = `evals/cases/p1-mcp-secret.json` + 도구 결과 주입 `p1-mcp-untrusted-result.json`.
+pytest: vault 왕복 · AAD 불일치 · iss 불일치 · SSRF(사설 · link-local · rebinding) · policy 표 · 한글 need 순위 · 64자 이름 · 결과 상한 · refresh single-flight. eval: 기존 '비밀 노출' 제약에 케이스 1개(MCP 토큰이 프롬프트 · trace 에 0) = `evals/cases/p1-mcp-secret.json` + 도구 결과 주입 `p1-mcp-untrusted-result.json` + 골든 `p1-mcp-golden.json` (앱 이름 없이 use_app → 도구 → 답 · 첫 요청 도구 = use_app 하나).
 
 ## 실제 서버 확인 (2026-11-01)
 벤더가 직접 운영하는 원격 MCP 를 우리 conductor(SSRF 검사 켬)로 확인. 인증 없음 = 연결 · 도구 목록 · 읽기 도구 1번 · 대화 use_app 까지. OAuth = DCR 등록 + 로그인 주소 만들기까지 (로그인 · 동의는 사람이 나중에). 쓰기 도구 · 자격 증명 0. 바깥 요청 약 1,300번 · DCR 서버당 1번 · 기록 = 작업 scratchpad `wf-realmcp/`. **규칙(서버당 약 20번) 넘음**: 확인 · 대화 · 재확인 단계를 합치면 12곳이 23~42번 (Microsoft Learn 39~42 · AWS 문서 38 · GitMCP 38 · Exa 37 · DeepWiki 34 · Webflow 개발 문서 28~31 · Atlassian 24~26 · Agents 문서 · Astro · OpenAI 문서 · Grep · Nuxt 23~24). 인증 없는 서버는 연결 한 번 = 요청 4번(discover 400 · initialize · initialized · 요청) → 다음 재확인은 저장된 결과를 다시 쓴다.
