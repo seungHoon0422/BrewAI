@@ -10,6 +10,7 @@ use_app = LLM 없이: 앱 찾기 → 연결 확인(없음 = AuthNeeded → agent
           권한은 호출마다 다시 (policy.require_mcp_use · UI 는 근거 아님)
 도구 호출 = 연결 단계 401 이면 refresh 한 번 뒤 다시 (서버가 도구를 실행하기 전이라 안전) · 그래도 401 = 다시 로그인 (AuthNeeded expired)
           · 403 insufficient_scope = scope 올리기 (AuthNeeded insufficient_scope · scope) · 그 밖 실패 = {error, message} (모델이 안내)
+          · 인증 없음 서버가 401 + resource_metadata (목록은 공개 · 호출만 로그인 = Google) = Connectors.require_login 으로 OAuth 서버로 바꾸고 AuthNeeded
           · pinned = 대화 기록이 그 이름을 어느 서버에 묶었나 → 지금 그 handle 이 다른 서버면 unknown_tool (use_app 을 다시 = 새 서버를 보고 고른다)
           · 결과 = {source, untrusted, result…} (앱이 돌려준 글은 남이 쓴 데이터 · 지시가 아니다)
 span 속성 (켜져 있으면 · 토큰 값은 절대 안 남김): brewai.mcp.server · brewai.mcp.revealed · brewai.mcp.tool_tokens_est · gen_ai.tool.name · mcp.method.name
@@ -201,6 +202,17 @@ class Connectors:
         _span(**{"mcp.method.name": "tools/list", "brewai.mcp.server": app.server_id, "brewai.mcp.tool_tokens_est": cached.tokens_est})
         return tools
 
+    def require_login(self, app: App, resource_metadata: str | None) -> None:
+        """인증 없음으로 저장된 서버가 401 을 줬다 (Google 원격 MCP: tools/list 는 공개 · tools/call 은 OAuth) → 이 서버를 OAuth 로 바꾼다.
+        바꾸는 건 401 이 MCP 로그인 안내(WWW-Authenticate 의 resource_metadata)를 실었을 때만 — 헤더 없는 401(익명 한도 등)로는 안 바꾼다
+        (그땐 로그인 안내만 · 서버 정의 그대로). PRM 주소는 DB 에 (Catalog.auth_hint · 재시작해도 connect/start 가 쓴다).
+        공유 도구 캐시('*')를 지운다 (OAuth 서버 = 사람마다). 이제 목록 · 대화에서 [연결 필요] 로 보이고 connect/start 로 로그인한다."""
+        if app.auth != "none" or not resource_metadata:
+            return
+        self.catalog.require_login(app.server_id, resource_metadata)
+        self.cache.invalidate(app.server_id, ToolCache.SHARED)
+        log.info("mcp server needs login after all: server=%s", app.server_id)
+
     async def prefetch(self, user_id: str, server_id: str) -> int | None:
         """연결 직후 · 추가 직후 도구 목록을 미리 받아 둔다 (실패해도 그만 · 대화 때 다시). 도구 수."""
         app = next((a for a in self.catalog.apps(user_id) if a.server_id == server_id), None)
@@ -329,6 +341,8 @@ class AppSession:
         try:
             tools = await self._list(a, token)
         except NeedsAuth as e:
+            if token is None:
+                self.svc.require_login(a, e.resource_metadata)
             return self.auth_needed(a, e.reason if e.reason == "insufficient_scope" else ("expired" if token else "not_connected"), e.scope)
         except McpError as e:
             return error(f"app_{e.code}", app=a.handle)
@@ -407,6 +421,8 @@ class AppSession:
         try:
             res = await self._call(a, t.tool.name, dict(args or {}), token)
         except NeedsAuth as e:
+            if token is None:  # 인증 없음으로 알던 서버가 호출에 401 (목록만 공개) = 서버는 도구를 안 돌렸다 → OAuth 서버로 바꾸고 로그인 안내
+                self.svc.require_login(a, e.resource_metadata)
             reason = "insufficient_scope" if e.reason == "insufficient_scope" else ("expired" if token else "not_connected")
             return stop(reason, e.scope), t.meta
         except McpError as e:

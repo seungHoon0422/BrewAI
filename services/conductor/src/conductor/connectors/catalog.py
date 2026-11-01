@@ -41,6 +41,7 @@ AUTO_AUTH = ("unset", "on", "off")  # users.mcp_auto_auth (unset = 처음 한 �
 TOOL_MODES = ("hidden", "auto", "approval")  # mcp_tool_policy.mode (approval = slice 07 승인 카드 뒤)
 META_ALLOW_USER = "mcp.allow_user_servers"
 META_ALLOWLIST = "mcp.url_allowlist"
+META_AUTH_HINT = "mcp.auth_hint:"  # + 서버 id → 호출 401 의 resource_metadata (목록만 공개 · 호출은 로그인 = Connectors.require_login)
 SHARE_KINDS = MCP_SHARE_KINDS  # = scopes.share_kinds() (설치본 + 맨 위 층 ~ 멤버십 층)
 
 Source = Literal["install", "own", "imported"]
@@ -434,7 +435,18 @@ class _Writes:
     def delete_server(self, server_id: str) -> bool:
         """정의 · 공유 · 내 목록 줄 · 도구 정책 · 캐시가 같이 지워진다 (FK CASCADE). 사람들의 인증정보(resource)는 남는다 — 다른 항목이 같은 주소를 쓸 수 있다."""
         with self.store.tx() as db:
+            db.execute("DELETE FROM meta WHERE key = ?", (META_AUTH_HINT + server_id,))
             return db.execute("DELETE FROM mcp_servers WHERE id = ?", (server_id,)).rowcount > 0
+
+    def auth_hint(self, server_id: str) -> str | None:
+        """호출이 401 로 알려 준 PRM 주소 (있으면 = 호출 때 로그인이 필요하다고 서버가 밝힌 서버). DB 에 둔다 = 재시작 · 다른 프로세스도 안다."""
+        return self.store.get_meta(META_AUTH_HINT + server_id)
+
+    def require_login(self, server_id: str, resource_metadata: str) -> None:
+        """인증 없음 → OAuth + PRM 주소를 한 번에 (connect/start 가 다시 확인하면 목록이 열려 이 주소를 못 받는다)."""
+        with self.store.tx() as db:
+            db.execute("UPDATE mcp_servers SET auth = 'oauth', updated_at = ? WHERE id = ? AND auth = 'none'", (now_iso(), server_id))
+            Store.set_meta(db, META_AUTH_HINT + server_id, resource_metadata)
 
     def shares(self, server_id: str) -> list[sqlite3.Row]:
         return self.store.query("SELECT * FROM mcp_server_shares WHERE server_id = ? ORDER BY created_at", (server_id,))

@@ -1,13 +1,13 @@
 // 연결된 앱 상태 = 앱 전체 store. 연결된 앱 화면 · 대화 카드(연결 필요 · 이어서 하기) · 활동 단계 이름(app:<handle>)이 같이 본다.
 // 연결(로그인) = main 이 시스템 브라우저로 (bridge.mcp.connect) → 끝나면 목록을 다시 읽는다. 서버가 권한의 근거다 (UI 는 아님).
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { DotState } from '@brewai/ui';
 import { failureOf, type Failure } from '../../lib/api';
 import { bridge, type McpConnectResult } from '../../lib/bridge';
 import { createStore, single } from '../../lib/store';
 import { useScopeState } from '../scope/hooks';
 import { MEMBERSHIP, TENANT } from '../scope/model';
-import { listApps, setAutoAuth, type App, type AppList, type AutoAuth, type ShareKind } from './api';
+import { listApps, listPresets, setAutoAuth, type App, type AppList, type AutoAuth, type Preset, type ShareKind } from './api';
 import type { AppStateKey } from './copy';
 
 export type ConnState = {
@@ -93,4 +93,21 @@ export function useShareTargets(): ShareTarget[] {
     ...spaces.filter((x) => x.kind === 'shared' && x.joined && !x.archived_at).map((x) => ({ kind: MEMBERSHIP, id: x.id, name: x.name })),
     ...orgs.filter((o) => o.role === 'owner' || o.role === 'admin').map((o) => ({ kind: TENANT, id: o.id, name: o.name })),
   ], [spaces, orgs]);
+}
+
+// 추천 서버 (앱 추가 대화상자 · 열 때마다 다시 읽어 '추가됨' 을 맞춘다). 실패해도 주소 직접 넣기는 된다
+export type PresetLoad = { status: 'loading' } | { status: 'ready'; data: Preset[] } | { status: 'error' };
+export function usePresets(open: boolean): PresetLoad {
+  const [state, setState] = useState<PresetLoad>({ status: 'loading' });
+  useEffect(() => {
+    if (!open) return;
+    const ctrl = new AbortController();
+    setState({ status: 'loading' });
+    listPresets(ctrl.signal).then(
+      (data) => setState({ status: 'ready', data }),
+      () => { if (!ctrl.signal.aborted) setState({ status: 'error' }); },
+    );
+    return () => ctrl.abort();
+  }, [open]);
+  return state;
 }

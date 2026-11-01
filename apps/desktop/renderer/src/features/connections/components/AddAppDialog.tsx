@@ -1,13 +1,15 @@
 // [앱 추가] — 주소(https) · 이름 · 에이전트가 읽는 한 줄 설명(80자) · 찾을 때 쓸 말 · 공유(안 함 / 스페이스 / 조직)
 // → [미리 확인] '로그인 방식 OAuth (linear.app), 도구 18개, 예상 토큰 약 600' + 에이전트가 보는 줄 → [추가].
 // 미리 확인은 저장하지 않는다 (POST …/preview). 주소를 바꾸면 미리 확인을 다시 한다. 공유 판정은 서버 (만들기 전에 본다).
+// 추천 서버 (위) = 누르면 주소 · 이름 · 설명을 채운다 (부르는 이름은 추가할 때 같이 보냄). 고른 상태 = 지금 주소와 같은 추천
 import { useState, type FormEvent } from 'react';
 import { Button, Callout, Dialog, Field, Input, Segmented, Select } from '@brewai/ui';
 import { codeOf } from '../../../lib/api';
 import { MEMBERSHIP, TENANT } from '../../scope/model';
-import { addApp, previewApp, type App, type Preview } from '../api';
-import { ADD, connError, previewParts } from '../copy';
-import { bump, useShareTargets } from '../hooks';
+import { addApp, previewApp, type App, type Preset, type Preview } from '../api';
+import { ADD, PRESET, connError, previewParts } from '../copy';
+import { bump, usePresets, useShareTargets } from '../hooks';
+import { PresetPicker } from './PresetPicker';
 
 const DESCRIPTION_MAX = 80;
 type ShareMode = 'none' | 'space' | 'org';
@@ -23,6 +25,8 @@ export function AddAppDialog({ open, onClose, onAdded }: { open: boolean; onClos
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<'check' | 'add' | null>(null);
   const targets = useShareTargets();
+  const presets = usePresets(open);
+  const picked = presets.status === 'ready' ? presets.data.find((p) => p.url === d.url.trim() && p.available && !p.added) ?? null : null;
   const kind = d.share === 'none' ? null : KIND[d.share];
   const options = targets.filter((t) => t.kind === kind).map((t) => ({ value: t.id, label: t.name }));
 
@@ -31,6 +35,7 @@ export function AddAppDialog({ open, onClose, onAdded }: { open: boolean; onClos
     if ('url' in patch) setPreview(null); // 주소가 바뀌면 다시 확인
     setError(null);
   };
+  const pick = (p: Preset) => put({ url: p.url, name: p.name, description: [...p.description].slice(0, DESCRIPTION_MAX).join('') });
   const close = () => {
     setD(EMPTY);
     setPreview(null);
@@ -41,6 +46,7 @@ export function AddAppDialog({ open, onClose, onAdded }: { open: boolean; onClos
     url: d.url.trim(),
     ...(d.name.trim() ? { name: d.name.trim() } : {}),
     ...(d.description.trim() ? { description: d.description.trim() } : {}),
+    ...(picked ? { handle: picked.handle } : {}),
   });
   const check = async () => {
     if (!d.url.trim() || busy) return;
@@ -89,6 +95,13 @@ export function AddAppDialog({ open, onClose, onAdded }: { open: boolean; onClos
       </>}>
       <form id="app-add" className="form" onSubmit={submit} noValidate>
         {error && <Callout tone="danger" live>{error}</Callout>}
+        <PresetPicker load={presets} pickedId={picked?.id ?? null} onPick={pick} />
+        {picked && (
+          <p className="app-preset-picked" role="status">
+            <span>{PRESET.picked(picked.name)}</span>
+            {picked.note && <span className="app-preset-note">{picked.note}</span>}
+          </p>
+        )}
         <Field label={ADD.url} required hint={ADD.urlHint}>
           <Input type="url" inputMode="url" value={d.url} maxLength={2048} placeholder={ADD.urlPlaceholder} autoFocus spellCheck={false}
             onChange={(e) => put({ url: e.target.value })} />

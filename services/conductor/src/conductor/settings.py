@@ -58,6 +58,7 @@ class Settings:
     secret_key_id: str = "k1"
     secret_keys_old: tuple[tuple[str, str], ...] = field(default=(), repr=False)  # 키 교체 뒤 옛 키 (id, 키) — 읽기만
     mcp_allow_loopback: bool = False  # CONDUCTOR_MCP_ALLOW_LOOPBACK=1 (테스트 전용) — 켜지는 건 mcp_loopback_ok 일 때만
+    mcp_presets_path: str | None = None  # CONDUCTOR_MCP_PRESETS = 추천 서버 파일 (없음 = connectors/presets.json · E2E = 가짜 MCP 주소 파일)
 
     @property
     def google_enabled(self) -> bool:
@@ -139,6 +140,7 @@ def load_settings(env: Mapping[str, str] = os.environ) -> Settings:
         secret_key_id=(env.get("CONDUCTOR_SECRET_KEY_ID") or "").strip() or "k1",
         secret_keys_old=_old_keys(env.get("CONDUCTOR_SECRET_KEYS_OLD")),
         mcp_allow_loopback=env.get("CONDUCTOR_MCP_ALLOW_LOOPBACK") == "1",
+        mcp_presets_path=(env.get("CONDUCTOR_MCP_PRESETS") or "").strip() or None,
     )
 
 

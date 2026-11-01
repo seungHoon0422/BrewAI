@@ -61,6 +61,63 @@ test.afterAll(async () => {
   await admin.patch('/api/admin/mcp/policy', { allow_user_servers: true, url_allowlist: [] });
 });
 
+// 추천 서버 = e2e/mock/mcp-presets.json (CONDUCTOR_MCP_PRESETS · 가짜 MCP 주소만). 누르면 칸만 채운다 (추가는 사람이)
+const PRESET = {
+  pick: { name: 'E2E 추천 트래커', url: `${MCP}/mcp`, handle: 'e2e_tracker', desc: '팀 이슈와 프로젝트를 다뤄요' },
+  added: { name: 'E2E 이미 추가한 메모', url: `${MCP}/noauth/mcp?preset=added` },
+  off: { name: 'E2E 키 전용', reason: 'API 키로만 연결돼요, API 키 방식은 아직 지원하지 않아요' },
+};
+
+test('추천 서버: 목록 · 누르면 칸 채우기 · 못 쓰는 서버는 이유와 함께 막힘 · 이미 추가한 서버 = 추가됨', async ({ page }) => {
+  const added = await admin.post<Server>('/api/admin/mcp/servers', { url: PRESET.added.url, name: PRESET.added.name });
+  try {
+    await page.goto('/#/catalog');
+    await page.getByRole('button', { name: 'MCP 서버 추가' }).first().click();
+    const dlg = page.getByRole('dialog', { name: 'MCP 서버 추가' });
+    const presets = dlg.getByRole('region', { name: '추천 서버' });
+    const list = presets.getByRole('list', { name: '추천 서버 목록' });
+    await expect(list.getByRole('listitem')).toHaveCount(4);
+    const item = (name: string) => list.getByRole('button', { name: new RegExp(name) });
+    // 이미 추가 = 추가됨 + 누를 수 없음 · 못 씀 = 이유 + 누를 수 없음 · 순서 = 쓸 수 있는 것 → 추가됨 → 못 씀
+    await expect(item(PRESET.added.name)).toContainText('추가됨');
+    await expect(item(PRESET.added.name)).toBeDisabled();
+    await expect(item(PRESET.off.name)).toContainText(PRESET.off.reason);
+    await expect(item(PRESET.off.name)).toContainText('API 키 필요');
+    await expect(item(PRESET.off.name)).toBeDisabled();
+    await expect(list.locator('.mcp-preset-name')).toHaveText(['E2E 추천 메모', PRESET.pick.name, PRESET.added.name, PRESET.off.name]);
+    await expect(item('E2E 추천 메모')).toContainText('로그인 없음');
+    await expect(item(PRESET.pick.name)).toContainText('로그인 필요');
+    // 누르면 주소 · 이름 · 설명 · 부르는 이름을 채운다 (저장은 안 함)
+    await item(PRESET.pick.name).click();
+    await expect(item(PRESET.pick.name)).toHaveAttribute('aria-pressed', 'true');
+    await expect(dlg.getByRole('textbox', { name: '주소' })).toHaveValue(PRESET.pick.url);
+    await expect(dlg.getByRole('textbox', { name: '이름', exact: true })).toHaveValue(PRESET.pick.name);
+    await expect(dlg.getByRole('textbox', { name: '에이전트가 읽는 한 줄 설명' })).toHaveValue(PRESET.pick.desc);
+    await expect(dlg.getByRole('textbox', { name: '부르는 이름' })).toHaveValue(PRESET.pick.handle);
+    await expect(dlg.locator('.mcp-preset-picked')).toContainText(`${PRESET.pick.name}을(를) 골랐어요`);
+    // 주소를 고치면 고른 상태가 풀리고 추천이 채운 부르는 이름도 지운다 (다른 서버에 붙지 않게)
+    await dlg.getByRole('textbox', { name: '주소' }).fill(`${MCP}/mcp?other=1`);
+    await expect(dlg.getByRole('textbox', { name: '부르는 이름' })).toHaveValue('');
+    await expect(dlg.locator('.mcp-preset-picked')).toHaveCount(0);
+    // 키보드: Shift+Tab 으로 앞 추천 줄(위 = 다시 고른 트래커 → 메모)에 가서 Enter = 고르기
+    await item(PRESET.pick.name).click();
+    await expect(item(PRESET.pick.name)).toBeFocused();
+    await page.keyboard.press('Shift+Tab');
+    await expect(item('E2E 추천 메모')).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(dlg.getByRole('textbox', { name: '주소' })).toHaveValue(`${MCP}/noauth/mcp?preset=pick`);
+    expect(await separatorsOnScreen(page), 'preset picker').toEqual([]);
+    await page.screenshot({ path: shot('admin-mcp-presets') });
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await page.screenshot({ path: shot('admin-mcp-presets-dark'), animations: 'disabled' });
+    await page.emulateMedia({ colorScheme: 'light' });
+    await dlg.getByRole('button', { name: '취소' }).click();
+    expect((await adminServers()).some((x) => x.url === PRESET.pick.url)).toBe(false); // 누르기만 = 추가 안 됨
+  } finally {
+    await admin.del(`/api/admin/mcp/servers/${added.id}`);
+  }
+});
+
 test('MCP 서버 탭: 표 머리 · 추가 (로그인 없음) → 찾은 내용 = 도구 4개 쓰기 1개 + 예상 토큰 → 표 · 연결 테스트', async ({ page }) => {
   await page.goto('/#/catalog');
   await expect(tabs(page).getByRole('tab')).toHaveText(['MCP 서버', '사용자 추가 서버', 'Skill']);
@@ -321,6 +378,13 @@ test.describe('폰 폭 390px', () => {
       await expect(page.getByRole('tabpanel')).toBeVisible();
       await expect.poll(() => overflowX(page), { message: hash }).toBeLessThanOrEqual(0);
     }
+    // 추가 대화상자 (추천 서버 목록 포함) 도 넘치지 않는다
+    await page.goto('/#/catalog');
+    await page.getByRole('button', { name: 'MCP 서버 추가' }).first().click();
+    await expect(page.getByRole('region', { name: '추천 서버' })).toBeVisible();
+    await expect.poll(() => overflowX(page), { message: 'add dialog' }).toBeLessThanOrEqual(0);
+    await page.screenshot({ path: shot('admin-mcp-presets-phone') });
+    await page.getByRole('dialog', { name: 'MCP 서버 추가' }).getByRole('button', { name: '취소' }).click();
     const s = (await adminServers()).find((x) => x.url === TRACKER.url);
     if (s) {
       await page.goto(`/#/catalog/mcp/${s.id}`);

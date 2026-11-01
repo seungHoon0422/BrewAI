@@ -1,0 +1,9 @@
+{
+ "_comment": "E2E 추천 서버 (conductor CONDUCTOR_MCP_PRESETS). 진짜 목록(services/conductor/src/conductor/connectors/presets.json) 대신 가짜 MCP(e2e/mock/mcp.mjs) 주소만 = E2E 는 바깥으로 안 나간다. mock 은 경로만 보므로 ?preset= 은 같은 서버의 다른 주소.",
+ "presets": [
+  {"id": "e2e-notes", "handle": "e2e_notes", "name": "E2E 추천 메모", "vendor": "Fake Notes", "url": "http://127.0.0.1:4014/noauth/mcp?preset=pick", "auth": "none", "category": "docs", "description": "메모를 찾고 저장해요", "docs_url": "http://127.0.0.1:4014/health", "verified_on": "2026-11-01", "available": true},
+  {"id": "e2e-tracker", "handle": "e2e_tracker", "name": "E2E 추천 트래커", "vendor": "Fake Tracker", "url": "http://127.0.0.1:4014/mcp", "auth": "oauth", "category": "work", "description": "팀 이슈와 프로젝트를 다뤄요", "docs_url": "http://127.0.0.1:4014/health", "verified_on": "2026-11-01", "available": true, "note": "가짜 로그인 화면이 바로 허용해요"},
+  {"id": "e2e-added", "handle": "e2e_added", "name": "E2E 이미 추가한 메모", "vendor": "Fake Notes", "url": "http://127.0.0.1:4014/noauth/mcp?preset=added", "auth": "none", "category": "docs", "description": "스펙이 먼저 추가해 두는 서버예요", "docs_url": "http://127.0.0.1:4014/health", "verified_on": "2026-11-01", "available": true},
+  {"id": "e2e-keyonly", "handle": "e2e_keyonly", "name": "E2E 키 전용", "vendor": "Key Only", "url": "https://key-only.example.test/mcp", "auth": "api_key", "category": "dev", "description": "API 키로만 연결되는 서버예요", "docs_url": "https://key-only.example.test", "verified_on": "2026-11-01", "available": false, "reason": "API 키로만 연결돼요, API 키 방식은 아직 지원하지 않아요"}
+ ]
+}

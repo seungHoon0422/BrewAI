@@ -5,6 +5,7 @@
   https://auth.fake.test           AS 메타데이터(RFC 8414 · iss 광고) · /register(DCR) · /token(code + PKCE + resource · refresh 회전)
   https://open.fake.test/mcp       인증 없음 · 도구 3개 · 옛 initialize 만
   https://login.other.test         다른 사이트의 AS (같은 처리기 · AS mix-up 시험: prm_as=OTHER_AS 면 PRM 이 이것을 가리킨다)
+  https://hybrid.fake.test/mcp     목록은 공개 · tools/call 만 401 (Google 원격 MCP 모양) · PRM = 401 헤더의 /custom/prm 로만
   prm_header_only = PRM 을 /.well-known 에 두지 않고 401 WWW-Authenticate 의 resource_metadata(/custom/prm)로만 알린다
 authorize 는 브라우저 대신 fake.authorize(url) 가 바로 code 를 만든다 (사람 = account 이름 · 다른 사람이면 다른 토큰).
 e2e/mock/mcp.mjs 와 같은 모양 (그쪽은 진짜 HTTP · 허용 버튼 화면).
@@ -26,6 +27,7 @@ MCP = "https://mcp.fake.test"
 AS = "https://auth.fake.test"
 OPEN = "https://open.fake.test"
 OTHER_AS = "https://login.other.test"
+HYBRID = "https://hybrid.fake.test"
 PAGE = 8
 
 READ_TOOLS = [
@@ -142,6 +144,13 @@ class Fake:
                 return self._mcp(request, protected=True)
         if origin == OPEN and path == "/mcp":
             return self._mcp(request, protected=False)
+        if origin == HYBRID:
+            if path == "/custom/prm":
+                return httpx2.Response(200, json={"resource": f"{HYBRID}/mcp", "authorization_servers": [self.prm_as]})
+            if path == "/mcp":
+                if request.method == "POST" and json.loads(request.content).get("method") == "tools/call":
+                    return httpx2.Response(401, headers={"www-authenticate": f'Bearer resource_metadata="{HYBRID}/custom/prm"'})
+                return self._mcp(request, protected=False)
         if origin in (AS, OTHER_AS):
             if path == "/.well-known/oauth-authorization-server":
                 return self._as_meta(origin)

@@ -5,9 +5,9 @@ import { codeOf, isConductorDown } from '../../shared/http';
 import { errorText, useLoad } from '../../shared/load';
 import { useToast } from '../../shared/toast';
 import {
-  addMcpServer, deleteMcpServer, getMcpPolicy, getMcpServer, listAdminSkills, listMcpServers, listMcpTools, listUserServers, patchMcpPolicy,
+  addMcpServer, deleteMcpServer, getMcpPolicy, getMcpServer, listAdminSkills, listMcpPresets, listMcpServers, listMcpTools, listUserServers, patchMcpPolicy,
   patchMcpServer, patchMcpTool, putOAuthClient, setUserServerStatus, testMcpServer,
-  type AdminServer, type ClientIn, type McpPolicy, type NewServer, type Preview, type ServerPatch, type SkillCatalog, type TestResult, type ToolPatch,
+  type AdminServer, type ClientIn, type McpPolicy, type McpPreset, type NewServer, type Preview, type ServerPatch, type SkillCatalog, type TestResult, type ToolPatch,
 } from './api';
 import { ADD_COPY, CATALOG_COPY as C, MCP_ERROR, MCP_OTHER, OAUTH_ERROR } from './copy';
 
@@ -128,6 +128,11 @@ export function useMcpServers() {
     return { ...out, client: state, clientError };
   }, [run, load, toast]);
   return { ...load, ...tests, adding: busy === 'add', add };
+}
+
+/* ── 추천 서버 (추가 대화상자 위 · 열 때마다 다시 읽어 '추가됨' 을 맞춘다) ── */
+export function useMcpPresets(open: boolean) {
+  return useLoad((signal) => (open ? listMcpPresets(signal) : Promise.resolve([] as McpPreset[])), open ? 'open' : 'closed');
 }
 
 /* ── 서버 하나 (자세히 페이지) ─────────────────────────── */

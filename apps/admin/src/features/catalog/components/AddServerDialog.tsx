@@ -1,14 +1,16 @@
 import { useEffect, useId, useState } from 'react';
 import { Button, Callout, Checkbox, Dialog, Field, Input, KeyValue, LinkButton, PasswordInput, Select } from '@brewai/ui';
 import { COMMON_COPY } from '../../../shared/copy';
-import type { ClientIn, NewServer } from '../api';
-import { ADD_COPY as C, AUTH_METHODS, AUTH_TEXT } from '../copy';
-import type { AddResult } from '../hooks';
+import type { ClientIn, McpPreset, NewServer } from '../api';
+import { ADD_COPY as C, AUTH_METHODS, AUTH_TEXT, PRESET_COPY } from '../copy';
+import { useMcpPresets, type AddResult } from '../hooks';
 import { serverHref } from '../route';
+import { PresetPicker } from './PresetPicker';
 import { WriteBadge } from './ServerBits';
 
 // 전체 공통 서버 추가 = 주소(+ 이름 · 한 줄 설명 · 찾을 때 쓸 말 · 부르는 이름) → conductor 가 찾아서 저장 → 찾은 내용 (로그인 방식 · 도구 · 예상 토큰 · 에이전트가 보는 줄).
 // 사전 등록 OAuth client (선택) = 저장 직후 PUT oauth-client · secret 은 conductor 금고에만 (이 화면은 보내기만, 다시 읽지 않는다)
+// 추천 서버 (위) = 누르면 주소 · 이름 · 설명 · 부르는 이름을 채운다. 고른 상태 = 지금 주소와 같은 추천 (주소를 고치면 풀리고, 추천이 채운 부르는 이름도 지운다)
 export const splitList = (text: string) => text.split(/[,\n]/).map((x) => x.trim()).filter(Boolean);
 
 type Method = ClientIn['auth_method'];
@@ -30,10 +32,23 @@ export function AddServerDialog({ open, busy, onAdd, onClose }: {
   const [method, setMethod] = useState<NonNullable<Method>>('none');
   const [result, setResult] = useState<AddResult | null>(null);
   const formId = useId();
+  const presets = useMcpPresets(open);
+  const picked = presets.data?.find((p) => p.url === url.trim() && p.available && !p.added) ?? null;
+  const [filled, setFilled] = useState<McpPreset | null>(null); // 칸을 채운 추천 (주소를 고치면 그 추천의 부르는 이름은 지운다)
+  const pick = (p: McpPreset) => {
+    setUrl(p.url); setName(p.name); setDesc(p.description.slice(0, 80)); setHandle(p.handle); setFilled(p);
+  };
+  const editUrl = (value: string) => {
+    setUrl(value);
+    if (filled && value.trim() !== filled.url) {
+      if (handle === filled.handle) setHandle(''); // 다른 서버에 추천의 이름이 붙지 않게
+      setFilled(null);
+    }
+  };
 
   useEffect(() => {
     if (!open) return;
-    setUrl(''); setName(''); setDesc(''); setAliases(''); setHandle('');
+    setUrl(''); setName(''); setDesc(''); setAliases(''); setHandle(''); setFilled(null);
     setWithClient(false); setClientId(''); setSecret(''); setMethod('none'); setResult(null);
   }, [open]);
 
@@ -65,9 +80,17 @@ export function AddServerDialog({ open, busy, onAdd, onClose }: {
         </>
       }>
       <form id={formId} className="part-stack" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
+        <PresetPicker load={presets.state} pickedId={picked?.id ?? null} onPick={pick} />
+        {picked && (
+          <p className="mcp-preset-picked" role="status">
+            <span>{PRESET_COPY.picked(picked.name)}</span>
+            {picked.note && <span className="mcp-preset-note">{picked.note}</span>}
+            <a href={picked.docs_url} target="_blank" rel="noreferrer noopener">{PRESET_COPY.docs}</a>
+          </p>
+        )}
         <Field label={C.url} hint={C.urlHint} required>
           <Input type="url" value={url} autoFocus inputMode="url" spellCheck={false} placeholder={C.urlPlaceholder} maxLength={2048}
-            onChange={(e) => setUrl(e.target.value)} />
+            onChange={(e) => editUrl(e.target.value)} />
         </Field>
         <Field label={C.name} hint={C.nameHint}>
           <Input value={name} maxLength={60} onChange={(e) => setName(e.target.value)} />

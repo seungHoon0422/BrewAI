@@ -16,6 +16,8 @@
   DELETE /api/me/mcp/servers/{id}/connection         204 (제공자에 refresh 폐기 요청 · 우리 토큰 지움) · 연결 없음 = 404 not_connected
   POST   /api/me/mcp/servers/{id}/test               {ok, auth, connection, tool_count, write_count, tokens_est, code}
   GET    /api/me/settings · PATCH {auto_auth: unset|on|off}   {auto_auth, auto_auth_asked} ('필요할 때 바로 로그인 화면 열기')
+  GET    /api/me/mcp/presets                         {presets: [Preset + added]} 추천 서버 (connectors/presets.json · 읽기 전용 · 비밀값 없음)
+                                                     added = 내 목록에 같은 주소(정규화)가 있다 · admin_only = 여기선 available false
 공개
   GET    /api/mcp/oauth/callback                     ?state&code&iss&error → 302 http://127.0.0.1:{port}/cb?code=bwm_… | ?error=<code>
                                                      흐름 없음 · 만료 · 이미 씀 = 400 안내 페이지. ds 는 붙지 않는다 (conductor 가 complete 에서 확인)
@@ -32,6 +34,7 @@
   GET    /api/admin/mcp/user-servers                 [AdminServer + owner_name · share_count] (인증정보는 connected_count 개수만)
   PATCH  /api/admin/mcp/user-servers/{id}            {status: active|disabled} → AdminServer
   GET    /api/admin/mcp/policy · PATCH               {allow_user_servers, url_allowlist: ['linear.app', '*.example.com']}
+  GET    /api/admin/mcp/presets                      {presets: [Preset + added]} added = 전체 공통 서버에 같은 주소가 있다
 App        = {id, handle, name, url, domain, issuer_domain, description, aliases, auth (oauth|none), origin (admin|user), source (install|own|imported),
               status (active|disabled|error), connection (none|connected|expired|needs_login), hidden, share_lost,
               blocked (null|user_servers_disabled|url_not_allowed = 관리자 정책이 지금 막은 사용자 서버), usable,
@@ -65,6 +68,7 @@ from .connectors import ssrf
 from .connectors.catalog import App, app_line, clean_name, domain_of, make_handle, valid_handle
 from .connectors.client import McpError, NameMap, NeedsAuth, Tool, ToolCache, estimate_tokens
 from .connectors.oauth import CALLBACK_PATH, OAuthError
+from .connectors.presets import load as load_presets
 from .connectors.session import Connectors
 from . import scopes
 from .scopes import Scopes
@@ -91,6 +95,7 @@ class PreviewIn(_In):
     url: str = Field(max_length=2048)
     name: str | None = Field(default=None, max_length=200)
     description: str | None = Field(default=None, max_length=500)
+    handle: str | None = Field(default=None, max_length=20)  # 추천 서버의 부르는 이름 (미리 확인의 '에이전트가 보는 줄' 이 추가 뒤와 같게)
 
 
 class ServerIn(PreviewIn):
@@ -230,6 +235,7 @@ def _oauth_error(e: OAuthError) -> Denied:
 def register(public: APIRouter, user: APIRouter, admin: APIRouter, *, settings: Settings, connectors: Connectors) -> None:
     svc = connectors
     cat = svc.catalog
+    presets = load_presets(settings.mcp_presets_path)
 
     # ── 공용 ──
     def facts_or_404(server_id: str, user_id: str) -> tuple[Any, McpServerFacts]:
@@ -270,7 +276,7 @@ def register(public: APIRouter, user: APIRouter, admin: APIRouter, *, settings: 
         return canon
 
     async def preview(url: str, *, name: str | None, description: str | None, token: str | None = None,
-                      origin: Literal["admin", "user"] = "admin") -> dict[str, Any]:
+                      origin: Literal["admin", "user"] = "admin", handle: str | None = None) -> dict[str, Any]:
         """주소 검사(SSRF · https) → tools/list 한 번 (401 = OAuth → 메타데이터 찾기) → 미리 확인 칸. 저장하지 않는다."""
         canon = canonical(url, origin)
         try:
@@ -290,7 +296,7 @@ def register(public: APIRouter, user: APIRouter, admin: APIRouter, *, settings: 
                 raise Denied(422, "issuer_foreign")
         tools = probe.tools
         shown_name = clean_name(name) or clean_name(probe.server_name) or domain_of(canon)
-        handle = make_handle(shown_name, canon)
+        handle = handle if valid_handle(handle) else make_handle(shown_name, canon)
         draft = App(
             server_id="", handle=handle, name=shown_name, url=canon, resource=resource or canon, domain=domain_of(canon),
             description=description or "", aliases=(), auth=probe.auth, origin="user", source="own", status="active",
@@ -342,6 +348,22 @@ def register(public: APIRouter, user: APIRouter, admin: APIRouter, *, settings: 
     def url_allowed(url: str) -> bool:
         return ssrf.host_allowed(url, cat.settings()["url_allowlist"])
 
+    def presets_out(added_urls: set[str], *, admin: bool) -> dict[str, Any]:
+        """추천 서버 + added (같은 정규 주소가 이미 있다). 정규화가 안 되는 주소(이 환경에서 막힌 주소)는 added 없음."""
+        out = []
+        for pr in presets:
+            try:
+                canon = ssrf.canonical_url(pr.url, allow_loopback=svc.allow_loopback)
+            except ssrf.Blocked:
+                canon = None
+            item = pr.to_json() | {"added": canon is not None and canon in added_urls}
+            if pr.admin_only and not admin and pr.available:
+                item |= {"available": False, "reason": "관리자 콘솔에서만 추가할 수 있어요"}
+            elif not admin and pr.available and not url_allowed(canon or pr.url):  # 관리자 정책의 주소 허용 목록 (추가 때 url_not_allowed 와 같은 판정)
+                item |= {"available": False, "reason": "관리자가 허용한 주소가 아니에요"}
+            out.append(item)
+        return {"presets": out}
+
     # ── 사용자 ──
     @user.get("/api/me/mcp/servers")
     async def my_servers(p: Principal = Depends(require_user)) -> dict[str, Any]:
@@ -356,13 +378,19 @@ def register(public: APIRouter, user: APIRouter, admin: APIRouter, *, settings: 
             "auto_auth": cat.auto_auth(p.user_id), "allow_user_servers": pol["allow_user_servers"], "vault_ready": svc.vault is not None,
         }
 
+    @user.get("/api/me/mcp/presets")
+    async def my_presets(p: Principal = Depends(require_user)) -> dict[str, Any]:
+        return presets_out({a.url for a in cat.apps(p.user_id)}, admin=False)
+
     @user.post("/api/me/mcp/servers/preview")
     async def preview_server(request: Request, body: PreviewIn, p: Principal = Depends(require_user)) -> dict[str, Any]:
         pol = cat.settings()
         policy.require_mcp_add(p.actor, origin="user", allow_user_servers=pol["allow_user_servers"],
                                url_allowed=url_allowed(canonical(body.url, "user")))  # 허용 목록 밖 = 바깥으로 요청 0
         throttle(request, f"mcp_probe:{p.user_id}")
-        out = await preview(body.url, name=body.name, description=body.description, origin="user")
+        if body.handle is not None and not valid_handle(body.handle):
+            raise Denied(422, "bad_handle")
+        out = await preview(body.url, name=body.name, description=body.description, origin="user", handle=body.handle)
         return public_preview(out)
 
     @user.post("/api/me/mcp/servers", status_code=201)
@@ -376,7 +404,7 @@ def register(public: APIRouter, user: APIRouter, admin: APIRouter, *, settings: 
             policy.require_mcp_share(p.actor, McpServerFacts(id="new", origin="user", owner_user_id=p.user_id), target)
         policy.require_mcp_add(p.actor, origin="user", allow_user_servers=True, url_allowed=url_allowed(canonical(body.url, "user")))
         throttle(request, f"mcp_probe:{p.user_id}")
-        out = await preview(body.url, name=body.name, description=body.description, origin="user")
+        out = await preview(body.url, name=body.name, description=body.description, origin="user", handle=body.handle)
         sid = cat.add_server(
             name=out["name"], url=out["url"], origin="user", owner_user_id=p.user_id, handle=body.handle or out["handle"],
             description=body.description or "", aliases=body.aliases, auth=out["auth"], resource=out["resource"], issuer=out["issuer"],
@@ -495,6 +523,7 @@ def register(public: APIRouter, user: APIRouter, admin: APIRouter, *, settings: 
             hint = (await svc.mcp.probe(row["url"])).resource_metadata
         except McpError:
             hint = None
+        hint = hint or cat.auth_hint(server_id)  # 목록은 공개 · 호출만 401 인 서버 = 호출 때 받은 주소 (DB · Connectors.require_login)
         try:
             started = await svc.oauth.start(user_id=p.user_id, server_id=server_id, url=row["url"], port=body.port, ds=body.ds, cc=body.cc,
                                             scope=scope, resource_metadata=hint, manage=policy.mcp_can_manage(p.actor, facts))
@@ -616,7 +645,7 @@ def register(public: APIRouter, user: APIRouter, admin: APIRouter, *, settings: 
         policy.require_mcp_add(p.actor, origin="admin", allow_user_servers=True)
         if body.handle is not None and not valid_handle(body.handle):
             raise Denied(422, "bad_handle")
-        out = await preview(body.url, name=body.name, description=body.description)
+        out = await preview(body.url, name=body.name, description=body.description, handle=body.handle)
         sid = cat.add_server(
             name=out["name"], url=out["url"], origin="admin", owner_user_id=None, handle=body.handle or out["handle"],
             description=body.description or "", aliases=body.aliases, auth=out["auth"], resource=out["resource"], issuer=out["issuer"],
@@ -676,10 +705,13 @@ def register(public: APIRouter, user: APIRouter, admin: APIRouter, *, settings: 
             return out | {"code": f"mcp_{e.code}", "duration_ms": int((time.monotonic() - started) * 1000)}
         ms = int((time.monotonic() - started) * 1000)
         if probe.tools is not None:
-            svc.cache.put(server_id, ToolCache.SHARED if probe.auth == "none" else p.user_id, probe.tools)
-            if probe.auth != row["auth"]:
+            # 토큰 없이 목록이 열려도, 호출이 401 + resource_metadata 로 로그인을 요구했던 서버(auth_hint 있음 = Google 처럼 목록만 공개)는
+            # '인증 없음'으로 되돌리지 않는다. 그 밖의 OAuth 서버는 예전대로 '인증 없음'으로 (서버가 공개로 바뀜)
+            keep_oauth = probe.auth == "none" and row["auth"] == "oauth" and cat.auth_hint(server_id) is not None
+            svc.cache.put(server_id, ToolCache.SHARED if probe.auth == "none" and not keep_oauth else p.user_id, probe.tools)
+            if probe.auth != row["auth"] and not keep_oauth:
                 cat.update_server(server_id, {"auth": probe.auth})
-            return out | {"ok": True, "auth": probe.auth, "tool_count": len(probe.tools), "write_count": sum(t.write for t in probe.tools),
+            return out | {"ok": True, "auth": row["auth"] if keep_oauth else probe.auth, "tool_count": len(probe.tools), "write_count": sum(t.write for t in probe.tools),
                           "tokens_est": sum(t.tokens_est for t in probe.tools), "duration_ms": ms}
         if row["auth"] != "oauth":
             cat.update_server(server_id, {"auth": "oauth"})
@@ -741,6 +773,11 @@ def register(public: APIRouter, user: APIRouter, admin: APIRouter, *, settings: 
         cat.update_server(server_id, {"status": body.status})
         audit(request, "mcp.server.disable" if body.status == "disabled" else "mcp.server.enable", p.user_id, server_id)
         return admin_out(server_or_404(row["id"]))
+
+    @admin.get("/api/admin/mcp/presets")
+    async def admin_presets() -> dict[str, Any]:
+        rows = svc.store.query("SELECT url FROM mcp_servers WHERE origin = 'admin'")
+        return presets_out({r["url"] for r in rows}, admin=True)
 
     @admin.get("/api/admin/mcp/policy")
     async def admin_policy() -> dict[str, Any]:

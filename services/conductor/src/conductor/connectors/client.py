@@ -2,7 +2,10 @@
 
   list_tools   tools/list 를 cursor 로 끝까지(최대 20쪽) → 다듬기(trim_tool) → Tool 목록. 캐시는 ToolCache (사람마다 · 공통 '*')
   call_tool    tools/call → cap_result (12KB 상한 · 목록이면 '나머지 N개')
-  probe        토큰 없이 한 번: 401 이면 OAuth 서버 (WWW-Authenticate 의 resource_metadata · scope) · 아니면 도구 목록까지
+  probe        토큰 없이 한 번: 401 이면 OAuth 서버 (WWW-Authenticate 의 resource_metadata · scope) · 아니면 도구 목록 + 서버 이름(serverInfo)
+               POST 가 401 · 403 을 한 번 받으면 그 연결의 다음 POST 는 바깥으로 안 보낸다 (auto 모드 discover → initialize 두 번 요청 = 1번으로)
+               GET(SSE 스트림) · DELETE 의 401 · 403 은 보지 않는다 (SDK 가 무시하고 요청은 계속된다)
+               목록이 공개라도 tools/call 에 401 을 주는 서버(Google)는 session.call 이 그때 OAuth 서버로 바꾼다 (Connectors.require_login)
 접속은 전부 ssrf.http_client (검사한 IP 로만 · 리다이렉트는 SDK 가 같은 출처만). 401 · 403 은 감시 transport 가 보고 NeedsAuth 로 바꾼다.
 프로토콜: mode auto = server/discover(2026-07-28) → 안 되면 initialize(옛 방식). 서버마다 알아낸 방식은 프로세스 메모리에 둔다 (다음 연결 왕복 -1).
 
@@ -239,6 +242,18 @@ def _cut_text(text: str, limit: int) -> tuple[str, int]:
     return cut, len(data) - len(cut.encode("utf-8"))
 
 
+def _fit_text(text: str, budget: int) -> str:
+    """직렬화한 크기(_size · JSON 이스케이프 \\n \\" 포함)가 budget 안에 드는 가장 긴 앞부분. 바이트로만 자르면 줄바꿈이 많은 글이 상한을 넘는다."""
+    lo, hi = 0, min(len(text), budget)  # 글자 하나 ≥ 1바이트 → budget 글자를 넘을 일은 없다
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if _size({"result": text[:mid]}) <= budget:
+            lo = mid
+        else:
+            hi = mid - 1
+    return text[:lo]
+
+
 def _largest_list(obj: Any) -> tuple[list[Any] | None, str | None]:
     if isinstance(obj, list):
         return obj, None
@@ -303,7 +318,8 @@ def cap_result(body: Any, *, is_error: bool = False, limit: int = MAX_RESULT_BYT
             omitted = len(kept) - lo
             return {"result": trial, "truncated": True, "omitted": omitted, "note": f"나머지 {omitted}개는 길어서 뺐어요"}
     text = body if isinstance(body, str) else json.dumps(body, ensure_ascii=False)
-    cut, rest = _cut_text(text, budget)
+    cut = _fit_text(text, budget)
+    rest = len(text.encode("utf-8")) - len(cut.encode("utf-8"))
     return {"result": cut, "truncated": True, "omitted_bytes": rest, "note": f"나머지 {rest}바이트는 길어서 뺐어요"}
 
 
@@ -383,7 +399,7 @@ class ToolCache:
 
 
 class _Watch(httpx2.AsyncBaseTransport):
-    """마지막 401 · 403 응답의 WWW-Authenticate 를 기억한다 (SDK 는 그냥 '서버 오류'로 바꿔 버린다)."""
+    """POST 의 첫 401 · 403 응답과 WWW-Authenticate 를 기억한다 (SDK 는 그냥 '서버 오류'로 바꿔 버린다)."""
 
     def __init__(self, inner: httpx2.AsyncBaseTransport) -> None:
         self.inner = inner
@@ -391,6 +407,15 @@ class _Watch(httpx2.AsyncBaseTransport):
         self.www_authenticate: str | None = None
 
     async def handle_async_request(self, request: httpx2.Request) -> httpx2.Response:
+        if request.method != "POST":
+            # GET(SSE 알림 스트림 · 연결 뒤 SDK 가 따로 연다) · DELETE(세션 닫기) = 그냥 보낸다. 여기 401 · 403 은 SDK 가 무시하고
+            # 요청(POST)은 계속된다 → 기억하지 않는다 (기억하면 성공한 도구 목록 · 호출이 NeedsAuth 로 바뀐다)
+            return await self.inner.handle_async_request(request)
+        if self.status is not None:
+            # 이미 POST 가 401 · 403 = 이 연결은 어차피 NeedsAuth 로 끝난다. SDK 의 auto 모드가 server/discover 다음 initialize 로
+            # 한 번 더 보내는 요청은 서버에 안 보내고 같은 답을 돌려준다 (OAuth 서버 확인 = 바깥 요청 1번)
+            headers = {"www-authenticate": self.www_authenticate} if self.www_authenticate else {}
+            return httpx2.Response(self.status, headers=headers, request=request)
         res = await self.inner.handle_async_request(request)
         if res.status_code in (401, 403):
             self.status = res.status_code
@@ -501,7 +526,12 @@ class McpClient:
         raise McpError("protocol")  # pragma: no cover
 
     async def list_tools(self, url: str, *, token: str | None = None, max_pages: int = MAX_PAGES) -> list[Tool]:
-        async def op(c: Client) -> list[Tool]:
+        return (await self._list_named(url, token=token, max_pages=max_pages))[0]
+
+    async def _list_named(self, url: str, *, token: str | None = None, max_pages: int = MAX_PAGES) -> tuple[list[Tool], str | None]:
+        """tools/list + 서버가 밝힌 이름 (initialize serverInfo · 2026 방식 _meta serverInfo · 없으면 None)."""
+
+        async def op(c: Client) -> tuple[list[Tool], str | None]:
             out: list[Tool] = []
             seen: set[str] = set()
             cursor: str | None = None
@@ -515,7 +545,8 @@ class McpClient:
                 if not page.next_cursor or page.next_cursor == cursor:
                     break
                 cursor = page.next_cursor
-            return out
+            info = c.server_info
+            return out, (info.name if info is not None and isinstance(info.name, str) else None)
 
         return await self._run(url, token, op)
 
@@ -531,7 +562,7 @@ class McpClient:
     async def probe(self, url: str, *, token: str | None = None) -> Probe:
         """추가 대화상자 '미리 확인' · 관리자 '연결 테스트'. 401 = OAuth (도구 수는 로그인 뒤)."""
         try:
-            tools = await self.list_tools(url, token=token)
+            tools, name = await self._list_named(url, token=token)
         except NeedsAuth as e:
             return Probe(auth="oauth", tools=None, resource_metadata=e.resource_metadata, scope=e.scope)
-        return Probe(auth="none" if token is None else "oauth", tools=tools)
+        return Probe(auth="none" if token is None else "oauth", tools=tools, server_name=clean_text(name, 60) if name else None)

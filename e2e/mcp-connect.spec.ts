@@ -1,6 +1,6 @@
 import { test, expect, chromium, type Browser, type ElectronApplication, type Page } from '@playwright/test';
 import { adminApi, launchDesktop, userApi, type Client } from './auth';
-import { API } from './env';
+import { API, MCP } from './env';
 import { separatorsOnScreen } from './copy-rule';
 import { expectHeading, goHash, shot } from './helpers';
 import { NOTES_URL, captureBrowser, disconnect, ensureTracker, fakeMcp, myApp, myApps, nextOpened, openedCount, type AdminServer } from './mcp';
@@ -111,6 +111,42 @@ test('연결 끊기 → 연결 필요', async () => {
   await row(tracker.name).getByRole('button', { name: '연결 끊기' }).click();
   await expect(row(tracker.name).locator('.app-state')).toHaveText('연결 필요');
   expect((await myApp(api, tracker.id))?.connection).toBe('needs_login');
+});
+
+// 추천 서버 = e2e/mock/mcp-presets.json (CONDUCTOR_MCP_PRESETS · 가짜 MCP 주소만)
+test('[앱 추가] 추천 서버: 누르면 칸 채우기 → 미리 확인 (부르는 이름 그대로) · 못 쓰는 서버 = 이유 · 이미 있는 서버 = 추가됨', async () => {
+  const addedUrl = `${MCP}/noauth/mcp?preset=added`;
+  for (const a of (await myApps(api)).mine.filter((x) => x.source === 'own')) await api.del(`/api/me/mcp/servers/${a.id}`);
+  const mine = await api.post<{ id: string }>('/api/me/mcp/servers', { url: addedUrl, name: 'E2E 이미 추가한 메모' });
+  try {
+    await win.getByRole('button', { name: '앱 추가' }).first().click();
+    const dlg = win.getByRole('dialog', { name: '앱 추가' });
+    const list = dlg.getByRole('region', { name: '추천 서버' }).getByRole('list', { name: '추천 서버 목록' });
+    const item = (name: string) => list.getByRole('button', { name: new RegExp(name) });
+    await expect(list.getByRole('listitem')).toHaveCount(4);
+    await expect(item('E2E 추천 트래커')).toContainText('추가됨'); // 전체 공통 tracker = 이미 내 목록에
+    await expect(item('E2E 추천 트래커')).toBeDisabled();
+    await expect(item('E2E 이미 추가한 메모')).toContainText('추가됨');
+    await expect(item('E2E 이미 추가한 메모')).toBeDisabled();
+    await expect(item('E2E 키 전용')).toContainText('API 키로만 연결돼요, API 키 방식은 아직 지원하지 않아요');
+    await expect(item('E2E 키 전용')).toBeDisabled();
+    await item('E2E 추천 메모').click();
+    await expect(item('E2E 추천 메모')).toHaveAttribute('aria-pressed', 'true');
+    await expect(dlg.getByRole('textbox', { name: '주소' })).toHaveValue(`${MCP}/noauth/mcp?preset=pick`);
+    await expect(dlg.getByRole('textbox', { name: '이름' })).toHaveValue('E2E 추천 메모');
+    await expect(dlg.getByRole('textbox', { name: '에이전트가 읽는 한 줄 설명' })).toHaveValue('메모를 찾고 저장해요');
+    await dlg.getByRole('button', { name: '미리 확인' }).click();
+    const preview = dlg.getByRole('status', { name: '미리 확인' });
+    await expect(preview).toContainText('로그인 없음, 도구 4개');
+    await expect(preview.locator('.app-line code')).toContainText('e2e_notes (E2E 추천 메모)'); // 추천의 부르는 이름
+    expect(await separatorsOnScreen(win)).toEqual([]);
+    await win.screenshot({ path: shot('desktop-mcp-presets'), animations: 'disabled' });
+    await dlg.getByRole('button', { name: '취소' }).click();
+    await expect(dlg).toBeHidden();
+    expect((await myApps(api)).mine.some((a) => a.name === 'E2E 추천 메모')).toBe(false); // 누르기 · 미리 확인만 = 추가 안 됨
+  } finally {
+    await api.del(`/api/me/mcp/servers/${mine.id}`);
+  }
 });
 
 test('[앱 추가] 주소 → 미리 확인 (로그인 없음, 도구 4개, 쓰기 1개, 예상 토큰) → 추가 = 내가 추가 · 연결됨 → 지우기', async () => {

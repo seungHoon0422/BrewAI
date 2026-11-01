@@ -74,9 +74,9 @@ conductor      ─ use_app 을 서버에서 다시 실행(UI 는 근거 아님) 
 ## API (`api_mcp.py`)
 | 묶음 | 경로 |
 |---|---|
-| 사용자 (Bearer) | `GET /api/me/mcp/servers` {mine, importable} · `POST` (probe + SSRF 검사 + share?) · `PATCH` · `DELETE /:id` (내 것 = 삭제 · 가져옴 = 빼기 · 공통 = 숨기기) · `POST`·`DELETE /:id/shares` · `POST /:id/import` · `POST /:id/connect/start` · `…/connect/complete` · `DELETE /:id/connection` · `GET`·`PATCH /api/me/settings` {auto_auth, auto_auth_asked} |
+| 사용자 (Bearer) | `GET /api/me/mcp/servers` {mine, importable} · `POST` (probe + SSRF 검사 + share?) · `PATCH` · `DELETE /:id` (내 것 = 삭제 · 가져옴 = 빼기 · 공통 = 숨기기) · `POST`·`DELETE /:id/shares` · `POST /:id/import` · `POST /:id/connect/start` · `…/connect/complete` · `DELETE /:id/connection` · `GET`·`PATCH /api/me/settings` {auto_auth, auto_auth_asked} · `GET /api/me/mcp/presets` (추천 서버 + added) |
 | 공개 | `GET /api/mcp/oauth/callback` |
-| 관리자 (쿠키 + CSRF) | `GET`·`POST /api/admin/mcp/servers` · `PATCH`·`DELETE /:id` · `POST /:id/test` · `GET`·`PATCH /:id/tools` · `PUT /:id/oauth-client` · `GET /api/admin/mcp/user-servers` · `PATCH /api/admin/mcp/policy` |
+| 관리자 (쿠키 + CSRF) | `GET`·`POST /api/admin/mcp/servers` · `PATCH`·`DELETE /:id` · `POST /:id/test` · `GET`·`PATCH /:id/tools` · `PUT /:id/oauth-client` · `GET /api/admin/mcp/user-servers` · `PATCH /api/admin/mcp/policy` · `GET /api/admin/mcp/presets` |
 
 AG-UI: `CUSTOM brewai.app_auth` {call_id, server(+ issuer_domain), mode, reason not_connected\|expired\|insufficient_scope, write, label} (쓰기 도구 대기 = 로그인 뒤 저절로 잇지 않고 [이어서 하기]) · `CUSTOM brewai.app_needs_import` · `run_summary.pending`. span: `brewai.mcp.server` · `brewai.mcp.revealed` · `brewai.mcp.tool_tokens_est` · `gen_ai.tool.name` · `mcp.method.name` (토큰 값은 절대 안 남김).
 
@@ -107,6 +107,38 @@ AG-UI: `CUSTOM brewai.app_auth` {call_id, server(+ issuer_domain), mode, reason 
 | mcp-share | A 가 추가 + 스페이스 S 공유 → 멤버 B 가 가져와 다른 가짜 계정으로 연결(mock 이 B 토큰 ≠ A 확인) · 비멤버 C 는 안 보임 |
 
 pytest: vault 왕복 · AAD 불일치 · iss 불일치 · SSRF(사설 · link-local · rebinding) · policy 표 · 한글 need 순위 · 64자 이름 · 결과 상한 · refresh single-flight. eval: 기존 '비밀 노출' 제약에 케이스 1개(MCP 토큰이 프롬프트 · trace 에 0) = `evals/cases/p1-mcp-secret.json` + 도구 결과 주입 `p1-mcp-untrusted-result.json`.
+
+## 실제 서버 확인 (2026-11-01)
+벤더가 직접 운영하는 원격 MCP 를 우리 conductor(SSRF 검사 켬)로 확인. 인증 없음 = 연결 · 도구 목록 · 읽기 도구 1번 · 대화 use_app 까지. OAuth = DCR 등록 + 로그인 주소 만들기까지 (로그인 · 동의는 사람이 나중에). 쓰기 도구 · 자격 증명 0. 바깥 요청 약 1,300번 · DCR 서버당 1번 · 기록 = 작업 scratchpad `wf-realmcp/`. **규칙(서버당 약 20번) 넘음**: 확인 · 대화 · 재확인 단계를 합치면 12곳이 23~42번 (Microsoft Learn 39~42 · AWS 문서 38 · GitMCP 38 · Exa 37 · DeepWiki 34 · Webflow 개발 문서 28~31 · Atlassian 24~26 · Agents 문서 · Astro · OpenAI 문서 · Grep · Nuxt 23~24). 인증 없는 서버는 연결 한 번 = 요청 4번(discover 400 · initialize · initialized · 요청) → 다음 재확인은 저장된 결과를 다시 쓴다.
+추천 목록 = `services/conductor/src/conductor/connectors/presets.json` (70개 · 쓸 수 있음 54) → `GET /api/admin/mcp/presets` · `GET /api/me/mcp/presets` (+ added) → 관리자 [MCP 서버 추가] · 데스크톱 [앱 추가] 위 '추천 서버'. 누르면 칸만 채우고 추가는 사람이.
+
+| 서버 | 인증 | 결과 | 도구 수 | 메모 |
+|---|---|---|---|---|
+| Cloudflare 문서 · Agents 문서 · 블로그 | 없음 | 됨 | 2 · 1 · 4 | 블로그 검색 25초 (느림) |
+| Microsoft Learn | 없음 | 됨 | 3 | 세션 유지형 |
+| AWS 문서 | 없음 | 됨 | 5 | structuredContent |
+| OpenAI 개발자 문서 | 없음 | 됨 | 5 | |
+| Context7 · DeepWiki · Grep | 없음 | 됨 | 2 · 3 · 1 | |
+| LangChain · Astro · Svelte · Nuxt · Mintlify 문서 | 없음 | 됨 | 3 · 1 · 4 · 12 · 3 | 결과가 크면 12KB 로 자름 |
+| Webflow 개발 문서 | 없음 | 됨 | 1 | 'MCP' 검색에 서버가 거절 글 |
+| Hugging Face · Exa | 없음 | 됨 | 4 · 2 | |
+| GitMCP | 없음 | 됨 | 5 | 17초 (느림) |
+| Cloudflare 데모 데이 | 없음 | 됨 | 1 | 행사용 = 목록에서 뺌 |
+| GitLab · Sentry · Netlify · Postman · Buildkite · CircleCI · Railway · Wix | OAuth | 로그인 주소까지 | 로그인 뒤 | DCR 됨 |
+| Cloudflare API · 컨테이너 · 브라우저 · DEX · CASB | OAuth | 로그인 주소까지 | 로그인 뒤 | 지원 중단 Cloudflare 서버 10개는 목록에서 뺌 |
+| Supabase · Neon · Prisma · Grafana · Datadog · PostHog · Airtable | OAuth | 로그인 주소까지 | 로그인 뒤 | PostHog scope 153개 · Supabase 비밀 client |
+| Notion · Linear · Atlassian v2 · monday · Make · Intercom · Zapier | OAuth | 로그인 주소까지 | 로그인 뒤 | monday = 계정 관리자 승인 · Intercom = localhost 콜백만 자동 허용 |
+| Stripe · PayPal · Plaid · Canva · Miro · Webflow | OAuth | 로그인 주소까지 | 로그인 뒤 | Plaid = 운영 승인 팀만 |
+| Vercel · Square · ClickUp | OAuth | 로그인 주소까지 | 로그인 뒤 | 벤더가 검토한 앱만 로그인 (거절될 수 있음) |
+| GitHub · Asana · HubSpot · Slack · Box | OAuth | 안 됨 (벤더) | | 자동 등록 없음 = 사전 등록 client 필요 · GitHub = 관리자만 |
+| Dropbox · Figma · 카카오 PlayMCP | OAuth | 안 됨 (벤더) | | DCR 403 (허용 목록) · PlayMCP 는 CIMD 지원 |
+| Calendly | OAuth | 안 됨 (벤더) | | DCR 400 (원인 코드는 이제 로그에 남음) |
+| Gmail · Drive · 캘린더 · BigQuery | OAuth | 안 됨 (벤더) | 23 · 8 · 9 · 9 | 목록은 공개 · 호출은 Google OAuth client 필요 |
+| Render · Google 개발자 문서 · Google 지도 | API 키 | 안 됨 (우리) | 5 (지도) | API 키 인증 없음 |
+| Semgrep · Snyk · Shopify Dev · 토스페이먼츠 | | 뺌 | | 보관된 실험 서버 · 원격 없음(로컬 stdio) |
+
+고친 것 (pytest `test_mcp_real.py`): issuer 루트 '/' 차이 허용(Box · Semgrep · ADR-0013 의 의도적 예외 · 지금 이걸로 쓸 수 있게 된 추천 서버는 없음) · 목록만 공개 · 호출이 401 + resource_metadata 인 서버 = OAuth 로 바꾸고 로그인 안내 + 그때 받은 PRM 주소(DB)로 로그인 시작(Google · 헤더 없는 401 은 안내만) · 결과 상한을 직렬화 크기로 · DCR 실패 error 코드 로그 · 서버 이름 = serverInfo · OAuth 확인 바깥 요청 2번 → 1번(POST 만 · 연결 뒤 GET 스트림의 401 · 403 은 무시) · 사용자 추천 목록도 주소 허용 목록을 따름 · 추천 서버의 부르는 이름(cloudflare_2 대신 cf_docs).
+남은 것: API 키(정적 헤더) 인증 · CIMD (PlayMCP · 여러 벤더가 DCR 대신 권장) · PRM scopes_supported 전부 요청(PostHog 153개 · 사양대로지만 최소 권한 아님) — 결정 필요.
 
 ## 이번 주 순서 · 목요일 자르기
 월 ADR · 의존성 · 마이그레이션 → 화 connectors(OAuth · vault · use_app · deferred · 검색) → 수 관리자 공통 서버 + 데스크톱 연결된 앱 · 체크박스 · 카드 → 목 사용자 추가 · 공유 · 가져오기 → 금 데모. 목요일 밤 안 되면 자르는 순서: ① 공유 · 가져오기 화면(테이블 · API 는 남김) ② 관리자 도구별 토글(mock 의 읽기 목록 사용) ③ 카드 B 다듬기.

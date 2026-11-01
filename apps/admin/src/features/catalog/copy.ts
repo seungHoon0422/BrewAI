@@ -113,6 +113,26 @@ export const ADD_COPY = {
   close: '닫기',
 } as const;
 
+// 추천 서버 (추가 대화상자 위) — 벤더가 직접 운영하는 원격 MCP. 누르면 아래 칸을 채우고, 추가는 관리자가 누른다
+export const PRESET_COPY = {
+  title: '추천 서버',
+  hint: '서비스 회사가 직접 운영하는 MCP 서버예요. 누르면 아래 칸을 채워요.',
+  list: '추천 서버 목록',
+  search: '추천 서버 찾기',
+  searchPlaceholder: '이름이나 하는 일로 찾기',
+  filter: '분류',
+  all: '전체',
+  category: { dev: '개발', docs: '문서', data: '데이터', work: '업무', pay: '결제', design: '디자인' },
+  auth: { none: '로그인 없음', oauth: '로그인 필요', api_key: 'API 키 필요' },
+  added: '추가됨',
+  unavailable: '지금은 못 써요',
+  loading: '추천 서버를 불러오는 중',
+  failed: '추천 서버를 불러오지 못했어요. 주소를 직접 넣어도 돼요.',
+  empty: '맞는 추천 서버가 없어요',
+  picked: (name: string) => `${name}을(를) 골랐어요. 칸을 확인하고 추가를 눌러요.`,
+  docs: '문서 보기',
+} as const;
+
 export const PAGE_COPY = {
   loading: '불러오는 중',
   notFound: '없는 MCP 서버',

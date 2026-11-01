@@ -29,6 +29,7 @@
 .mcp-inline{display:inline-flex;align-items:center;flex-wrap:wrap;gap:var(--space-1-5)}
 .mcp-table .ui-table td,.mcp-table .ui-table th{vertical-align:middle}
 .mcp-table td.mcp-testcol{width:1%;min-width:200px}
+.mcp-table .mcp-name{min-width:9rem} /* 긴 도메인(nowrap) 옆에서 이름 칸이 한두 글자로 눌리지 않게 (실제 서버 54개 목록) */
 
 /* 연결 칸 = 점 + 결과 + 꼬리 [테스트] */
 .mcp-test{display:flex;align-items:center;justify-content:space-between;gap:var(--space-2);min-width:0}
@@ -95,3 +96,30 @@
   .mcp-kv .ui-kv-row{grid-template-columns:88px minmax(0,1fr);column-gap:var(--space-3)}
   .mcp-client-fields{padding-left:0}
 }
+
+/* 추천 서버 (추가 대화상자 위) — 줄 = 머리글자 · 이름 · 배지 · 한 줄 설명. 목록만 스크롤 (대화상자는 그대로) */
+.mcp-presets{display:grid;gap:var(--space-2);min-width:0}
+.mcp-presets-head{display:grid;gap:2px}
+.mcp-presets-title{font-size:var(--fs-sm);font-weight:var(--fw-medium);color:var(--text)}
+.mcp-presets-hint,.mcp-presets-state{margin:0;font-size:var(--fs-xs);color:var(--text-muted)}
+.mcp-presets-tools{display:grid;gap:var(--space-2);min-width:0}
+.mcp-presets-cats{display:flex;flex-wrap:wrap;gap:var(--space-1-5)} /* 줄바꿈 (가로 스크롤이면 끝 칩이 잘려 보인다) */
+.mcp-presets-cats .ui-chip{flex:none}
+.mcp-presets-list{display:grid;gap:var(--space-1);max-height:264px;overflow-y:auto;margin:0;padding:var(--space-1);list-style:none;
+  border:1px solid var(--border-subtle);border-radius:var(--radius-lg);background:var(--surface-sunken)}
+.mcp-preset{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:start;gap:var(--space-2-5);width:100%;padding:var(--space-2) var(--space-2-5);
+  border:1px solid transparent;border-radius:var(--radius-md);background:var(--surface);color:var(--text);font:inherit;text-align:left;cursor:pointer;
+  transition:background var(--dur-fast),border-color var(--dur-fast)}
+.mcp-preset:hover:not(:disabled){background:var(--surface-hover)}
+.mcp-preset:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
+.mcp-preset[aria-pressed="true"]{border-color:var(--text)}
+.mcp-preset:disabled{cursor:default;background:transparent}
+.mcp-preset[data-state="off"]{color:var(--text-muted)}
+.mcp-preset[data-state="off"] .mcp-preset-mark{opacity:.55}
+.mcp-preset-body{display:grid;gap:2px;min-width:0}
+.mcp-preset-top{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-1) var(--space-1-5);min-width:0}
+.mcp-preset-name{font-weight:var(--fw-medium);overflow-wrap:anywhere}
+.mcp-preset-desc{font-size:var(--fs-xs);color:var(--text-muted);line-height:var(--lh-base);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mcp-preset[data-state="off"] .mcp-preset-desc{white-space:normal}
+.mcp-preset-picked{display:flex;flex-wrap:wrap;gap:var(--space-1) var(--space-2-5);margin:0;font-size:var(--fs-xs);color:var(--text-2)}
+.mcp-preset-note{color:var(--warn-text)}

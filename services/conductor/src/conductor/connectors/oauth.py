@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import re
 import secrets
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -141,6 +142,30 @@ def _parse_iso(iso: str) -> datetime:
     return datetime.fromisoformat(iso.replace("Z", "+00:00"))
 
 
+def same_issuer(a: str, b: str) -> bool:
+    """issuer 비교 = 글자 그대로. 단 경로가 루트뿐일 때 끝 '/' 하나는 같은 것으로 본다 (PRM 'https://api.box.com/' · 메타데이터
+    'https://api.box.com' — Box · Semgrep). 경로가 있는 issuer('https://x/tenant' ≠ 'https://x/tenant/')는 그대로 다르다."""
+    if a == b:
+        return True
+    pa, pb = urlsplit(a), urlsplit(b)
+    if pa.path not in ("", "/") or pb.path not in ("", "/") or pa.query or pb.query or pa.fragment or pb.fragment:
+        return False
+    return (pa.scheme, pa.netloc) == (pb.scheme, pb.netloc) and bool(pa.scheme and pa.netloc)
+
+
+_ERROR_CODE_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+
+
+def _rfc7591_error(res: httpx2.Response) -> str | None:
+    """DCR 실패 응답의 error 코드 (모양이 맞을 때만 · 아니면 None)."""
+    try:
+        data = res.json()
+    except ValueError:
+        return None
+    code = data.get("error") if isinstance(data, dict) else None
+    return code if isinstance(code, str) and _ERROR_CODE_RE.match(code) else None
+
+
 def _str_list(v: Any) -> tuple[str, ...]:
     return tuple(x for x in v if isinstance(x, str)) if isinstance(v, list) else ()
 
@@ -252,7 +277,7 @@ class OAuth:
         if meta is None:
             raise OAuthError("discovery_failed", "no authorization server metadata")
         issuer = meta.get("issuer")
-        if not isinstance(issuer, str) or issuer != issuer_expected:  # RFC 8414 §3.3 글자 그대로
+        if not isinstance(issuer, str) or not same_issuer(issuer, issuer_expected):  # RFC 8414 §3.3 글자 그대로 (루트 '/' 하나만 봐준다)
             raise OAuthError("issuer_mismatch")
         if "S256" not in _str_list(meta.get("code_challenge_methods_supported")):
             raise OAuthError("no_pkce")
@@ -322,7 +347,10 @@ class OAuth:
             except httpx2.HTTPError as e:
                 raise OAuthError("registration_failed", type(e).__name__) from None
         if res.status_code not in (200, 201):
-            raise OAuthError("registration_failed", f"status {res.status_code}")
+            # RFC 7591 §3.2.2 error 코드만 남긴다 (invalid_redirect_uri 등 · error_description 은 제공자가 쓴 글이라 안 남긴다)
+            detail = f"status {res.status_code}" + (f" {code}" if (code := _rfc7591_error(res)) else "")
+            log.warning("mcp dcr failed: issuer host %s %s", urlsplit(auth.issuer).hostname, detail)
+            raise OAuthError("registration_failed", detail)
         try:
             data = res.json()
         except ValueError:

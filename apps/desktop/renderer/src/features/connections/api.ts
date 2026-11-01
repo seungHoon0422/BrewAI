@@ -102,10 +102,31 @@ function toPreview(v: unknown): Preview {
   };
 }
 
-export const previewApp = async (body: { url: string; name?: string; description?: string }) =>
+export const previewApp = async (body: { url: string; name?: string; description?: string; handle?: string }) =>
   toPreview(await send('/api/me/mcp/servers/preview', 'POST', body));
 
-export type AppInput = { url: string; name?: string; description?: string; aliases?: string[]; share?: { scope_kind: ShareKind; scope_id: string } };
+export type AppInput = {
+  url: string; name?: string; description?: string; aliases?: string[]; handle?: string; share?: { scope_kind: ShareKind; scope_id: string };
+};
+
+// 추천 서버 (conductor connectors/presets.json · 벤더가 직접 운영하는 원격 MCP). 누르면 칸만 채운다 = 추가는 사람이 누른다
+export type PresetAuth = 'none' | 'oauth' | 'api_key';
+export type PresetCategory = 'dev' | 'docs' | 'data' | 'work' | 'pay' | 'design';
+export const PRESET_CATEGORIES: readonly PresetCategory[] = ['dev', 'docs', 'data', 'work', 'pay', 'design'];
+export type Preset = {
+  id: string; handle: string; name: string; vendor: string; url: string; auth: PresetAuth; category: PresetCategory; description: string;
+  available: boolean; reason: string | null; note: string | null; added: boolean;
+};
+
+export async function listPresets(signal?: AbortSignal): Promise<Preset[]> {
+  const d = await json('/api/me/mcp/presets', signal);
+  if (!isObj(d)) throw new ApiError('server', 'bad_shape');
+  return list(d.presets).map((p) => ({
+    id: str(p.id), handle: str(p.handle), name: str(p.name), vendor: str(p.vendor), url: str(p.url),
+    auth: pick(p.auth, ['none', 'oauth', 'api_key'] as const, 'oauth'), category: pick(p.category, PRESET_CATEGORIES, 'dev'),
+    description: str(p.description), available: p.available !== false, reason: strOrNull(p.reason), note: strOrNull(p.note), added: bool(p.added),
+  })).filter((p) => p.id && p.url);
+}
 
 export async function addApp(body: AppInput): Promise<App> {
   const d = await send('/api/me/mcp/servers', 'POST', body);

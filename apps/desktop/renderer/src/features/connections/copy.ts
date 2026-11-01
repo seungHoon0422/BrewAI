@@ -98,6 +98,25 @@ export const ADD = {
   count: (n: number, max: number) => `${n}/${max}`,
 } as const;
 
+// 추천 서버 (앱 추가 대화상자 위) — 서비스 회사가 직접 운영하는 MCP. 누르면 칸만 채우고, 미리 확인 뒤 추가는 사람이 누른다
+export const PRESET = {
+  title: '추천 서버',
+  hint: '서비스 회사가 직접 운영하는 MCP 서버예요. 누르면 아래 칸을 채워요.',
+  list: '추천 서버 목록',
+  search: '추천 서버 찾기',
+  searchPlaceholder: '이름이나 하는 일로 찾기',
+  filter: '분류',
+  all: '전체',
+  category: { dev: '개발', docs: '문서', data: '데이터', work: '업무', pay: '결제', design: '디자인' },
+  auth: { none: '로그인 없음', oauth: '로그인 필요', api_key: 'API 키 필요' },
+  added: '추가됨',
+  unavailable: '지금은 못 써요',
+  loading: '추천 서버를 불러오는 중',
+  failed: '추천 서버를 불러오지 못했어요. 주소를 직접 넣어도 돼요.',
+  empty: '맞는 추천 서버가 없어요',
+  picked: (name: string) => `${name}을(를) 골랐어요. 미리 확인한 뒤 추가를 눌러요.`,
+} as const;
+
 // 미리 확인 한 줄: '로그인 방식 OAuth (linear.app), 도구 18개, 예상 토큰 약 600'
 export function previewParts(p: { auth: 'oauth' | 'none'; issuer_domain: string | null; domain: string; tool_count: number | null; write_count: number | null; tokens_est: number | null }): string[] {
   return [

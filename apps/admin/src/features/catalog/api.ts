@@ -124,6 +124,26 @@ function toTools(data: unknown): ToolList {
 
 const serverPath = (id: string) => `/api/admin/mcp/servers/${encodeURIComponent(id)}`;
 
+// 추천 서버 (conductor connectors/presets.json · 벤더가 직접 운영하는 원격 MCP). 누르면 칸만 채운다 = 추가는 사람이 누른다
+export type PresetAuth = 'none' | 'oauth' | 'api_key';
+export type PresetCategory = 'dev' | 'docs' | 'data' | 'work' | 'pay' | 'design';
+export const PRESET_CATEGORIES: readonly PresetCategory[] = ['dev', 'docs', 'data', 'work', 'pay', 'design'];
+export type McpPreset = {
+  id: string; handle: string; name: string; vendor: string; url: string; auth: PresetAuth; category: PresetCategory; description: string;
+  docs_url: string; verified_on: string; available: boolean; reason: string | null; note: string | null; added: boolean;
+};
+
+export async function listMcpPresets(signal?: AbortSignal): Promise<McpPreset[]> {
+  const d = expectObj(await call('/api/admin/mcp/presets', { signal }));
+  const auths: readonly PresetAuth[] = ['none', 'oauth', 'api_key'];
+  return objs(d.presets).map((p): McpPreset => ({
+    id: str(p.id), handle: str(p.handle), name: str(p.name), vendor: str(p.vendor), url: str(p.url),
+    auth: auths.find((a) => a === p.auth) ?? 'oauth',
+    category: PRESET_CATEGORIES.find((c) => c === p.category) ?? 'dev', description: str(p.description), docs_url: str(p.docs_url),
+    verified_on: str(p.verified_on), available: p.available !== false, reason: strOrNull(p.reason), note: strOrNull(p.note), added: p.added === true,
+  })).filter((p) => p.id && p.url);
+}
+
 // 전체 공통 서버 (관리자가 추가 = 모두에게 · 각자 자기 계정으로 로그인)
 export async function listMcpServers(signal?: AbortSignal): Promise<AdminServer[]> {
   return expectList(await call('/api/admin/mcp/servers', { signal })).map(toServer);
