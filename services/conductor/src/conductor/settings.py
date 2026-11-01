@@ -101,6 +101,30 @@ def is_loopback(url: str) -> bool:
         return False
 
 
+def _private_host(host: str) -> bool:
+    """http 로 보내도 되는 곳: 이 PC · 사설망 IP · 점 없는 이름(같은 Docker 망의 서비스 이름 등)."""
+    if host == "localhost" or ("." not in host and ":" not in host):
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return ip.is_loopback or ip.is_private or ip.is_link_local
+
+
+def gateway_url(raw: str) -> str:
+    """LLM_GATEWAY_URL 검사 (ADR-0014). 요청마다 master key 가 실리므로 공개 주소는 https 만 받는다."""
+    url = raw.strip().rstrip("/")
+    parts = urlsplit(url)
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        raise RuntimeError("LLM_GATEWAY_URL 이 주소 모양이 아니에요 → 예: http://127.0.0.1:4000 또는 https://<서버>.sslip.io (.env)")
+    if parts.username or parts.password:
+        raise RuntimeError("LLM_GATEWAY_URL 에 계정·비밀번호를 넣지 마세요 → 키는 LITELLM_MASTER_KEY 로 (.env)")
+    if parts.scheme == "http" and not _private_host(parts.hostname):
+        raise RuntimeError("LLM_GATEWAY_URL 이 공개 주소인데 http 예요 → https:// 로 바꾸세요 (키가 평문으로 나가요 · .env)")
+    return url
+
+
 def _csv(raw: str | None, default: tuple[str, ...]) -> tuple[str, ...]:
     if raw is None:
         return default
@@ -109,7 +133,8 @@ def _csv(raw: str | None, default: tuple[str, ...]) -> tuple[str, ...]:
 
 def load_settings(env: Mapping[str, str] = os.environ) -> Settings:
     # 127.0.0.1 고정: 윈도우에서 localhost 가 ::1 로 풀리면 127.0.0.1 에만 뜬 LiteLLM 에 바로 못 붙는다
-    url = env.get("LLM_GATEWAY_URL", "http://127.0.0.1:4000").rstrip("/")
+    # 공개 서버 게이트웨이(ADR-0014) = https://<ip>.sslip.io 같은 https 주소
+    url = gateway_url(env.get("LLM_GATEWAY_URL") or "http://127.0.0.1:4000")
     # P1 로컬 = LiteLLM master key (ADR-0006). P2 = 서비스 전용 virtual key 를 LLM_GATEWAY_KEY 로.
     key = env.get("LLM_GATEWAY_KEY") or env.get("LITELLM_MASTER_KEY") or ""
     if not key:

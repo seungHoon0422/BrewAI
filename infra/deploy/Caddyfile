@@ -1,0 +1,85 @@
+# BrewAI public gateway front door (ADR-0014). Caddy 2.11, automatic https (Let's Encrypt) for {$DOMAIN}.
+# Public  = only what the conductor needs; LiteLLM still checks the master key on each of them.
+# Admin   = everything else (LiteLLM /ui and its management API): needs the gate cookie first,
+#           which only /brewai-admin hands out after basic auth (bcrypt). Then LiteLLM login (admin / master key) as usual.
+#           A cookie, not basic auth on every route: the /ui page calls the API with its own "Authorization: Bearer" header.
+# Never   = docs, openapi, metrics (404 for everyone).
+{
+	{$CADDY_GLOBAL_OPTIONS}
+	admin off
+	servers {
+		protocols h1 h2
+	}
+}
+
+{$DOMAIN} {
+	request_body {
+		max_size 16MB
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy no-referrer
+		-Server
+	}
+
+	# Access log without credentials (Caddy already redacts these; deleting them is explicit).
+	log {
+		output stdout
+		format filter {
+			request>headers>Authorization delete
+			request>headers>Proxy-Authorization delete
+			request>headers>Cookie delete
+			resp_headers>Set-Cookie delete
+		}
+	}
+
+	@never path /docs /docs/* /redoc /redoc/* /openapi.json /swagger* /metrics /metrics/*
+	handle @never {
+		respond 404
+	}
+
+	@public_get {
+		method GET
+		path /health/liveliness /model_group/info /v1/model/info
+	}
+	handle @public_get {
+		reverse_proxy litellm:4000
+	}
+
+	@public_chat {
+		method POST
+		path /v1/chat/completions
+	}
+	handle @public_chat {
+		reverse_proxy litellm:4000
+	}
+
+	# route keeps the literal order: the cookie is set only after basic auth passed.
+	handle /brewai-admin {
+		route {
+			basic_auth bcrypt "BrewAI admin" {
+				{$ADMIN_UI_USER} {$ADMIN_UI_PASSWORD_HASH}
+			}
+			header Cache-Control no-store
+			header Set-Cookie "brewai_admin={$ADMIN_GATE_TOKEN}; Path=/; Max-Age=43200; Secure; HttpOnly; SameSite=Strict"
+			redir * /ui/ 303
+		}
+	}
+
+	@gated header Cookie *brewai_admin={$ADMIN_GATE_TOKEN}*
+	handle @gated {
+		reverse_proxy litellm:4000
+	}
+
+	@ui path /ui /ui/*
+	handle @ui {
+		redir * /brewai-admin 303
+	}
+
+	handle {
+		respond 404
+	}
+}

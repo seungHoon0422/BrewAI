@@ -1,6 +1,7 @@
 // npm run dev = 게이트웨이(LiteLLM 4000) + conductor(8787) + 데스크톱 앱(Vite 5173 + Electron) + 관리자 콘솔(Vite 5174) 을 한 번에 띄운다.
 // - 게이트웨이 = Docker 가 켜져 있으면 로컬 스택의 LiteLLM 컨테이너 (scripts/stack.mjs up auto · ADR-0009).
 //   .env 에 BREWAI_TRACE=1 이면 Langfuse 묶음도. Docker 가 없거나 꺼져 있으면 예전 venv 게이트웨이(scripts/gateway.mjs) · BREWAI_STACK=0(셸 또는 .env) = 일부러 venv
+//   .env 의 LLM_GATEWAY_URL 이 이 PC 밖(https://<ip>.sslip.io 등 · ADR-0014)이면 로컬 게이트웨이를 띄우지 않고 그 서버를 쓴다
 // - 게이트웨이·conductor 는 설치돼 있을 때만 (Docker 또는 infra/litellm/.venv · uv sync 한 .venv · .env). 못 띄우면 이유를 말하고 데스크톱·관리자만 띄운다
 // - 더블클릭: start.cmd (윈도우) · start.command (맥)
 // - 끄기: 이 창에서 Ctrl+C, 또는 데스크톱 앱을 끄면(윈도우 = 창 닫기 · 맥 = ⌘Q) 둘 다 닫히고 포트도 비운다
@@ -14,6 +15,7 @@ import net from 'node:net';
 import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
+import { gatewayTarget } from './gateway-target.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const WIN = process.platform === 'win32';
@@ -42,6 +44,9 @@ const setting = (k) => process.env[k] || DOTENV[k] || '';
 const GATEWAY = { port: Number(setting('LITELLM_PORT') || 4000), what: '게이트웨이', health: '/health/liveliness' };
 const API = { port: Number(process.env.CONDUCTOR_PORT ?? 8787), what: 'conductor', health: '/healthz' };
 const NO_STACK = setting('BREWAI_STACK') === '0';
+// 원격 게이트웨이 (ADR-0014): 셸에서 LITELLM_PORT 를 주면 아래에서 LLM_GATEWAY_URL 을 로컬로 덮으니 그때는 아니다
+const GW = process.env.LITELLM_PORT ? { kind: 'local' } : gatewayTarget(setting('LLM_GATEWAY_URL'));
+const REMOTE = GW.kind === 'remote';
 const NO_OPEN = process.argv.includes('--no-open') || process.env.BREWAI_NO_OPEN === '1';
 // 지금은 테스트 단계 → 셸 · .env 어디에도 없으면 켠다 (.env 의 0 · 1 은 uv 가 그대로 넘긴다)
 const TEST_ADMIN = ['', '1'].includes(setting('BREWAI_TEST_ADMIN'));
@@ -325,7 +330,7 @@ const exists = (...p) => fs.existsSync(path.join(root, ...p));
 // scripts/stack.mjs up auto 종료 코드: 0 = 모두 healthy · 3 = Docker 없음/꺼짐 → 예전 venv 게이트웨이로 · 그 밖 = 스택 실패
 // spawn(비동기) → 기다리는 중 Ctrl+C 가 위 SIGINT 처리로 간다. 스택은 Ctrl+C 뒤에도 남는다 (끄기 = npm run stack:down)
 async function startStack() {
-  if (NO_STACK || !exists('infra', 'compose.yaml')) {
+  if (NO_STACK || REMOTE || !exists('infra', 'compose.yaml')) {
     // Docker 를 안 써도 첫 관리자 계정(.env BREWAI_ADMIN_EMAIL · BREWAI_ADMIN_PASSWORD)은 만들고 알린다 (= 로그인 화면에 넣을 값)
     if (fs.existsSync(ENV_FILE))
       spawnSync(process.execPath, [path.join(root, 'scripts', 'stack.mjs'), 'secrets'], { cwd: root, env, stdio: 'inherit', windowsHide: true });
@@ -352,7 +357,7 @@ const stackCode = stopping ? 1 : await startStack();
 if (stopping) await finish(); // 스택을 올리는 중에 Ctrl+C → 아무것도 더 띄우지 않고 끝낸다 (finish 가 스택 상태를 말한다)
 const stackGw = stackCode !== 3 && stackGatewayHealthy();
 if (stackGw) say('게이트웨이 = Docker LiteLLM 컨테이너 (끄기 = npm run stack:down · Ctrl+C 로는 안 꺼져요)');
-else if (stackCode === 3 && !NO_STACK && exists('infra', 'compose.yaml'))
+else if (stackCode === 3 && !NO_STACK && !REMOTE && exists('infra', 'compose.yaml'))
   say(color('33', 'Docker 를 쓸 수 없어서(위 [stack] 줄) 예전 venv 게이트웨이(npm run gateway)로 해 볼게요'));
 const noStackHint = WIN ? '.env 에 BREWAI_STACK=0 (또는 set BREWAI_STACK=0 && npm.cmd run dev)' : '.env 에 BREWAI_STACK=0 (또는 BREWAI_STACK=0 npm run dev)';
 const uv = hasUv();
@@ -366,11 +371,33 @@ const gatewayWhy = stackGw ? `Docker LiteLLM 이 127.0.0.1:${GATEWAY.port} 에�
   : !uv ? 'uv 를 찾지 못했어요 → README 1단계 (uv 0.13.5)'
   : !exists('infra', 'litellm', '.venv', ...(WIN ? ['Scripts', 'litellm.exe'] : ['bin', 'litellm'])) ? 'Docker 도 infra/litellm/.venv 도 없어요 → Docker Desktop 을 켜거나 README "Docker 를 못 쓰는 PC 만"'
   : noEnv;
-const gatewayUp = stopping ? false : await startBackend(GATEWAY, 'gateway', '33', 'gateway.mjs', gatewayWhy, 90, { reuse: stackGw });
+// 원격 게이트웨이: 띄우지 않는다. 살아 있는지만 보고 알린다 (응답이 없어도 conductor 는 띄운다 = 서버가 살아나면 바로 된다)
+async function useRemoteGateway() {
+  say(`게이트웨이 = 원격 서버 ${GW.url} (.env LLM_GATEWAY_URL) · 로컬 Docker · venv 게이트웨이는 띄우지 않아요`);
+  if (GW.insecure) {
+    say(color('31', `LLM_GATEWAY_URL 이 공개 주소인데 http 예요 → https:// 로 바꾸세요 (키가 평문으로 나가요 · conductor 가 거부해요)`));
+    return false;
+  }
+  try {
+    const r = await fetch(`${GW.url}/health/liveliness`, { signal: AbortSignal.timeout(8000) });
+    if (r.ok) {
+      say('원격 게이트웨이 응답 확인 (키 = .env LITELLM_MASTER_KEY · 서버와 같은 값)');
+      return true;
+    }
+    say(color('33', `원격 게이트웨이가 HTTP ${r.status} 로 답해요 → 주소를 확인하세요 (README "게이트웨이 서버")`));
+  } catch {
+    say(color('33', '원격 게이트웨이가 응답하지 않아요 (서버 꺼짐 · 주소 · 인터넷) → conductor 는 띄워요, 서버가 살아나면 대화가 돼요'));
+  }
+  return true;
+}
+const gatewayUp = stopping ? false
+  : REMOTE ? await useRemoteGateway()
+  : await startBackend(GATEWAY, 'gateway', '33', 'gateway.mjs', gatewayWhy, 90, { reuse: stackGw });
 const apiWhy = !exists('services', 'conductor', 'pyproject.toml') ? 'services/conductor 가 없어요'
   : !uv ? 'uv 를 찾지 못했어요 → README 1단계 (uv 0.13.5)'
   : !exists('.venv') ? '파이썬 의존성이 없어요 → 이 폴더에서 한 번: uv sync --locked'
-  : noEnv ?? (gatewayUp ? null : '게이트웨이가 없어서 대화가 안 돼요 → 위 이유를 고치고 다시 실행하세요');
+  : noEnv ?? (gatewayUp ? null : REMOTE ? 'LLM_GATEWAY_URL 을 https:// 로 고치고 다시 실행하세요'
+    : '게이트웨이가 없어서 대화가 안 돼요 → 위 이유를 고치고 다시 실행하세요');
 const apiUp = stopping ? false : await startBackend(API, 'api', '32', 'api.mjs', apiWhy, 120);
 if (!stopping && !(gatewayUp && apiUp)) say(color('33', '데스크톱 · 관리자만 띄워요. 대화는 "서버에 연결할 수 없어요", 관리자 모델 표는 연결 안내가 떠요'));
 
