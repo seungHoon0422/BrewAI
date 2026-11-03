@@ -2,7 +2,7 @@
 
 Pydantic AI 는 모른다 — agent.py 가 이 결과를 Tool · ToolReturn(tools=…) · CallDeferred 로 바꾼다 (ADR-0002).
 
-  Connectors  앱 수명 하나 (create_app): catalog · 도구 캐시 · OAuth · MCP 클라이언트를 한 곳에. session(user) = 실행마다
+  Connectors  앱 수명 하나 (create_app): catalog · 도구 캐시 · OAuth · MCP 클라이언트 · 사이트 아이콘(icons.py)을 한 곳에. session(user) = 실행마다
   AppSession  실행 하나: 그 사람이 쓸 수 있는 앱(목록은 시작 때 한 번) · 프롬프트 앱 목록 · 공개 후보 도구 목록(캐시에서) ·
               use_app(app, need) · call(public, args) · 자동 인증 알림 판정(실행당 1번 · 시간당 3번 · 내 목록의 서버만)
 use_app = LLM 없이: 앱 찾기 (app = handle · 이름 · 도메인 · 비었거나 모르면 캐시된 도구를 app + need 로 검색해 1등 앱 = pick)
@@ -13,6 +13,7 @@ use_app = LLM 없이: 앱 찾기 (app = handle · 이름 · 도메인 · 비었�
           · 403 insufficient_scope = scope 올리기 (AuthNeeded insufficient_scope · scope) · 그 밖 실패 = {error, message} (모델이 안내)
           · 인증 없음 서버가 401 + resource_metadata (목록은 공개 · 호출만 로그인 = Google) = Connectors.require_login 으로 OAuth 서버로 바꾸고 AuthNeeded
           · pinned = 대화 기록이 그 이름을 어느 서버에 묶었나 → 지금 그 handle 이 다른 서버면 unknown_tool (use_app 을 다시 = 새 서버를 보고 고른다)
+            단 같은 주소의 쌍둥이 줄(내 줄 ↔ 전체 공통 줄, catalog url_key)은 같은 서버로 본다 (합쳐져도 옛 대화가 그 이름을 그대로 부른다)
           · 결과 = {source, untrusted, result…} (앱이 돌려준 글은 남이 쓴 데이터 · 지시가 아니다)
 span 속성 (켜져 있으면 · 토큰 값은 절대 안 남김): brewai.mcp.server · brewai.mcp.revealed · brewai.mcp.tool_tokens_est · gen_ai.tool.name · mcp.method.name
           · 팀원이 부르면 + brewai.agent.id (slice 06)
@@ -33,8 +34,9 @@ from urllib.parse import urlsplit
 from ..auth import policy
 from ..auth.policy import Actor, Denied
 from ..tools import USE_APP
-from .catalog import App, Catalog, clean_name, prompt_block
+from .catalog import App, Catalog, clean_name, prompt_block, url_key
 from .client import McpClient, McpError, NameMap, NeedsAuth, Tool, ToolCache, clean_text, split_public
+from .icons import Icons
 from .oauth import OAuth, OAuthError
 from .rank import rank_tools, search
 from .vault import Vault
@@ -188,6 +190,7 @@ class Connectors:
         self.cache = ToolCache(store, clock=lambda: accounts.clock())
         self.oauth = OAuth(store, vault, accounts, public_url=public_url, allow_loopback=allow_loopback, transport=transport, resolver=resolver)
         self.mcp = McpClient(allow_loopback=allow_loopback, transport=transport, resolver=resolver)
+        self.icons = Icons(store, allow_loopback=allow_loopback, transport=transport, resolver=resolver, clock=lambda: accounts.clock())
 
     @staticmethod
     def user_key(app: App | Mapping[str, Any], user_id: str) -> str:
@@ -448,6 +451,11 @@ class AppSession:
                 self.svc.oauth.mark_expired(self.user_id, a.resource)
                 raise
 
+    def _twin(self, server_id: str, a: App) -> bool:
+        """기록이 묶은 서버가 지금 줄과 같은 주소인가 (같은 주소 두 줄이 합쳐지거나 공통 줄을 숨겨 보이는 줄이 바뀌었다)."""
+        row = self.svc.catalog.server(server_id)
+        return row is not None and url_key(row["url"]) == url_key(a.url)
+
     # ── 공개된 도구 호출 ──
     async def call(self, public: str, args: Mapping[str, Any] | None, *, pinned: Mapping[str, str] | None = None,
                    ) -> tuple[dict[str, Any] | AuthNeeded, dict[str, Any] | None]:
@@ -460,7 +468,7 @@ class AppSession:
         if t is None:
             return error("unknown_tool"), None
         want = (pinned or {}).get(public)
-        if want is not None and want != t.app.server_id:
+        if want is not None and want != t.app.server_id and not self._twin(want, t.app):
             log.info("mcp tool name rebound: %s pinned=%s now=%s", public, want, t.app.server_id)
             return error("unknown_tool"), None
         a = t.app

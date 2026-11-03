@@ -59,3 +59,11 @@
 스택은 `npm run stack:down` 으로 끈다 (`docker compose` 를 직접 쓸 땐 `docker compose -p brewai -f infra/compose.yaml --env-file .env --profile trace …`). 포트가 이미 쓰이면 `.env` 의 `LITELLM_PORT` · `LANGFUSE_PORT` · `LANGFUSE_MEDIA_PORT` 로 바꾼다 (`LITELLM_PORT` 를 바꾸면 `LLM_GATEWAY_URL` 도).
 **Azure 사용자 지정 배포 (예: GPT-6 Luna)**: LiteLLM 관리 화면 › 모델 › Model Info 에 `"mode": "responses"` (LiteLLM 이 /chat/completions 를 Responses API 로 바꿔 보낸다 · 배포 이름이 `gpt-5.4*` 가 아니면 자동으로 안 바뀐다) + `"supports_function_calling": true` (없으면 conductor 가 도구 · 앱 · 스킬을 안 보낸다). API Base = `https://<리소스>.openai.azure.com/` 까지만.
 venv 게이트웨이·conductor 는 Ctrl+C 로 끈다. 래퍼만 `kill -9` 하면 uv·python 이 남아 포트를 잡는다 → `lsof -i :4000` / `:8787` 로 찾아 끈다.
+
+## 문제 해결
+
+| 증상 | 원인 → 고치기 |
+|---|---|
+| 어떤 모델로는 앱(MCP)·스킬을 안 쓰고 글로만 답한다 (데스크톱 모델 메뉴에 "앱과 스킬 없이 답해요", 관리자 › 모델 표에 "도구 꺼짐") | conductor 는 LiteLLM 이 `supports_function_calling` 을 true 로 주는 모델에만 도구를 싣는다. 관리자 › 모델 › 그 모델 페이지 알림이 이유를 둘로 나눈다. **모른다** (`luna` 처럼 LiteLLM 가격표에 없는 이름 · Azure 사용자 배포) → LiteLLM 관리 화면 › 모델 › 그 모델 › **Model Info** 에 `{"supports_function_calling": true}` (또는 `{"base_model": "azure/gpt-4.1"}` 처럼 LiteLLM 이 아는 모델 이름) → 관리자 › 모델 › 동기화. **안 된다고 한다** (LiteLLM 모델 정보가 false) → true 로 바꾸지 않는다 (진짜 못 쓰는 모델에 도구를 실으면 대화가 provider 400). 이름을 잘못 짚은 거면 `base_model` 만 맞춘다 |
+| 관리자 서버 주소에 키가 들어 있다 (`?tavilyApiKey=…` · `/s/<키>/mcp`) | 호출에는 원래 주소를 쓰고, 사용자 앱 · 관리자 화면 · 응답 · 로그(예외 글 포함)에는 값을 `***` 로 가린다 (`?tavilyApiKey=***` · `/s/***/mcp` · `=` 없는 query 조각). 사용자가 추가하는 서버는 이런 주소를 받지 않는다 (`url_has_secret`) |
+| 연결된 앱에 같은 서버가 두 번 보였다 (`context7` · `context7_2`) | 내가 추가한 서버와 전체 공통 서버의 주소가 같으면 이제 전체 공통 하나만 보인다 (부르는 이름은 내가 쓰던 그대로 공통 앱으로 옮겨 간다 · 내 로그인은 그대로 쓴다). 전체 공통을 숨기면 내가 추가한 것이 다시 보인다 |

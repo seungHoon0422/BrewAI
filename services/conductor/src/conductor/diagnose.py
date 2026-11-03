@@ -12,6 +12,8 @@ LiteLLM 1.106.2 (infra/litellm/.venv 의 소스로 확인한 모양):
   게이트웨이에 모델 없음 400 · "Invalid model name passed in model=…"
   생각 파라미터 거절   400 · "litellm.UnsupportedParamsError: … reasoning_effort" 또는 provider 의 thinking 오류
                        /v1/responses = "Unsupported parameter: 'reasoning.summary' …" · "Unsupported value: 'reasoning.effort' …" (error.param = reasoning.…)
+                       = 이번 요청에 생각 파라미터를 실었을 때만 (reasoning=True). 끔이면 생각 칸을 안 보냈다 = 다른 까닭 → provider_bad_request
+                       (UnsupportedParams 만으로는 안 본다 · 다른 칸(parallel_tool_calls …) 거절도 같은 오류 이름)
   Responses 200 실패    status failed + error {code, message} · incomplete (max_output_tokens 말고 다른 까닭) → classify_response
 provider 오류는 type 이 OpenAI 식(authentication_error · permission_error · invalid_request_error …)이고 프록시 자체 오류는
 ProxyErrorTypes(auth_error · token_not_found_in_db · no_db_connection …) 라서 type 으로 둘을 가른다.
@@ -65,8 +67,10 @@ _MISSING_KEY = re.compile(
 )
 _NOT_FOUND = re.compile(r"not_found_error|model_not_found|does not exist|NotFoundError|unknown model|model not found", re.I)
 _GATEWAY_MODEL = re.compile(r"Invalid model name passed", re.I)
+# 생각 파라미터 이름이 문구에 있다 (reasoning_effort · reasoning.effort|summary|… · thinking · budget_tokens · output_config = LiteLLM 이 effort 를 옮긴 칸)
 _REASONING = re.compile(
-    r"UnsupportedParams|reasoning_effort|thinking|budget_tokens|output_config|reasoning\.(?:effort|summary|context|mode)"
+    r"reasoning_effort|budget_tokens|output_config|reasoning\.(?:effort|summary|context|mode)"
+    r"|\bthinking(?:\.\w+|`?\s*:|`?\s+(?:is\s+)?(?:not supported|unsupported))|['\"`]thinking['\"`]"
     r"|\breasoning\b[^.]*\bnot supported",
     re.I,
 )
@@ -139,8 +143,9 @@ class Diagnosis:
         )
 
 
-def classify_http(status: int, error_type: str | None, body: Any) -> Diagnosis:
-    """게이트웨이가 준 HTTP 오류 하나 → Diagnosis. body = LiteLLM 오류 본문 (응답 본문 · 요청 본문 아님)."""
+def classify_http(status: int, error_type: str | None, body: Any, *, reasoning: bool = False) -> Diagnosis:
+    """게이트웨이가 준 HTTP 오류 하나 → Diagnosis. body = LiteLLM 오류 본문 (응답 본문 · 요청 본문 아님).
+    reasoning = 이번 요청에 생각 파라미터를 실었다 (끔 · 생각 못 하는 모델 · 연결 시험 = False → reasoning_unsupported 로 보지 않는다)."""
     message = _message_of(body)
     etype = error_type or _type_of(body)
     clean = sanitize(message)
@@ -164,8 +169,8 @@ def classify_http(status: int, error_type: str | None, body: Any) -> Diagnosis:
     if status == 404 or (status == 400 and _NOT_FOUND.search(message)):
         return d(PROVIDER_REJECTED, "provider_model_not_found")
     if status in (400, 422):
-        reasoning = _REASONING.search(message) or _param_of(body).startswith("reasoning")
-        return d(PROVIDER_REJECTED, "reasoning_unsupported" if reasoning else "provider_bad_request")
+        about = bool(_REASONING.search(message)) or _param_of(body).startswith("reasoning")
+        return d(PROVIDER_REJECTED, "reasoning_unsupported" if reasoning and about else "provider_bad_request")
     # ④ 잠시 뒤 다시
     if status == 429:
         return d(MODEL_ERROR, "provider_rate_limited")

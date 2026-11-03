@@ -41,6 +41,13 @@ export function capsOf(m: AdminModel): Cap[] {
   ];
 }
 
+// 도구 꺼짐 = 대화 모델인데 게이트웨이가 도구 호출을 된다고 하지 않음 (사용자 앱에서 앱 · 스킬을 못 쓴다 · copy.ts TOOLS_OFF)
+//   unknown = LiteLLM 이 모름 → Model Info 에 값을 넣으면 된다 · no = LiteLLM 이 안 된다고 함 → 넣으라고 하지 않는다 (넣으면 대화가 400)
+type ToolsFlag = Pick<AdminModel, 'is_chat' | 'supports_function_calling'>;
+export const toolsOff = (m: ToolsFlag) => m.is_chat && m.supports_function_calling !== true;
+export const toolsOffKind = (m: ToolsFlag): 'unknown' | 'no' | null =>
+  !toolsOff(m) ? null : m.supports_function_calling === false ? 'no' : 'unknown';
+
 // 연결 테스트 응답 시간 (conductor 가 잰 왕복): 412ms · 1.2초
 export const latency = (ms: number) => (ms < 1000 ? `${Math.max(0, Math.round(ms))}ms` : `${(ms / 1000).toFixed(1)}초`);
 

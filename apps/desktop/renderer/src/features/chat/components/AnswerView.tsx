@@ -3,7 +3,7 @@
 import { Button, StatusDot, providerLabel } from '@brewai/ui';
 import { seconds } from '../../../lib/format';
 import { ModelName } from '../../models/components/ModelName';
-import { CHAT, FAILURE_TEXT, detailText, joinParts } from '../copy';
+import { CHAT, FAILURE_TEXT, failureCopy, joinParts, modelNames } from '../copy';
 import { retry, retryWithoutReasoning } from '../hooks';
 import { Markdown } from '../markdown/render';
 import { isLive, type Answer, type Turn } from '../model';
@@ -49,18 +49,19 @@ export function AnswerView({ turn, latest, threadId, teamRun = null }: { turn: T
   );
 }
 
-const failText = (a: Answer) => detailText(a.failureDetail)?.text || (a.failure ? FAILURE_TEXT[a.failure] : '');
+const failText = (a: Answer) => failureCopy(a.failureDetail, a.reasoning)?.text || (a.failure ? FAILURE_TEXT[a.failure] : '');
 
-// 실패 = 한 줄(왜) + 고치는 곳(hint) + 어느 모델(이름 · 게이트웨이 id) + 다시 시도 (생각 때문이면 '생각 끄고 다시'도)
+// 실패 = 한 줄(왜) + 고치는 곳(hint) + 어느 모델(이름 · 게이트웨이 id · 같으면 하나) + 다시 시도 (생각 때문이면 '생각 끄고 다시'도)
+// 문구는 이번 실행의 생각 깊이로 (생각을 안 실은 실행 = 생각 탓으로 말하지 않는다 · copy.ts failureCopy)
 function Failed({ a, threadId }: { a: Answer; threadId: string }) {
-  const d = detailText(a.failureDetail);
+  const d = failureCopy(a.failureDetail, a.reasoning);
   return (
     <div className="msg agent fail enter" role="alert" data-detail={a.failureDetail ?? undefined}>
       <StatusDot state="fail" className="fdot" />
       <span className="fmain">
         <span className="ftxt">{failText(a)}</span>
         {d && <span className="fhint">{d.hint}</span>}
-        {a.model && d && <span className="fmodel"><span>{a.model.label}</span><span>{a.model.id}</span></span>}
+        {a.model && d && <span className="fmodel">{modelNames(a.model.label, a.model.id).map((n) => <span key={n}>{n}</span>)}</span>}
       </span>
       <span className="facts">
         {d?.reasoningOff && a.reasoning !== 'off' && (

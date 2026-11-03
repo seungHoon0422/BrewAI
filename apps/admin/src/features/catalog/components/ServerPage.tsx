@@ -11,13 +11,14 @@ import { testCodeText, useMcpServer, useNow } from '../hooks';
 import { catalogTabHref } from '../route';
 import { splitList } from './AddServerDialog';
 import { AuthText, OriginBadge, StatusBadge, WriteBadge } from './ServerBits';
+import { ServerIcon } from './ServerIcon';
 import { TestCell } from './TestCell';
 import { ToolTable } from './ToolTable';
 
 const F = C.field;
 
 // MCP 서버 자세히 ('#/catalog/mcp/<id>' — 링크로 바로 · 뒤로 · 앞으로). 위 줄(← 목록 · 세션)은 틀(App.tsx)이 그린다.
-// 머리 = 이름(h1) / 주소 · 딱지 · 오른쪽에 [사용] [연결 테스트] [삭제]. 몸 = 두 칸 (≥1100 · 좁으면 한 칸):
+// 머리 = 서버 아이콘 · 이름(h1) / 주소 · 딱지 · 오른쪽에 [사용] [연결 테스트] [삭제]. 몸 = 두 칸 (≥1100 · 좁으면 한 칸):
 // 왼쪽 = 에이전트가 보는 목록 한 줄 + 토큰 · 연결 / 오른쪽 = 정보(이름 · 설명 · 찾을 때 쓸 말 · 부르는 이름) · 사전 등록 OAuth client. 아래 = 도구 표 (가득)
 // 사용자 추가 서버도 같은 페이지 (정의는 주인 것 → 읽기 전용 · 끄기만)
 export function ServerPage({ id }: { id: string }) {
@@ -52,7 +53,7 @@ export function ServerPage({ id }: { id: string }) {
 
   return (
     <div className="mcp-page" data-server={s.id}>
-      <PageHeader divider className="mcp-head" titleRef={h1}
+      <PageHeader divider className="mcp-head" titleRef={h1} icon={<ServerIcon id={s.id} name={s.name} size="md" />}
         title={s.name}
         meta={<span className="mcp-tags"><StatusBadge status={s.status} /><OriginBadge origin={s.origin} /></span>}
         description={<code className="mcp-url">{s.url}</code>}
@@ -186,7 +187,7 @@ function InfoCard({ s, busy, onSave }: { s: AdminServer; busy: boolean; onSave: 
   return (
     <Part title={C.partInfo} hint={C.infoHint}>
       <form id={formId} className="part-stack" onSubmit={(e) => { e.preventDefault(); if (dirty) onSave(patch); }}>
-        <Field label={C.urlLabel} hint={C.urlFixed}>
+        <Field label={C.urlLabel} hint={s.url_redacted ? C.urlMasked : C.urlFixed}>
           <Input value={s.url} readOnly />
         </Field>
         <Field label={F.name} required>

@@ -183,9 +183,12 @@ def test_run_error_is_diagnosed_and_sanitized(make_api, h, caplog, status, error
         )
         yield ""  # pragma: no cover
 
-    api = make_api(lambda _: FunctionModel(stream_function=stream))
+    # 생각 설정 거절 = 생각 파라미터를 실은 실행만 (생각 되는 모델 + 생각 깊이 켬) · 나머지는 끔 그대로
+    think = detail == "reasoning_unsupported"
+    items = [h.group("fake-chat-small", ["openai"], supports_reasoning=True), *h.fixture_items()[1:]] if think else None
+    api = make_api(lambda _: FunctionModel(stream_function=stream), items)
     with caplog.at_level("WARNING", logger="conductor.agent"):
-        res = api.client.post("/api/chat", json=h.chat_body())
+        res = api.client.post("/api/chat", json=h.chat_body(**({"reasoning": "low"} if think else {})))
     events = h.sse_events(res.text)
     assert h.types(events) == ["RUN_STARTED", "CUSTOM", "RUN_ERROR"]
     assert (events[-1]["code"], events[-1].get("detail")) == (code, detail)
@@ -200,6 +203,39 @@ def test_run_error_is_diagnosed_and_sanitized(make_api, h, caplog, status, error
     # 관리자 모델 표: 마지막 오류 = detail
     row = next(r for r in api.client.get("/api/admin/models").json() if r["id"] == "fake-chat-small")
     assert row["last_error_code"] == detail and row["last_error_at"] and row["last_ok_at"] is None
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "litellm.UnsupportedParamsError: anthropic does not support parameters: ['reasoning_effort']",
+        "litellm.BadRequestError: AzureException BadRequestError - Unsupported parameter: 'reasoning.summary' is not supported with this model.",
+        "litellm.BadRequestError: AnthropicException - thinking: Extra inputs are not permitted",
+    ],
+)
+def test_reasoning_words_with_reasoning_off_are_a_plain_bad_request(make_api, h, message) -> None:
+    """생각 끔 (또는 생각 못 하는 모델) = 생각 칸을 안 보냈다 → 문구에 reasoning 이 있어도 '생각 깊이를 끄라'고 하지 않는다."""
+    async def stream(messages: list[ModelMessage], info: AgentInfo) -> AsyncIterator[str]:
+        raise ModelHTTPError(400, "fake-chat-small", {"message": message, "type": "invalid_request_error"}, provider_error_type="invalid_request_error")
+        yield ""  # pragma: no cover
+
+    think = [h.group("fake-chat-small", ["openai"], supports_reasoning=True), *h.fixture_items()[1:]]
+    for items, props in ((think, {}), (think, {"reasoning": "off"}), (None, {"reasoning": "high"})):  # 끔 · 끔 · 생각 못 하는 모델 (안 보냄)
+        api = make_api(lambda _: FunctionModel(stream_function=stream), items)
+        ev = h.sse_events(api.client.post("/api/chat", json=h.chat_body(**props)).text)[-1]
+        assert (ev["type"], ev["code"], ev.get("detail")) == ("RUN_ERROR", "provider_rejected", "provider_bad_request"), props
+
+
+def test_classify_reasoning_needs_both_the_flag_and_a_reasoning_word() -> None:
+    from conductor import diagnose as dx
+
+    other = "litellm.UnsupportedParamsError: openai does not support parameters: ['parallel_tool_calls']"  # 생각과 상관없는 칸
+    assert dx.classify_http(400, "invalid_request_error", {"message": other}, reasoning=True).detail == "provider_bad_request"
+    effort = "litellm.UnsupportedParamsError: anthropic does not support parameters: ['reasoning_effort']"
+    assert dx.classify_http(400, "invalid_request_error", {"message": effort}, reasoning=True).detail == "reasoning_unsupported"
+    assert dx.classify_http(400, "invalid_request_error", {"message": effort}).detail == "provider_bad_request"  # 기본 = 안 실음 (연결 시험)
+    assert dx.classify_http(400, None, {"message": "Error while thinking about tools"}, reasoning=True).detail == "provider_bad_request"  # 낱말만 = 칸 이름 아님
+    assert dx.classify_http(400, None, {"message": "thinking.budget_tokens: Input should be >= 1024"}, reasoning=True).detail == "reasoning_unsupported"
 
 
 def test_unknown_status_has_no_detail(make_api, h) -> None:
@@ -379,6 +415,40 @@ async def test_catalog_keeps_last_sources_when_model_info_fails(h) -> None:
     fail["on"] = True
     again = {m.id: m.source for m in await cat.list_models(fresh=True)}
     assert first == again == {"fake-chat-small": "config", "fake-chat-large": "ui", "fake-embed": None}
+
+
+@pytest.mark.anyio
+async def test_catalog_tells_unknown_tool_support_from_reported_false(h) -> None:
+    """`/model_group/info` 는 모를 때도 supports_function_calling false (ModelGroupInfo 기본값 · 픽스처의 fake-chat-large = 가격표에 없는 모델).
+    `/v1/model/info` model_info 에 그 칸이 있으면 LiteLLM 이 아는 값 → False · 칸이 없으면 None (관리자 화면의 고치는 법이 다르다)."""
+    info = {"on": True}
+
+    def handler(req: httpx2.Request) -> httpx2.Response:
+        if req.url.path == "/v1/model/info":
+            if not info["on"]:
+                return httpx2.Response(404)
+            small, embed = _deployment("fake-chat-small", False), _deployment("fake-embed", False)
+            small["model_info"]["supports_function_calling"] = True
+            embed["model_info"]["supports_function_calling"] = False
+            return httpx2.Response(200, json={"data": [small, _deployment("fake-chat-large", False), embed]})
+        return httpx2.Response(200, content=h.FIXTURE.read_bytes(), headers={"content-type": "application/json"})
+
+    models = {m.id: m.supports_function_calling for m in await (await _catalog(handler)).list_models()}
+    assert models == {"fake-chat-small": True, "fake-chat-large": None, "fake-embed": False}
+    info["on"] = False  # model_info 를 처음부터 못 읽음 = group 의 true 만 믿는다
+    models = {m.id: m.supports_function_calling for m in await (await _catalog(handler)).list_models()}
+    assert models == {"fake-chat-small": True, "fake-chat-large": None, "fake-embed": None}
+
+
+def test_admin_models_keep_three_tool_states_and_chat_sends_tools_only_when_true(make_api) -> None:
+    api = make_api(lambda _: TestModel(custom_output_text="ok", call_tools=[]))
+    flags = {"fake-chat-small": None, "fake-chat-large": False}
+    api.catalog.models = [replace(m, supports_function_calling=flags[m.id]) if m.id in flags else m for m in api.catalog.models]
+    api.client.post("/api/admin/models/sync")
+    admin = {r["id"]: r["supports_function_calling"] for r in api.client.get("/api/admin/models").json()}
+    assert (admin["fake-chat-small"], admin["fake-chat-large"]) == (None, False)  # 모름 · LiteLLM 이 안 된다고 함
+    user = {r["id"]: r["supports_tools"] for r in api.client.get("/api/models").json()}
+    assert (user["fake-chat-small"], user["fake-chat-large"]) == (False, False)  # 대화 = 둘 다 도구 없이 (그대로)
 
 
 def test_models_api_shows_source_and_last_failure(make_api, h) -> None:

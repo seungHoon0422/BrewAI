@@ -1,4 +1,5 @@
-/* 연결된 앱 — 맨 위 체크박스 · 앱 줄(이름 · 출처 배지 · 도메인 · 상태 · 버튼) · 앱 추가 대화상자 · 상세 서랍 · 대화 카드는 chat.css. 토큰만. */
+/* 연결된 앱 — 맨 위 체크박스 · 분류 칩 · 묶음 머리 · 앱 줄(한 줄: 아이콘 · 이름 · 출처 배지 · 도메인 · 상태 · 버튼) · 앱 추가 대화상자 · 상세 서랍
+   · 대화 카드는 chat.css. 토큰만. */
 .conn-note{margin-top:var(--space-4)}
 .conn-auto{margin-top:var(--space-6);padding:var(--space-3) var(--space-4);border:1px solid var(--border);border-radius:var(--radius-lg)}
 .conn-auto .ui-check-text{display:flex;flex-direction:column;gap:var(--space-0-5)}
@@ -6,19 +7,38 @@
 .sec-head .sec-sp{flex:1}
 .sec-sub{margin:0 var(--space-0-5) var(--space-2-5);font-size:var(--fs-sm);color:var(--text-muted)}
 
-.row.conn-app{gap:var(--space-3)}
+/* 분류 칩 (전체 + 분류) · 전체 보기의 묶음 머리 (작은 글 + 수) */
+.conn-cats{display:flex;flex-wrap:wrap;gap:var(--space-1-5);margin:0 0 var(--space-2-5)}
+.conn-groups{display:grid;gap:var(--space-3);list-style:none;margin:0;padding:0}
+.conn-group-head{display:flex;align-items:baseline;gap:var(--space-1-5);margin:0 var(--space-0-5) var(--space-1-5);font-size:var(--fs-xs);
+  font-weight:var(--fw-semibold);color:var(--text-2)}
+.conn-group-head .ui-num{font-weight:var(--fw-regular);color:var(--text-muted)}
+
+/* 앱 줄 = 한 줄 (예전 두 줄 카드의 절반 높이) · 이름 → 배지 → 도메인 · 로그인 · 도구 수
+   좁으면: 이름은 그대로(아주 길 때만 40% 에서 줄임표) · 로그인 칸이 먼저 · 도메인이 다음으로 줄임표(글자가 반쯤 잘리지 않게) · 도구 수는 짧아 그대로
+   · 목록이 640px 보다 좁으면(창 최소 960 + 사이드바) 로그인 칸을 뺀다 (자세히 서랍 · 줄의 title 에 다 있다) */
+.rows.apps{container:apps / inline-size}
+.rows.apps .row.conn-app{gap:var(--space-2-5);min-height:0;padding:var(--space-1-5) var(--space-3)}
 .app-open{border:0;background:none;padding:0;margin:0;text-align:left;color:inherit;font:inherit;cursor:pointer;border-radius:var(--radius-sm)}
+.row-main.app-open{flex-direction:row;align-items:center;gap:var(--space-2);min-height:var(--control-sm)}
 .app-open:hover b{text-decoration:underline;text-underline-offset:3px}
+.app-open b,.app-head b{flex:0 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .app-head{display:flex;align-items:center;gap:var(--space-2);min-width:0}
-.app-head b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.conn-app .app-meta{flex:0 1 auto;min-width:0;overflow:hidden;font-size:var(--fs-xs)}
+.conn-app .app-open b{flex:none;max-width:40%}
+.conn-app .app-meta .ui-meta-item{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.conn-app .app-meta .ui-meta-item:has(>.app-login){flex-shrink:4}
+.conn-app .app-meta .ui-meta-item:has(>.app-count){flex:none}
+@container apps (max-width:640px){.conn-app .app-meta .ui-meta-item:has(>.app-login){display:none}}
 .app-src{flex:none}
+.conn-app .app-state{font-size:var(--fs-xs)}
 .app-acts{display:flex;align-items:center;gap:var(--space-1-5);flex:none}
 .row.conn-app[data-state="needs_login"] .app-state,.row.conn-app[data-state="expired"] .app-state{color:var(--warn-text)}
 .row.conn-app[data-state="connected"] .app-state{color:var(--ok-text)}
 .row.conn-app[data-state="error"] .app-state{color:var(--danger-text)}
 .row.conn-app.importable{align-items:flex-start}
-.row.conn-app.importable .ui-tile{margin-top:2px}
-.app-via{margin-top:var(--space-1);font-size:var(--fs-xs)}
+.row.conn-app.importable .app-icon{margin-top:2px}
+.app-via{margin-top:var(--space-0-5);font-size:var(--fs-xs)}
 .apps-hidden{margin-top:var(--space-3)}
 .apps-hidden summary{cursor:pointer;color:var(--text-muted);font-size:var(--fs-sm);margin:0 var(--space-0-5) var(--space-2)}
 .apps-hidden summary .ui-num{margin-left:var(--space-1)}
@@ -33,6 +53,7 @@
 .app-line code{font-family:var(--font-mono);font-size:var(--fs-xs);color:var(--text);overflow-wrap:anywhere}
 
 /* 상세 서랍 */
+.app-sheet-title{display:inline-flex;align-items:center;gap:var(--space-2);min-width:0}
 .app-detail{display:flex;flex-direction:column;gap:var(--space-4)}
 .app-detail .app-acts{flex-wrap:wrap}
 .app-block h3{display:flex;align-items:center;gap:var(--space-1-5);margin:0 0 var(--space-2);font-size:var(--fs-sm);font-weight:var(--fw-semibold)}

@@ -375,6 +375,14 @@ CREATE TABLE IF NOT EXISTS mcp_tool_cache (
   ttl_ms     INTEGER NOT NULL DEFAULT 600000,
   PRIMARY KEY (server_id, user_key)
 );
+-- 서버 사이트 아이콘 캐시 (connectors/icons.py · origin 마다 · body NULL = 없음도 캐시). 새 표 = 버전 그대로 (IF NOT EXISTS)
+CREATE TABLE IF NOT EXISTS mcp_icons (
+  origin       TEXT PRIMARY KEY,
+  content_type TEXT,
+  body         BLOB CHECK (body IS NULL OR length(body) <= 65536),
+  fetched_at   TEXT NOT NULL,
+  expires_at   TEXT NOT NULL
+);
 """
 MCP_SCHEMA = MCP_SCHEMA.replace("{SHARE_KINDS}", ", ".join(f"'{k}'" for k in MCP_SHARE_KINDS))
 _SCHEMA += MCP_SCHEMA

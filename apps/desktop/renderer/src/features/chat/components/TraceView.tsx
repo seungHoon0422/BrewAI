@@ -1,8 +1,10 @@
 // 생각 · 도구 상태 줄(.trace-line) = 유리 알약 하나 + 누르면 펼치는 유리 패널. 글은 trace.ts · 문구는 copy.ts.
-// 흐르는 동안 '질문을 살펴보는 중 → 계산하는 중 → 답을 다듬는 중' (글이 반짝이는 그라데이션),
+// 흐르는 동안 세 모양: 첫 이벤트 전 = 점 셋 + '응답을 기다리는 중' (반짝임 없음) → 생각하는 동안 = 반짝임 아이콘 + '생각하는 중'
+// (글 위로 옅은 빛이 지나간다 · 움직임 줄이기 = 멈춘 글) → 도구 · 팀 · 답 쓰기 = 숨 쉬는 막대 + 그 일 (도구 · 팀 문구가 먼저).
 // 끝나면 '1.2초 동안 생각함' 'Exa 웹 검색 2회' 조각을 칸 나눔으로 (가운뎃점 없음 · 생각 글이 없으면 시간 없이 '생각함').
 // 패널 = 나온 순서대로 생각 블록(조용한 글 · 왼쪽 선)과 도구 블록(카드: 이름 · 입력 · 결과 · 상태)이 확실히 다르게.
 // 앱 도구 고르기 = 한 줄 메모 · 생각 글이 안 온 생각(토큰만)은 블록을 그리지 않는다 (빈 생각 블록 없음).
+// 끝난 답에 패널에 그릴 것이 없으면 (토큰만 · 생각 건너뜀 · 한 일 없이 멈춤) 줄은 버튼이 아닌 알약 = 펼치지 않는다 + 작은 글 '생각 토큰 N'.
 // 생각 글과 도구 카드는 줄을 눌러야 보인다 (기본 접힘 · 흐르는 중에도). 색 점으로 상태를 나누지 않는다 — 글 · 아이콘 · 움직임으로만.
 // 팀 (slice 06) = TeamGroup: 병렬 묶음 모양 · 팀원마다 막대 · 팀원 줄(역할 · 할 일 · 상태) 아래 그 팀원의 도구 줄 · '오른쪽에서 보기'.
 import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
@@ -10,12 +12,13 @@ import { Icon, Meta, Spinner, type IconName } from '@brewai/ui';
 import type { CSSProperties } from 'react';
 import { seconds } from '../../../lib/format';
 import { reduceMotion, useNow, useThrottled } from '../../../lib/hooks';
+import { AppIcon } from '../../connections/components/AppIcon';
 import { appLabels } from '../../connections/hooks';
 import { useSkillLabels, useToolLabels } from '../../skills/hooks';
 import { TEAM, TOOL, TRACE, teamReason } from '../copy';
 import { Markdown } from '../markdown/render';
 import { isLive, type Answer, type MemberStep, type ReasoningPart, type TeamMember, type ToolPart } from '../model';
-import { groupTiming, isMemberPick, memberAppName, memberDone, memberFailed, panelItems, shortDuration, thought, thoughtParts, tracePhrase, usedTools, type ToolGroup } from '../trace';
+import { groupTiming, hasPanel, isMemberPick, memberAppName, memberDone, memberFailed, panelItems, shortDuration, thought, thoughtParts, tracePhrase, usedTools, type ToolGroup, type TraceKind } from '../trace';
 import { AppNote, ToolCard } from './ToolCard';
 
 const ANNOUNCE_MS = 2000;
@@ -29,16 +32,29 @@ export function TraceView({ a, onTeam }: { a: Answer; onTeam?: () => void }) {
   const [open, setOpen] = useState(false); // 기본 접힘 (흐르는 중에도) · 사용자가 누른 대로 둔다
   const panelId = useId();
   const line = useRef<HTMLButtonElement>(null);
-  const t = tracePhrase(a, now, tools, skills);
+  const chip = useRef<HTMLDivElement>(null);
+  const hadFocus = useRef(false);
+  const t = tracePhrase(a, tools, skills);
   const failed = a.status === 'failed';
   const phase = failed ? 'stopped' : t.phase;
   const step = failed ? 'stopped' : t.step;
+  const kind: TraceKind = failed ? 'stopped' : t.kind;
   const parts = failed ? [TRACE.stopped] : t.parts;
+  const meta = failed ? [] : t.meta;
   const text = failed ? TRACE.stopped : t.text;
   const elapsed = live ? now - a.startedAt : null;
-  const glyph: GlyphKind = phase === 'live' ? 'live' : phase === 'stopped' ? 'stop' : thought(a) ? 'think' : usedTools(a) ? 'tool' : 'done';
+  const glyph = glyphOf(kind, a);
+  // 펼칠 것이 있나: 흐르는 중 = 늘 (곧 생긴다) · 끝 = 생각 글이나 도구가 있을 때만 (빈 패널 없음)
+  const expandable = live || hasPanel(a);
   // 화면 읽기: 버튼 이름 = 지금 글 그대로 (시간 빼고) · 바뀐 글 알림은 버튼 밖 live 영역에서 2초에 한 번 (끝 · 멈춤은 바로)
   const announced = useThrottled(text, ANNOUNCE_MS, phase !== 'live');
+  // 흐르던 버튼에 포커스가 있었는데 끝나서 알약이 되면 = 포커스를 알약으로 옮긴다 (몸으로 떨어지지 않게 · 버튼은 이 그리기 뒤에 빠진다)
+  if (!expandable && line.current && line.current === document.activeElement) hadFocus.current = true;
+  useLayoutEffect(() => {
+    if (expandable || !hadFocus.current) return;
+    hadFocus.current = false;
+    chip.current?.focus();
+  }, [expandable]);
 
   const onPanelKey = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key !== 'Escape') return;
@@ -48,39 +64,56 @@ export function TraceView({ a, onTeam }: { a: Answer; onTeam?: () => void }) {
     line.current?.focus();
   };
 
+  const body = (
+    <>
+      <TraceGlyph kind={glyph} />
+      <TraceText parts={parts} text={text} run={kind === 'thinking' || kind === 'busy'} />
+      {meta.length > 0 && <span className="tmeta ui-num" aria-hidden="true">{meta.join(' ')}</span>}
+      {elapsed != null && <span className="tm ui-num" aria-hidden="true">{seconds(elapsed)}</span>}
+    </>
+  );
   return (
-    <div className="trace" data-open={open}>
-      <button ref={line} className="trace-line ui-glass" type="button" data-step={step} data-phase={phase} data-glyph={glyph}
-        aria-expanded={open} aria-controls={panelId} aria-label={text} title={open ? TRACE.closeTitle : TRACE.openTitle}
-        onClick={() => setOpen((v) => !v)}>
-        <TraceGlyph kind={glyph} />
-        <TraceText parts={parts} text={text} live={phase === 'live'} />
-        {elapsed != null && <span className="tm ui-num" aria-hidden="true">{seconds(elapsed)}</span>}
-        <span className="chev" aria-hidden="true"><Icon name="chevron-down" size="xs" /></span>
-      </button>
+    <div className="trace" data-open={open && expandable}>
+      {expandable ? (
+        <button ref={line} className="trace-line ui-glass" type="button" data-step={step} data-phase={phase} data-kind={kind} data-glyph={glyph}
+          aria-expanded={open} aria-controls={panelId} aria-label={text} title={open ? TRACE.closeTitle : TRACE.openTitle}
+          onClick={() => setOpen((v) => !v)}>
+          {body}
+          <span className="chev" aria-hidden="true"><Icon name="chevron-down" size="xs" /></span>
+        </button>
+      ) : (
+        // 펼치지 않는 알약 = 버튼 아님 (누를 것 없음 · 꺾쇠 없음). 이름 = 보이는 글 그대로 · tabIndex -1 = 포커스 옮겨 받기만
+        <div ref={chip} className="trace-line ui-glass" role="group" tabIndex={-1} data-static="true" data-step={step} data-phase={phase} data-kind={kind}
+          data-glyph={glyph} aria-label={text}>
+          {body}
+        </div>
+      )}
       {/* .sr = e2e 훅 (trace > .sr[aria-live]) · 모양은 ui-sr */}
       <span className="sr ui-sr" aria-live="polite">{announced}</span>
-      <div className="trace-panel ui-glass" id={panelId} role="region" aria-label={TRACE.region} hidden={!open} onKeyDown={onPanelKey}>
-        {open && <TracePanel a={a} now={now} onTeam={onTeam} />}
-      </div>
+      {expandable && (
+        <div className="trace-panel ui-glass" id={panelId} role="region" aria-label={TRACE.region} hidden={!open} onKeyDown={onPanelKey}>
+          {open && <TracePanel a={a} now={now} onTeam={onTeam} />}
+        </div>
+      )}
     </div>
   );
 }
 
-// 끝난 줄의 아이콘 = 한 일: 생각했으면 말풍선 · 도구만 썼으면 렌치 · 생각을 건너뛰었으면 체크 · 멈춤 = 네모
-type GlyphKind = 'live' | 'think' | 'tool' | 'done' | 'stop';
-const GLYPH: Record<Exclude<GlyphKind, 'live'>, IconName> = { think: 'think', tool: 'wrench', done: 'check', stop: 'stop' };
+// 줄 아이콘. 흐르는 중: 기다림 = 점 셋 · 생각 = 반짝임 · 도구 · 팀 · 답 쓰기 = 숨 쉬는 막대
+// 끝 = 한 일: 생각했으면 말풍선 · 도구만 썼으면 렌치 · 생각을 건너뛰었으면 체크 · 멈춤 = 네모
+type GlyphKind = 'wait' | 'spark' | 'live' | 'think' | 'tool' | 'done' | 'stop';
+const glyphOf = (kind: TraceKind, a: Answer): GlyphKind =>
+  kind === 'waiting' ? 'wait' : kind === 'thinking' ? 'spark' : kind === 'busy' ? 'live' : kind === 'stopped' ? 'stop'
+  : thought(a) ? 'think' : usedTools(a) ? 'tool' : 'done';
+const GLYPH: Record<Exclude<GlyphKind, 'live' | 'wait'>, IconName> = { spark: 'sparkle', think: 'think', tool: 'wrench', done: 'check', stop: 'stop' };
 function TraceGlyph({ kind }: { kind: GlyphKind }) {
-  if (kind === 'live') {
-    return (
-      <span className="glyph breath" aria-hidden="true"><i /><i /><i /></span>
-    );
-  }
-  return <span className="glyph" aria-hidden="true"><Icon name={GLYPH[kind]} size="sm" /></span>;
+  if (kind === 'live') return <span className="glyph breath" aria-hidden="true"><i /><i /><i /></span>;
+  if (kind === 'wait') return <span className="glyph dots" aria-hidden="true"><i /><i /><i /></span>;
+  return <span className="glyph" data-glyph-icon={kind} aria-hidden="true"><Icon name={GLYPH[kind]} size="sm" /></span>;
 }
 
-// 글: 흐르는 동안 반짝이는 그라데이션 · 바뀔 때 겹쳐 사라짐(160ms) · 폭은 200ms 동안 이어진다 · 조각 = 칸 나눔
-function TraceText({ parts, text, live }: { parts: string[]; text: string; live: boolean }) {
+// 글: 생각 · 일하는 동안(run) 옅은 빛이 글 위로 지나간다 (기다림엔 없음) · 바뀔 때 겹쳐 사라짐(160ms) · 폭은 200ms 동안 이어진다 · 조각 = 칸 나눔
+function TraceText({ parts, text, run }: { parts: string[]; text: string; run: boolean }) {
   const ref = useRef<HTMLSpanElement>(null);
   const prev = useRef<number | null>(null);
   useLayoutEffect(() => {
@@ -104,7 +137,7 @@ function TraceText({ parts, text, live }: { parts: string[]; text: string; live:
     };
   }, [text]);
   return (
-    <span ref={ref} className={live ? 'trace-txt run' : 'trace-txt'} aria-hidden="true">
+    <span ref={ref} className={run ? 'trace-txt run' : 'trace-txt'} aria-hidden="true">
       <span key={text} className="ph">
         {parts.map((p, i) => <span key={i} className="seg">{p}</span>)}
       </span>
@@ -116,8 +149,7 @@ function TracePanel({ a, now, onTeam }: { a: Answer; now: number; onTeam?: () =>
   const thinking = new Set<Answer['parts'][number]>(thoughtParts(a));
   const items = a.parts.filter((p) => p.kind === 'tool' || thinking.has(p));
   const live = isLive(a);
-  // 생각 토큰은 있는데 글이 안 왔다 = 모델이 생각 내용을 보내지 않았다 (display omitted · redacted) → 빈 블록 대신, 다른 게 없을 때만 한 줄
-  const silent = !live && !items.some((p) => p.kind === 'reasoning') && (a.usage?.reasoning_tokens ?? 0) > 0;
+  // 끝난 답은 그릴 것이 있을 때만 패널이 있다 (hasPanel) → 빈 줄 글은 흐르는 중에만
   const foot = !live && a.usage ? TRACE.usage(a.usage) : [];
   const apps = appLabels();
   return (
@@ -132,7 +164,7 @@ function TracePanel({ a, now, onTeam }: { a: Answer; now: number; onTeam?: () =>
             : <li key={`g${it.group.batch}:${it.group.tools[0].id}`}><ParallelGroup g={it.group} now={now} /></li>)}
         </ol>
       )}
-      {items.length === 0 && <p className="tp-none">{silent ? TRACE.thinkSilent : live ? TRACE.noneLive : TRACE.noneDone}</p>}
+      {items.length === 0 && live && <p className="tp-none">{TRACE.noneLive}</p>}
       {foot.length > 0 && <p className="tp-foot ui-num">{foot.map((f) => <span key={f}>{f}</span>)}</p>}
     </>
   );
@@ -262,7 +294,9 @@ function stepPart(s: MemberStep): ToolPart {
 function MemberPick({ s }: { s: MemberStep }) {
   return (
     <p className="tp-note" data-kind="member-pick" data-step={s.name} data-state={s.status} data-app={s.app ?? undefined}>
-      {s.status === 'running' ? <Spinner size="xs" /> : <Icon name={s.status === 'error' ? 'close' : s.status === 'cancelled' ? 'stop' : 'plug'} size="sm" />}
+      {s.status === 'running' ? <Spinner size="xs" />
+        : s.status === 'error' || s.status === 'cancelled' || !s.app ? <Icon name={s.status === 'error' ? 'close' : s.status === 'cancelled' ? 'stop' : 'plug'} size="sm" />
+        : <AppIcon handle={s.app} name={memberAppName(s) || s.app} size="xs" />}
       <span className="tn">{s.label}</span>
     </p>
   );

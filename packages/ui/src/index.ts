@@ -24,7 +24,7 @@ export {
 export { Toast, ToastRegion, useToastQueue, type ToastItem } from './toast';
 export {
   Badge, Chip, StatusDot, Avatar, Kbd, Card, CardHeader, StatCard, Callout, KeyValue, EmptyState, Meta, initialsOf,
-  type Tone, type DotState, type BadgeProps, type ChipProps, type CardProps, type StatCardProps, type CalloutProps, type KeyValueItem, type EmptyStateProps, type MetaProps,
+  type Tone, type DotState, type AvatarProps, type BadgeProps, type ChipProps, type CardProps, type StatCardProps, type CalloutProps, type KeyValueItem, type EmptyStateProps, type MetaProps,
 } from './display';
 export {
   TimeSeriesChart, BarList, ShareBar, Sparkline, StatTile, deltaOf, vizColor, vizSlot, formatNumber, formatCompact,

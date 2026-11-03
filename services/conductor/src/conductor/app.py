@@ -74,6 +74,7 @@ from .auth.guard import Guard
 from .auth.http import auth_failed_response, require_admin, require_user
 from .auth.policy import Denied
 from .connectors.session import Connectors
+from .connectors.ssrf import redact_text
 from .connectors.vault import Vault
 from .diagnose import MODEL_HEALTH_CODES
 from .gateway import GatewayCatalogPort, GatewayError, LiteLLMCatalog
@@ -101,10 +102,48 @@ class RedactQuery(logging.Filter):
         return True
 
 
+class RedactUrls(logging.Filter):
+    """나가는 요청 로그(httpx2 'HTTP Request: POST https://…?tavilyApiKey=…' · mcp SDK debug)의 주소에서 query 값 · userinfo 를 '***' 로.
+    관리자 서버 주소의 키가 로그로 새지 않게 (ssrf.redact_url · 호출 자체는 원래 주소).
+    예외 글도 (exc_info = HTTPStatusError "for url '…'" · logger.exception) — 여기서 한 번 글로 만들어 가린 뒤 exc_text 에 두고 exc_info 를 지운다
+    (formatter 가 traceback 을 다시 만들지 않게) · stack_info · args 가 dict 인 기록도."""
+
+    _fmt = logging.Formatter()
+
+    @staticmethod
+    def _arg(a: object) -> object:
+        return a if isinstance(a, (int, float)) or a is None else redact_text(str(a))
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.msg, str):
+            record.msg = redact_text(record.msg)
+        if isinstance(record.args, tuple):
+            record.args = tuple(self._arg(a) for a in record.args)
+        elif isinstance(record.args, dict):
+            record.args = {k: self._arg(v) for k, v in record.args.items()}
+        if record.exc_info and record.exc_info != (None, None, None):
+            record.exc_text = redact_text(self._fmt.formatException(record.exc_info))  # type: ignore[arg-type]
+            record.exc_info = None
+        elif record.exc_text:
+            record.exc_text = redact_text(record.exc_text)
+        if record.stack_info:
+            record.stack_info = redact_text(record.stack_info)
+        return True
+
+
+# 주소를 로그에 찍는 바깥 라이브러리 (logger 의 filter 는 자식 logger 로 물려지지 않는다 → 이름마다)
+URL_LOGGERS = ("httpx2", "httpx", "httpcore2", "httpcore", "mcp.client.streamable_http", "mcp.client.sse", "mcp.client.auth.oauth2",
+               "mcp.client.client", "mcp.client.session", "client")
+
+
 def redact_access_log() -> None:
     access = logging.getLogger("uvicorn.access")
     if not any(isinstance(f, RedactQuery) for f in access.filters):
         access.addFilter(RedactQuery())
+    for name in URL_LOGGERS:
+        lg = logging.getLogger(name)
+        if not any(isinstance(f, RedactUrls) for f in lg.filters):
+            lg.addFilter(RedactUrls())
 
 
 class ModelOut(BaseModel):
@@ -150,7 +189,7 @@ class AdminModelRow(BaseModel):
     max_output_tokens: int | None
     input_cost_per_token: float | None
     output_cost_per_token: float | None
-    supports_function_calling: bool
+    supports_function_calling: bool | None  # None = LiteLLM 이 모름 (gateway.GatewayModel · 관리자 화면의 고치는 법이 다르다)
     supports_vision: bool
     supports_reasoning: bool
     source: Literal["config", "ui", "mixed"] | None = None  # 등록 출처: config.yaml · LiteLLM 관리 화면(DB) · 둘 다
@@ -235,7 +274,8 @@ def _admin_row(r: ExposureRow, order: int, default: str | None, health: Any = No
         first_seen=r.first_seen, last_seen=r.last_seen, providers=[str(p) for p in i.get("providers") or ()],
         mode=i.get("mode"), max_input_tokens=i.get("max_input_tokens"), max_output_tokens=i.get("max_output_tokens"),
         input_cost_per_token=i.get("input_cost_per_token"), output_cost_per_token=i.get("output_cost_per_token"),
-        supports_function_calling=bool(i.get("supports_function_calling")), supports_vision=bool(i.get("supports_vision")),
+        supports_function_calling=i.get("supports_function_calling") if isinstance(i.get("supports_function_calling"), bool) else None,
+        supports_vision=bool(i.get("supports_vision")),
         supports_reasoning=bool(i.get("supports_reasoning")), source=_source(r),
     )
 

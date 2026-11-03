@@ -25,7 +25,9 @@ export const FAILURE_TEXT: Record<Failure, string> = {
 
 // 왜 안 됐는지 (RUN_ERROR.detail) → 한 줄 + 고치는 곳. 모르는 detail 이면 FAILURE_TEXT 그대로.
 // reasoningOff = 생각을 끄고 다시 하면 될 수 있다 (버튼 '생각 끄고 다시')
-export const DETAIL: Record<string, { text: string; hint: string; reasoningOff?: boolean }> = {
+// whenOff = 생각을 안 실은 실행 (생각 깊이 끄기 · 생각 못 하는 모델)의 문구 — 이미 꺼져 있는데 '끄기로 바꾸라'고 하지 않는다 (failureCopy)
+type DetailCopy = { text: string; hint: string; reasoningOff?: boolean; whenOff?: { text: string; hint: string } };
+export const DETAIL: Record<string, DetailCopy> = {
   provider_key_missing: {
     text: '이 모델의 API 키가 설정돼 있지 않아요',
     hint: 'LiteLLM 관리 화면 › Models › 이 모델의 Credential 키 확인 (config.yaml 모델이면 .env 의 ANTHROPIC_API_KEY 또는 OPENAI_API_KEY)',
@@ -42,11 +44,13 @@ export const DETAIL: Record<string, { text: string; hint: string; reasoningOff?:
     text: '이 모델이 생각 깊이 설정을 받지 않아요',
     hint: '생각 깊이를 끄기로 바꾸고 다시 시도해 주세요',
     reasoningOff: true,
+    whenOff: { text: '모델 설정 문제로 거절됐어요', hint: '관리자에게 알려 주세요' }, // E2E
   },
   provider_bad_request: {
     text: '모델이 요청을 거절했어요',
     hint: '생각 깊이를 끄고 다시 해 보고, 계속되면 다른 모델로',
     reasoningOff: true,
+    whenOff: { text: '모델이 요청을 거절했어요', hint: '다시 해 보고, 계속되면 다른 모델로' }, // E2E
   },
   gateway_key_invalid: {
     text: '게이트웨이 키가 맞지 않아요',
@@ -75,6 +79,19 @@ export const DETAIL: Record<string, { text: string; hint: string; reasoningOff?:
 export const detailText = (detail: string | null | undefined) =>
   detail && Object.prototype.hasOwnProperty.call(DETAIL, detail) ? DETAIL[detail] : undefined;
 
+// 실패 카드 문구 = detail + 이번 실행의 생각 깊이 (run_summary 의 실제 값 · 생각 못 하는 모델 = off).
+// 생각을 안 실은 실행 = whenOff (생각 탓으로 말하지 않고 '생각 끄고 다시' 단추도 없다)
+export function failureCopy(detail: string | null | undefined, reasoning: string): Omit<DetailCopy, 'whenOff'> | undefined {
+  const d = detailText(detail);
+  if (!d) return undefined;
+  const { whenOff, ...rest } = d;
+  return reasoning === 'off' && whenOff ? { ...whenOff, reasoningOff: false } : rest;
+}
+
+// 실패 카드의 모델 = 표시 이름 · 게이트웨이 id (같으면 한 번만 · 'GPT-6 Luna  GPT-6 Luna' 처럼 겹치지 않게)
+export const modelNames = (label: string, id: string): string[] =>
+  [label, id].map((x) => x.trim()).filter((x, i, all) => x !== '' && all.findIndex((y) => y.toLowerCase() === x.toLowerCase()) === i);
+
 // ── 단계 이름 · 지금 하는 일 (상태 줄 · 진행 상황 화면) ──
 // 문구는 시간으로만 고른다 (결정적 · 테스트가 본다). 무작위로 돌리지 않는다.
 
@@ -100,20 +117,17 @@ export function stepLabel(name: string, tools: Record<string, string>, skills: R
   return name;
 }
 
-export const WAITING_PHRASE = '질문을 살펴보는 중';
+// 상태 줄 세 모양: 첫 이벤트 전 = 점 셋 + '응답을 기다리는 중' · 생각하는 동안 = 반짝임 + '생각하는 중' (글 위로 옅은 빛) · 끝 = '생각함'
+export const WAITING_PHRASE = '응답을 기다리는 중';
+export const THINKING_PHRASE = '생각하는 중';
 export const READING_RESULT = '결과를 살펴보는 중';
-export function thinkingPhrase(ms: number): string {
-  if (ms < 4000) return '질문을 살펴보는 중';
-  if (ms < 10_000) return '생각을 정리하는 중';
-  return '깊이 따져 보는 중';
-}
 const skillPhrase = (label: string) => `'${label}' 스킬을 펼치는 중`;
 // 도구 여럿이 동시에 도는 중 (병렬 툴 · 한 응답에서 같이 불렸다)
 export const parallelPhrase = (n: number) => `도구 ${n}개를 동시에 쓰는 중`;
 
-// 단계 이름 → 지금 하는 일 한 줄. inStepMs = 그 단계가 시작된 뒤 지난 시간 (생각 문구를 고른다)
-export function stepPhrase(name: string | null, inStepMs: number, tools: Record<string, string>, skills: Record<string, string> = {}): string {
-  if (name === 'thinking') return thinkingPhrase(inStepMs);
+// 단계 이름 → 지금 하는 일 한 줄 (생각은 오래 걸려도 같은 말 '생각하는 중')
+export function stepPhrase(name: string | null, tools: Record<string, string>, skills: Record<string, string> = {}): string {
+  if (name === 'thinking') return THINKING_PHRASE;
   if (name === 'writing') return '답을 다듬는 중';
   if (name?.startsWith('skill:')) {
     const skill = name.slice(6);
@@ -128,6 +142,7 @@ export function stepPhrase(name: string | null, inStepMs: number, tools: Record<
   return WAITING_PHRASE;
 }
 
+const thinkTokens = (n: number) => `생각 토큰 ${count(n)}`;
 // 끝난 줄 요약 조각 (trace.ts 가 모은다 · 화면은 조각마다 칸을 나눈다)
 export const TRACE = {
   thought: (t: string) => (t ? `${t} 동안 생각함` : '생각함'),
@@ -143,9 +158,9 @@ export const TRACE = {
   region: '생각과 도구 사용 과정',
   think: '생각',
   thinkBody: '생각 내용',
-  thinkSilent: '모델이 생각 내용을 보내지 않았어요',
+  // 생각 글 없이 토큰만 온 답 = 펼치지 않는 '생각함' 옆 작은 글 (빈 패널 대신)
+  thinkTokens,
   noneLive: '아직 생각이나 도구 사용이 없어요',
-  noneDone: '생각이나 도구 사용이 없었어요',
   tool: '도구',
   // 패널 아래 사용량 = 칸 나눔 (가운뎃점 없이 · 화면이 칸마다 span 으로 띄운다)
   usage: (u: { requests: number; input_tokens: number | null; output_tokens: number | null; reasoning_tokens: number | null }): string[] =>
@@ -153,7 +168,7 @@ export const TRACE = {
       `요청 ${count(u.requests)}회`,
       u.input_tokens != null || u.output_tokens != null
         ? `토큰 입력 ${u.input_tokens == null ? '—' : count(u.input_tokens)} / 출력 ${u.output_tokens == null ? '—' : count(u.output_tokens)}` : '',
-      u.reasoning_tokens ? `생각 토큰 ${count(u.reasoning_tokens)}` : '',
+      u.reasoning_tokens ? thinkTokens(u.reasoning_tokens) : '',
     ].filter(Boolean),
 } as const;
 
@@ -315,6 +330,73 @@ export const appStarters = (app: string): readonly Starter[] => [
   { icon: 'plug', text: `${app}에서 두 가지를 동시에 찾기`, prompt: `${app} 앱에서 두 가지를 동시에 찾아서 나란히 보여 줘`, tag: TOOL_TRY.parallel },
   { icon: 'layers', text: `${app}에서 찾고 요약 스킬로 정리`, prompt: `${app} 앱에서 찾은 내용을 요약 스킬로 세 줄 정리해 줘`, tag: TOOL_TRY.chain },
 ];
+
+// 개발용 샘플 질문 (개발 빌드에서만 · 입력창 '샘플' 단추 · SampleMenu) — 기능마다 진짜 모델로 확인하는 질문. 누르면 홈 제안처럼 바로 보낸다.
+// 진짜 모델이 그 기능을 자연스럽게 쓰게 쓴 글이다 (mock 표시 없음). 팀 게이트(conductor team.py)는 '팀으로 · 동시에 · 각각' 과 비교 낱말에 열리니
+// 팀이 아닌 묶음(마크다운 표 등)은 그 낱말을 피했다.
+export type Sample = { label: string; prompt: string; hint?: string };
+export type SampleGroup = { title: string; items: readonly Sample[]; empty?: string };
+export const SAMPLE = {
+  button: '샘플',
+  menu: '개발용 샘플 질문',
+  tip: '개발용 샘플 질문 (개발 빌드에서만 보여요)',
+  noApp: '쓸 수 있는 앱이 없어요',
+} as const;
+// 앱 하나 = 질문 하나. 이름(Context7 · OpenAI 문서 · Tavily)으로 맞춤 질문 → 없으면 분류(문서 · 검색) → 그 밖 = 최근 항목 정리
+export const APP_SAMPLE = {
+  context7: (app: string): Sample => ({ label: 'React 최신 문서 찾기', hint: app, prompt: `${app} 앱으로 React 19 의 useActionState 문서를 찾아 예제 하나와 함께 짧게 정리해 줘` }),
+  openai: (app: string): Sample => ({ label: 'Responses API 스트리밍 찾기', hint: app, prompt: `${app} 앱으로 OpenAI Responses API 에서 스트리밍으로 답을 받는 방법을 찾아 핵심만 정리해 줘` }),
+  tavily: (app: string): Sample => ({ label: '이번 주 AI 소식 검색', hint: app, prompt: `${app} 앱으로 이번 주 AI 업계 소식을 웹에서 찾아 세 가지만 출처와 함께 정리해 줘` }),
+  docs: (app: string): Sample => ({ label: '시작하기 문서 찾기', hint: app, prompt: `${app} 앱으로 시작하기 문서를 찾아 핵심 세 가지를 정리해 줘` }),
+  search: (app: string): Sample => ({ label: '오늘 기술 뉴스 검색', hint: app, prompt: `${app} 앱으로 오늘 나온 기술 뉴스를 찾아 세 가지만 출처와 함께 정리해 줘` }),
+  other: (app: string): Sample => ({ label: '최근 항목 찾아 정리', hint: app, prompt: `${app} 앱에서 최근 항목을 찾아서 정리해 줘` }),
+} as const;
+export type AppSampleKind = keyof typeof APP_SAMPLE;
+
+// 묶음 순서 = 메뉴 순서. apps = 아래 앱 도구 묶음 (SampleMenu 가 지금 쓸 수 있는 앱으로 채운다) · first = 그 첫 앱 이름 (동시 실행 · 여러 단계 · 팀)
+export function sampleGroups(apps: readonly Sample[], first: string | null): SampleGroup[] {
+  const withApp = (make: (app: string) => Sample) => (first ? [make(first)] : []); // 앱이 없으면 그 줄은 뺀다
+  return [
+    { title: '대화 기본', items: [
+      { label: '인사하고 할 수 있는 일 묻기', prompt: '안녕! 너는 어떤 일을 도와줄 수 있어? 세 줄로 알려 줘' },
+      { label: '쉽게 설명하기', prompt: '블랙홀이 무엇인지 초등학생도 알 수 있게 세 문장으로 설명해 줘' },
+    ] },
+    { title: '생각', items: [
+      { label: '몬티 홀 문제', prompt: '몬티 홀 문제에서 문을 바꾸는 쪽이 왜 유리한지 차근차근 따져서 설명해 줘' },
+      { label: '거짓말쟁이 퍼즐', prompt: 'A, B, C 중 한 명만 참말을 한다. A는 "B가 범인이다", B는 "나는 범인이 아니다", C는 "A는 거짓말을 한다"고 말했다. 범인이 누구인지 단계별로 추론해 줘' },
+    ] },
+    { title: '마크다운 표', items: [
+      { label: '언어 특징 표', prompt: 'Python, Go, Rust 의 속도, 배우기 쉬움, 주 쓰임새를 칸으로 나눈 마크다운 표로 정리해 줘' },
+      { label: '서식 모음 안내서', prompt: 'Git 기본 명령 안내를 제목, 굵게, 번호 목록, 코드 블록, 인용, 표를 모두 써서 마크다운으로 써 줘' },
+    ] },
+    { title: '스킬 요약', items: [
+      { label: '장단점 세 줄 요약', prompt: '재택근무의 장점과 단점을 세 줄로 요약해 줘' },
+      { label: '긴 글 핵심 요약', prompt: '다음 글을 핵심만 세 줄로 요약해 줘: 도시 숲은 여름 한낮 기온을 낮추고 미세먼지를 걸러 주며, 소음을 줄이고 시민에게 쉼터가 된다. 다만 나무를 심고 가꾸는 데 해마다 예산이 들고, 관리가 부족하면 병해충이 퍼져 오히려 안전을 해칠 수 있다. 그래서 여러 도시가 시민 참여형 관리와 수종 다양화를 함께 추진하고 있다.' },
+    ] },
+    { title: '스킬 비교표', items: [
+      { label: '노트북 3종 비교표', prompt: '노트북 3종 가격, 무게, 배터리 비교표 만들어줘' },
+      { label: '구독 요금제 비교', prompt: '넷플릭스, 디즈니플러스, 티빙 요금제를 가격, 화질, 동시 접속 수로 비교해 줘' },
+    ] },
+    { title: '앱 도구', items: apps, empty: SAMPLE.noApp },
+    { title: '동시 실행', items: [
+      ...withApp((a) => ({ label: '앱에서 두 가지 동시에 찾기', hint: a, prompt: `${a} 앱에서 두 가지를 동시에 찾아서 나란히 보여 줘` })),
+      { label: '두 스킬 동시에 쓰기', prompt: '요약 스킬과 비교표 스킬을 동시에 불러서, 아이폰과 갤럭시를 비교표로 만들고 차이를 세 줄로 요약해 줘' },
+    ] },
+    { title: '여러 단계', items: [
+      ...withApp((a) => ({ label: '앱에서 찾고 요약 스킬로 정리', hint: a, prompt: `${a} 앱에서 찾은 내용을 요약 스킬로 세 줄 정리해 줘` })),
+      { label: '비교표 만든 뒤 요약', prompt: '서울, 부산, 제주 2박 3일 여행 경비를 비교표 스킬로 표로 만든 다음, 그 표를 요약 스킬로 세 줄 정리해 줘' },
+    ] },
+    { title: '에이전트 팀', items: [
+      { label: '팀으로 나눠 조사하기', prompt: '팀으로 나눠서 서울, 도쿄, 방콕의 3박 4일 여행 경비를 각각 조사하고 한 표로 합쳐 줘' },
+      ...withApp((a) => ({ label: '팀원마다 앱으로 찾기', hint: a, prompt: `팀으로 나눠서 ${a} 앱으로 서로 다른 주제 두 가지를 각각 찾아보고 결과를 한 번에 정리해 줘` })),
+    ] },
+    { title: '오류 처리', items: [
+      { label: '연결 안 된 앱 부르기', prompt: '연결하지 않은 Jira 앱에서 내 이슈 목록을 가져와 줘' },
+      { label: '없는 스킬 부르기', prompt: "'translate' 스킬을 꼭 불러서 '좋은 아침이에요'를 영어로 바꿔 줘" },
+      { label: '긴 답 멈추기', hint: '멈추기 시험', prompt: '1부터 300까지 숫자를 한 줄에 하나씩 써 줘' },
+    ] },
+  ];
+}
 
 // 사이드바 최근 대화
 export const RECENT = {

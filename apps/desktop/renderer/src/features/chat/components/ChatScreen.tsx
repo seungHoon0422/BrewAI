@@ -12,12 +12,14 @@ import { PROJECTS } from '../../projects/copy';
 import { useProject } from '../../projects/hooks';
 import { ScopeBreadcrumb } from '../../scope/components/ScopeBreadcrumb';
 import { focusProject, useCurrentSpace, useScopeState } from '../../scope/hooks';
+import { devBuild } from '../../../lib/bridge';
 import { ShareButton } from '../../sharing/components/ShareButton';
 import { CHAT, SUGGESTIONS, TEAM, TOOL_TRY, appStarters, type Starter } from '../copy';
 import { send, stop, updateThread, useConvBusy, useCurrentConv } from '../hooks';
 import { leaveHome } from '../motion';
 import { Composer } from './Composer';
 import { Messages } from './Messages';
+import { SampleMenu } from './SampleMenu';
 import { TeamPanel, closeTeamPanel, openTeamPanel, useTeamPanel } from './TeamPanel';
 import { ThreadList } from './ThreadList';
 
@@ -54,6 +56,13 @@ export function ChatScreen() {
     if (busy || loading) return;
     sendFrom(s.prompt, el.querySelector('.sg-t') ?? el);
   };
+  // 개발용 샘플 = 제안과 같은 길 (메뉴 칸은 닫히며 사라지니 출발 자리는 입력창)
+  // 포커스 = 입력창으로 (메뉴는 닫히며 샘플 단추로 돌려놓는데, 보내는 동안 그 단추가 disabled 가 되어 포커스가 body 로 빠진다 → 그 다음 프레임에)
+  const onSample = (prompt: string) => {
+    if (busy || loading) return;
+    sendFrom(prompt, input.current);
+    requestAnimationFrame(() => input.current?.focus());
+  };
 
   // 프로젝트 칩: 새 대화 = 넣을 곳 고르기 · 연 대화 = 같은 스페이스 안에서 옮기기 (내 대화만)
   const scope = conv ? (
@@ -68,6 +77,7 @@ export function ChatScreen() {
   const composer = (
     <Composer input={input} text={text} onText={setText} onSend={onSend} canSend={canSend}
       busy={busy} onStop={() => conv && stop(conv.id)} scope={scope}
+      tools={devBuild && <SampleMenu onPick={onSample} disabled={busy || loading} />}
       placeholder={loading ? CHAT.placeholderLoading : conv?.turns.length ? CHAT.placeholderThread : project ? PROJECTS.composerHint(project.name) : CHAT.placeholderHome} />
   );
 

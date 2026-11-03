@@ -1,15 +1,18 @@
-// 연결된 앱 — 맨 위 '필요할 때 바로 로그인 화면 열기' · [내 앱] (이름 · 도메인 · 출처 배지 · 상태 · 연결 / 연결 끊기 / 숨기기) · 숨긴 앱
+// 연결된 앱 — 맨 위 '필요할 때 바로 로그인 화면 열기' · [내 앱] (한 줄 = 아이콘 · 이름 · 출처 배지 · 도메인 · 상태 · 연결 / 연결 끊기 / 숨기기)
+// · 분류 칩 (전체 + 있는 분류만 · 2개 이상일 때) · 전체 = 분류마다 묶음 머리 · 숨긴 앱
 // · [가져올 수 있는 앱] (스페이스 경로별 가져오기) · [앱 추가] 대화상자 · 줄을 누르면 상세 서랍 (도구 · 쓰기 표시 · 공유).
+// 아이콘 = conductor 가 받아 둔 서비스 사이트 그림 (AppIcon · 없으면 첫 글자).
 // 연결 = 시스템 브라우저 로그인 (main · bridge.mcp) — 화면은 결과만 받는다. 판정은 서버 (UI 는 권한 근거 아님 · ADR-0013).
 import { useEffect, useState } from 'react';
-import { Badge, Button, Callout, Checkbox, Icon, Meta, StatusDot } from '@brewai/ui';
+import { Badge, Button, Callout, Checkbox, Chip, Meta, StatusDot } from '@brewai/ui';
 import { codeOf } from '../../../lib/api';
 import { Count, Empty, Notes, Page, Section } from '../../shell/components/Page';
 import { ScopeBreadcrumb } from '../../scope/components/ScopeBreadcrumb';
-import { disconnectApp, importApp, patchApp, removeApp, type App, type Importable } from '../api';
-import { CONNECTIONS, CONNECTION_NOTES, SOURCE_LABEL, STATE_LABEL, connError } from '../copy';
+import { APP_CATEGORIES, disconnectApp, importApp, patchApp, removeApp, type App, type AppCategory, type Importable } from '../api';
+import { CATEGORY, CONNECTIONS, CONNECTION_NOTES, SOURCE_LABEL, STATE_LABEL, connError } from '../copy';
 import { STATE_DOT, bump, cancelConnect, changeAutoAuth, connectApp, focusApp, loadApps, stateOf, useConnections } from '../hooks';
 import { AddAppDialog } from './AddAppDialog';
+import { AppIcon } from './AppIcon';
 import { AppSheet } from './AppSheet';
 
 type Note = { tone: 'ok' | 'danger' | 'info'; text: string } | null;
@@ -18,11 +21,19 @@ type Note = { tone: 'ok' | 'danger' | 'info'; text: string } | null;
 const loginOf = (x: { auth: 'oauth' | 'none'; domain: string; issuer_domain: string | null }) =>
   x.auth === 'oauth' && x.issuer_domain && x.issuer_domain !== x.domain ? CONNECTIONS.loginAt(x.issuer_domain) : null;
 
+// 줄에서 줄임표로 줄거나 빠진 칸까지 다 (마우스를 올리면 · 칸 사이 = 쉼표)
+// 가져올 수 있는 앱 줄 = 도메인 · 로그인 · 도구 수 · 공유한 사람 (좁으면 줄임표 · 다 읽기 = title)
+const importMeta = (i: Importable) =>
+  [i.domain, loginOf(i), i.tool_count != null ? CONNECTIONS.toolCount(i.tool_count) : null, i.owner_name ? CONNECTIONS.sharedBy(i.owner_name) : null]
+    .filter((x): x is string => !!x);
+const metaText = (a: App) => [a.domain, loginOf(a), a.tool_count != null ? CONNECTIONS.toolCount(a.tool_count) : null].filter(Boolean).join(', ');
+
 export function ConnectionsScreen() {
   const apps = useConnections((s) => s.apps);
   const focus = useConnections((s) => s.focus);
   const [adding, setAdding] = useState(false);
   const [note, setNote] = useState<Note>(null);
+  const [cat, setCat] = useState<AppCategory | 'all'>('all');
   useEffect(() => {
     void loadApps();
   }, []);
@@ -30,6 +41,13 @@ export function ConnectionsScreen() {
   const shown = data?.mine.filter((a) => !a.hidden) ?? [];
   const hidden = data?.mine.filter((a) => a.hidden) ?? [];
   const say = (n: Note) => setNote(n);
+  // 분류 = 있는 것만 (순서 고정) · 고른 분류의 앱이 사라지면 전체로
+  const counts = new Map<AppCategory, number>();
+  for (const a of shown) counts.set(a.category, (counts.get(a.category) ?? 0) + 1);
+  const cats = APP_CATEGORIES.filter((c) => counts.has(c));
+  const active = cat !== 'all' && counts.has(cat) ? cat : 'all';
+  const grouped = active === 'all' && cats.length > 1;
+  const rows = (list: App[]) => list.map((a) => <AppRow key={a.id} a={a} onNote={say} />);
 
   return (
     <Page id="connections" sub={CONNECTIONS.sub}>
@@ -44,9 +62,26 @@ export function ConnectionsScreen() {
         {data && !data.vault_ready && data.mine.some((a) => a.auth === 'oauth') && (
           <Callout tone="warn" className="sec-note">{CONNECTIONS.vaultMissing}</Callout>
         )}
-        {shown.length > 0 ? (
-          <ul className="rows apps" aria-label={CONNECTIONS.list}>
-            {shown.map((a) => <AppRow key={a.id} a={a} onNote={say} />)}
+        {cats.length > 1 && (
+          <div className="conn-cats" role="group" aria-label={CATEGORY.filter}>
+            <Chip selected={active === 'all'} count={shown.length} onClick={() => setCat('all')}>{CATEGORY.all}</Chip>
+            {cats.map((c) => (
+              <Chip key={c} selected={active === c} count={counts.get(c)} data-category={c} onClick={() => setCat(c)}>{CATEGORY.label[c]}</Chip>
+            ))}
+          </div>
+        )}
+        {shown.length > 0 && grouped ? (
+          <ul className="conn-groups" aria-label={CONNECTIONS.list}>
+            {cats.map((c) => (
+              <li key={c} className="conn-group" data-category={c}>
+                <h3 className="conn-group-head">{CATEGORY.label[c]}<span className="ui-num">{counts.get(c)}</span></h3>
+                <ul className="rows apps" aria-label={CATEGORY.group(CATEGORY.label[c])}>{rows(shown.filter((a) => a.category === c))}</ul>
+              </li>
+            ))}
+          </ul>
+        ) : shown.length > 0 ? (
+          <ul className="rows apps" aria-label={CONNECTIONS.list} data-category={active}>
+            {rows(active === 'all' ? shown : shown.filter((a) => a.category === active))}
           </ul>
         ) : apps.status === 'loading' ? (
           <p className="rows rows-state">{CONNECTIONS.loading}</p>
@@ -60,9 +95,7 @@ export function ConnectionsScreen() {
         {hidden.length > 0 && (
           <details className="apps-hidden">
             <summary>{CONNECTIONS.hiddenTitle} <span className="ui-num">{hidden.length}</span></summary>
-            <ul className="rows apps">
-              {hidden.map((a) => <AppRow key={a.id} a={a} onNote={say} />)}
-            </ul>
+            <ul className="rows apps">{rows(hidden)}</ul>
           </details>
         )}
         <Notes items={CONNECTION_NOTES} />
@@ -77,7 +110,7 @@ export function ConnectionsScreen() {
           <p className="rows rows-state">{apps.status === 'loading' ? CONNECTIONS.loading : CONNECTIONS.importableEmpty}</p>
         )}
       </Section>
-      <AddAppDialog open={adding} onClose={() => setAdding(false)} onAdded={(a) => say({ tone: 'ok', text: CONNECTIONS.added(a.name) })} />
+      <AddAppDialog open={adding} onClose={() => setAdding(false)} onAdded={(a) => say({ tone: 'ok', text: a.merged_into ? CONNECTIONS.addedMerged(a.name) : CONNECTIONS.added(a.name) })} />
       <AppSheet id={focus} onClose={() => focusApp(null)} />
     </Page>
   );
@@ -128,14 +161,15 @@ function AppRow({ a, onNote }: { a: App; onNote: (n: Note) => void }) {
   };
   const needsLogin = !a.share_lost && !a.blocked && a.status === 'active' && (a.connection === 'needs_login' || a.connection === 'expired');
   return (
-    <li className="row conn-app" data-app={a.handle} data-state={key} data-source={a.source}>
-      <span className="ui-tile"><Icon name="plug" /></span>
+    <li className="row conn-app" data-app={a.handle} data-state={key} data-source={a.source} data-category={a.category}>
+      <AppIcon server={a.id} name={a.name} />
       <button type="button" className="row-main app-open" onClick={() => focusApp(a.id)} aria-label={CONNECTIONS.details(a.name)}>
-        <span className="app-head">
-          <b>{a.name}</b>
-          <Badge size="sm" variant="outline" className="app-src">{SOURCE_LABEL[a.source]}</Badge>
-        </span>
-        <Meta className="row-sub" items={[a.domain, loginOf(a), a.tool_count != null ? CONNECTIONS.toolCount(a.tool_count) : null]} />
+        <b>{a.name}</b>
+        <Badge size="sm" variant="outline" className="app-src">{SOURCE_LABEL[a.source]}</Badge>
+        <Meta className="row-sub app-meta" title={metaText(a)} items={[
+          a.domain, loginOf(a) && <span className="app-login">{loginOf(a)}</span>,
+          a.tool_count != null && <span className="app-count">{CONNECTIONS.toolCount(a.tool_count)}</span>,
+        ]} />
       </button>
       <span className="state app-state"><StatusDot state={connecting ? 'run' : STATE_DOT[key]} size="sm" />{connecting ? CONNECTIONS.connecting : STATE_LABEL[key]}</span>
       <span className="app-acts">
@@ -183,11 +217,13 @@ function ImportRow({ i, onNote }: { i: Importable; onNote: (n: Note) => void }) 
     }
   };
   return (
-    <li className="row conn-app importable" data-app-id={i.id}>
-      <span className="ui-tile"><Icon name="plug" /></span>
+    <li className="row conn-app importable" data-app-id={i.id} data-category={i.category}>
+      <AppIcon server={i.id} name={i.name} />
       <span className="row-main">
-        <b>{i.name}</b>
-        <Meta className="row-sub" items={[i.domain, loginOf(i), i.tool_count != null ? CONNECTIONS.toolCount(i.tool_count) : null, i.owner_name ? CONNECTIONS.sharedBy(i.owner_name) : null]} />
+        <span className="app-head">
+          <b>{i.name}</b>
+          <Meta className="row-sub app-meta" title={importMeta(i).join(', ')} items={importMeta(i)} />
+        </span>
         {i.via.map((v) => <ScopeBreadcrumb key={`${v.scope_kind}:${v.scope_id}`} path={v.path} withItem className="app-via" />)}
       </span>
       <Button size="sm" loading={busy} aria-label={CONNECTIONS.importLabel(i.name)} onClick={() => void take()}>{CONNECTIONS.import}</Button>

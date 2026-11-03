@@ -14,10 +14,11 @@
 from __future__ import annotations
 
 import ipaddress
+import re
 import socket
 from collections.abc import Awaitable, Callable, Iterable
 from typing import Any
-from urllib.parse import parse_qsl, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, unquote, urlsplit, urlunsplit
 
 import anyio
 import httpcore2
@@ -227,7 +228,13 @@ def host_allowed(url: str, patterns: Iterable[str]) -> bool:
 
 
 # 등록 도메인 근사 (PSL 없이 · 의존성 0): 끝 두 칸 · 'co.kr' · 'com.au' 처럼 둘째 칸이 짧은 공용 이름이면 끝 세 칸
+#   · 남의 앱이 하위 이름으로 같이 사는 공용 호스팅(vercel.app · github.io …)도 끝 세 칸 = a.vercel.app 과 b.vercel.app 은 다른 사이트
 _SECOND_LEVEL = frozenset({"ac", "co", "com", "edu", "go", "gov", "ne", "net", "or", "org"})
+_SHARED_HOSTING = frozenset({
+    "vercel.app", "github.io", "herokuapp.com", "pages.dev", "workers.dev", "netlify.app", "onrender.com", "fly.dev", "web.app",
+    "firebaseapp.com", "appspot.com", "azurewebsites.net", "cloudfront.net", "railway.app", "deno.dev", "ngrok.io", "ngrok-free.app",
+    "ngrok.app", "glitch.me", "replit.app", "repl.co", "modal.run", "hf.space", "run.app", "supabase.co", "trycloudflare.com",
+})
 
 
 def site_of(url: str) -> str:
@@ -236,7 +243,8 @@ def site_of(url: str) -> str:
     if not host or _is_ip(host) or "." not in host:
         return host
     labels = host.split(".")
-    n = 3 if len(labels) >= 3 and len(labels[-1]) == 2 and labels[-2] in _SECOND_LEVEL else 2
+    shared = ".".join(labels[-2:]) in _SHARED_HOSTING
+    n = 3 if len(labels) >= 3 and (shared or (len(labels[-1]) == 2 and labels[-2] in _SECOND_LEVEL)) else 2
     return ".".join(labels[-n:])
 
 
@@ -252,3 +260,65 @@ _SECRET_PARAM = ("key", "token", "secret", "auth", "sig", "pass", "pwd", "creden
 def has_secret_query(url: str) -> bool:
     keys = [k.lower().replace("-", "").replace("_", "") for k, _ in parse_qsl(urlsplit(url).query, keep_blank_values=True)]
     return any(word in k for k in keys for word in _SECRET_PARAM)
+
+
+# ── 보여 줄 때 가리기 (관리자 서버 주소의 ?tavilyApiKey= · /s/<키>/mcp 같은 값이 사용자 응답 · 화면 · 로그로 새지 않게) ──
+# 호출은 늘 저장한 원래 주소로 (가리는 건 밖으로 내보내는 글만). query 는 값만 가린다 = 이름(키)은 남겨 어떤 칸이 있는지는 보인다
+#   · '=' 없는 조각(?sk-abc) = 통째로 · 경로 = 비밀처럼 보이는 칸(아래 _secretish)과 ';' 뒤 matrix 값 · userinfo · fragment
+MASK = "***"
+_URL_IN_TEXT = re.compile(r"(?i)\b(?:https?|wss?)://[^\s\"'<>]+")
+_WORDS = re.compile(r"[a-z]+(?:[-_.][a-z]+)*")  # mcp · sse · model-context-protocol = 낱말 (가리지 않는다)
+
+
+def _secretish(seg: str) -> bool:
+    """경로 한 칸이 키 · 토큰처럼 보이나: 글자 3 + 숫자 3 이상 섞인 10자 이상 (ZSECRET123 · uuid) · 낱말이 아닌 24자 이상 · 'sk-' 같은 머리."""
+    s = unquote(seg)
+    if len(s) < 8 or _WORDS.fullmatch(s.lower()):
+        return False
+    letters = sum(c.isalpha() for c in s)
+    digits = sum(c.isdigit() for c in s)
+    if s.lower().startswith(("sk-", "sk_", "pk_", "tvly-", "ghp_", "xox")):
+        return True
+    return (len(s) >= 10 and letters >= 3 and digits >= 3) or len(s) >= 24
+
+
+def _redact_path(path: str) -> str:
+    out = []
+    for seg in path.split("/"):
+        name, semi, params = seg.partition(";")
+        name = MASK if _secretish(name) else name
+        if semi:
+            params = ";".join(f"{k}={MASK}" if eq else MASK for k, eq, _ in (p.partition("=") for p in params.split(";")) if k or eq)
+        out.append(name + (semi + params if semi else ""))
+    return "/".join(out)
+
+
+def redact_url(url: str | None) -> str:
+    """가린 주소. https://mcp.tavily.com/mcp/?tavilyApiKey=*** · https://mcp.zapier.com/api/mcp/s/***/mcp · 가릴 것이 없으면 그대로."""
+    if not url:
+        return url or ""
+    try:
+        parts = urlsplit(url)
+        netloc = parts.netloc
+    except ValueError:
+        return MASK
+    if "@" in netloc:
+        netloc = f"{MASK}@{netloc.rsplit('@', 1)[1]}"
+    query = parts.query
+    if query:
+        pairs = []
+        for piece in query.split("&"):
+            if not piece:
+                continue
+            key, eq, _ = piece.partition("=")
+            pairs.append(f"{key}={MASK}" if eq else MASK)  # '=' 없는 조각 = 키 자리에 값(토큰)을 넣는 서버가 있다
+        query = "&".join(pairs)
+    path = _redact_path(parts.path)
+    if netloc == parts.netloc and query == parts.query and path == parts.path and not parts.fragment:
+        return url
+    return urlunsplit((parts.scheme, netloc, path, query, ""))
+
+
+def redact_text(text: str) -> str:
+    """글 안의 주소마다 redact_url (로그 줄 · 오류 글)."""
+    return _URL_IN_TEXT.sub(lambda m: redact_url(m.group(0)), text) if "://" in text else text

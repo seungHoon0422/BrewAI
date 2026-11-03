@@ -185,7 +185,7 @@ test.describe('모델 · 생각 · 도구 · 상태 줄', () => {
     await expect(ui(win).log.locator('.msg.agent').first().locator('.by')).toContainText(/fake-chat-large\s*\d/);
   });
 
-  test('생각 깊이 = 깊게 → 유리 상태 줄이 "질문을 살펴보는 중" → 끝나면 "n초 동안 생각함" · 생각 글은 눌러야 보인다', async () => {
+  test('생각 깊이 = 깊게 → 유리 상태 줄이 반짝임 + "생각하는 중" → 끝나면 "n초 동안 생각함" · 생각 글은 눌러야 보인다', async () => {
     const menu = await openPicker(win);
     await depth(menu, '깊게').click();
     await expect(depth(menu, '깊게')).toHaveAttribute('aria-checked', 'true');
@@ -195,10 +195,13 @@ test.describe('모델 · 생각 · 도구 · 상태 줄', () => {
     await ask(win, '[fake:slow] 천천히 생각해서 답해 줘');
     const line = ui(win).last.locator('.trace-line');
     const panel = ui(win).last.getByRole('region', { name: '생각과 도구 사용 과정', includeHidden: true });
-    // 흐르는 중 = 접힘 (색 점 없음 · 반짝이는 글) + '질문을 살펴보는 중'
+    // 흐르는 중 = 접힘 (색 점 없음 · 반짝이는 글) + 반짝임 아이콘 + '생각하는 중'
     await expect(line).toHaveAttribute('data-step', 'thinking', { timeout: 10_000 });
     await expect(line).toHaveAttribute('data-phase', 'live');
-    await expect(line.locator('.trace-txt')).toHaveText('질문을 살펴보는 중');
+    await expect(line).toHaveAttribute('data-kind', 'thinking');
+    await expect(line).toHaveAttribute('data-glyph', 'spark');
+    await expect(line.locator('.glyph [data-icon="sparkle"]')).toHaveCount(1);
+    await expect(line.locator('.trace-txt')).toHaveText('생각하는 중');
     await expect(line.locator('.trace-txt')).toHaveClass(/run/);
     await expect(line).toHaveAttribute('aria-expanded', 'false');
     await expect(panel).toBeHidden();
@@ -228,17 +231,24 @@ test.describe('모델 · 생각 · 도구 · 상태 줄', () => {
     await expect(line).toBeFocused();
   });
 
-  test('모델이 생각 글을 안 보내면 (display omitted) 빈 생각 블록 없이 한 줄로 말한다', async () => {
+  test('모델이 생각 글을 안 보내면 (display omitted) 펼치지 않는 "생각함" + 생각 토큰 수 · 빈 패널 없음', async () => {
     await ask(win, '[fake:omitted] 생각만 하고 글은 숨겨');
     const line = ui(win).last.locator('.trace-line');
     await expect(line).toHaveAttribute('data-step', 'done', { timeout: 15_000 });
     // 생각 토큰은 있지만 생각 글 · 생각 단계가 없다 = 생각한 시간을 모른다 → 전체 시간을 생각 시간이라 하지 않는다
     await expect(line.locator('.trace-txt')).toHaveText('생각함');
+    await expect(line.locator('.tmeta')).toHaveText(/^생각 토큰 \d[\d,]*$/);
     await expect(line).toHaveAttribute('data-glyph', 'think');
+    // 펼칠 것이 없다 = 버튼이 아니다 (누를 것 · 꺾쇠 · 패널 없음). 이름 = 보이는 글 그대로
+    await expect(line).toHaveAttribute('data-static', 'true');
+    expect(await line.getAttribute('aria-expanded')).toBeNull();
+    await expect(line).toHaveAccessibleName(/^생각함, 생각 토큰 \d[\d,]*$/);
+    await expect(line.locator('.chev')).toHaveCount(0);
+    await expect(ui(win).last.getByRole('button', { name: /생각함/ })).toHaveCount(0);
     await line.click();
-    const region = ui(win).last.getByRole('region', { name: '생각과 도구 사용 과정' });
-    await expect(region.locator('.tp-none')).toHaveText('모델이 생각 내용을 보내지 않았어요');
-    await expect(region.locator('.tp-think')).toHaveCount(0); // 빈 생각 블록을 그리지 않는다
+    await expect(ui(win).last.getByRole('region', { name: '생각과 도구 사용 과정', includeHidden: true })).toHaveCount(0);
+    await expect(ui(win).last).not.toContainText('모델이 생각 내용을 보내지 않았어요');
+    await expect(ui(win).last.locator('.tp-think, .tp-none')).toHaveCount(0); // 빈 생각 블록 · 빈 줄 글을 그리지 않는다
   });
 
   test('생각 깊이를 켰는데 모델이 생각을 건너뛰면 (adaptive) "생각 없이 바로 답함" — 고장이 아니라 모델의 선택', async () => {
@@ -247,7 +257,9 @@ test.describe('모델 · 생각 · 도구 · 상태 줄', () => {
     await expect(line).toHaveAttribute('data-step', 'done', { timeout: 15_000 });
     await expect(line.locator('.trace-txt .seg')).toHaveText(['생각 없이 바로 답함', /^\d+(\.\d)?초$/]); // 칸 나눔 (가운뎃점 없음)
     await expect(line).toHaveAttribute('data-glyph', 'done'); // 생각 말풍선이 아니다
-    await expect(line).toHaveAccessibleName(/^생각 없이 바로 답함/); // 버튼 이름 = 보이는 글 (시간 빼고 · 늦지 않게)
+    await expect(line).toHaveAccessibleName(/^생각 없이 바로 답함/); // 줄 이름 = 보이는 글 (시간 빼고 · 늦지 않게)
+    await expect(line).toHaveAttribute('data-static', 'true'); // 생각 글 · 도구가 없다 = 펼치지 않는다 (빈 패널 없음)
+    await expect(line.locator('.tmeta')).toHaveCount(0); // 생각 토큰 0 = 작은 글 없음
   });
 
   test('도구: 상태 줄이 생각 → 스킬을 펼치는 중 → 답을 다듬는 중 → "생각함 · 스킬 사용 1회" · 패널에 스킬 카드', async () => {
@@ -270,9 +282,10 @@ test.describe('모델 · 생각 · 도구 · 상태 줄', () => {
     await expect(ui(win).last.locator('.trace > .sr[aria-live]')).toHaveText(/초 동안 생각함, 스킬 사용 1회$/); // 끝나면 바로 알린다 (2초 묶음 없이)
     const rec = await recorded(win);
     expect(rec.steps).toEqual(['thinking', 'skill:summarize', 'writing', 'done']);
-    // 화면 글: 질문을 살펴보는 중 → 스킬을 펼치는 중 → (결과를 살펴보는 중) → 답을 다듬는 중 → 요약
-    const texts = rec.texts.filter((x) => x !== '결과를 살펴보는 중');
-    expect(texts.slice(0, -1)).toEqual(['질문을 살펴보는 중', "'요약' 스킬을 펼치는 중", '답을 다듬는 중']);
+    // 화면 글: (응답을 기다리는 중 = 보내고 RUN_STARTED 전 · 짧으면 안 보인다) → 생각하는 중 → 스킬을 펼치는 중 → (결과를 살펴보는 중) → 답을 다듬는 중 → 요약
+    const texts = rec.texts.filter((x) => x !== '결과를 살펴보는 중' && x !== '응답을 기다리는 중');
+    expect(rec.texts.indexOf('응답을 기다리는 중')).toBeLessThanOrEqual(0); // 있으면 맨 앞에만
+    expect(texts.slice(0, -1)).toEqual(['생각하는 중', "'요약' 스킬을 펼치는 중", '답을 다듬는 중']);
     expect(texts.at(-1)).toMatch(/초 동안 생각함, 스킬 사용 1회$/);
     // 패널 = 나온 순서대로 (생각 → 도구) · 글 사이에 카드가 끼지 않는다
     const panel = ui(win).last.getByRole('region', { name: '생각과 도구 사용 과정' });
@@ -359,7 +372,7 @@ test.describe('기록 · 진행 상황', () => {
     const live = win.locator('.run-live');
     await expect(live).toHaveCount(1);
     await expect(live).toContainText('[fake:slow] [fake:think] 진행 상황 확인');
-    await expect(live.locator('.doing')).toHaveText(/질문을 살펴보는 중|생각을 정리하는 중|답을 다듬는 중/);
+    await expect(live.locator('.doing')).toHaveText(/^(응답을 기다리는 중|생각하는 중|답을 다듬는 중)$/);
     await expect(live.locator('.mtag svg')).toHaveAttribute('data-provider', 'openai');
     await win.screenshot({ path: shot('desktop-activity-live') });
     // 끝나면 최근 실행으로 (완료 · 단계 줄)

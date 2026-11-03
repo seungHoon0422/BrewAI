@@ -4,10 +4,11 @@
 //   C (mode manual) '<앱> 앱이 아직 연결되지 않았어요' [연결된 앱 열기] · 연결되면 [이어서 하기]
 //   D (가져오기 전)  '<앱> 앱을 먼저 가져와야 해요' + 공유된 곳 [연결된 앱 열기]
 // 버튼은 대화의 마지막 답에서만 (이어서 하기는 마지막 실행이 그 호출로 멈췄을 때만 된다). 판정 · 다시 계산은 서버.
-// 로그인 화면이 서버와 다른 도메인이면 '로그인 <도메인>' 을 보인다. 쓰기 도구 대기 = 할 일(도구 · 인자)을 보이고 연결 뒤에도 [이어서 하기] 를 누른다.
+// 카드 머리 = 앱 아이콘 (서비스 사이트 그림 · 없으면 첫 글자). 로그인 화면이 서버와 다른 도메인이면 '로그인 <도메인>' 을 보인다. 쓰기 도구 대기 = 할 일(도구 · 인자)을 보이고 연결 뒤에도 [이어서 하기] 를 누른다.
 import type { ReactNode } from 'react';
-import { Button, Icon, Meta, Spinner } from '@brewai/ui';
+import { Button, Meta, Spinner } from '@brewai/ui';
 import { go } from '../../../app/router';
+import { AppIcon } from '../../connections/components/AppIcon';
 import { connError } from '../../connections/copy';
 import { focusApp, useConnections } from '../../connections/hooks';
 import { kindLabel } from '../../scope/model';
@@ -101,7 +102,7 @@ function AuthCardView({ c, args, threadId, runId, active }: { c: AuthCard; args:
   return (
     <section className="app-card" data-card={variant} data-phase={c.phase} data-ready={ready || undefined} data-server={c.server.handle}
       data-write={c.write || undefined} role="group" aria-label={APP_CARD.region(name)}>
-      <span className="ac-ico" aria-hidden="true"><Icon name="plug" size="sm" /></span>
+      <span className="ac-ico" aria-hidden="true"><AppIcon server={c.server.id} name={name} /></span>
       <div className="ac-main">
         <b className="ac-title">{title}</b>
         {login && <Meta className="ac-meta" items={[login]} />}
@@ -125,7 +126,7 @@ function ImportCardView({ c, active }: { c: ImportCard; active: boolean }) {
   const where = at ? [at.name, kindLabel(at.kind)].filter(Boolean).join(' ') : '';
   return (
     <section className="app-card" data-card="import" role="group" aria-label={APP_CARD.region(c.server.name)}>
-      <span className="ac-ico" aria-hidden="true"><Icon name="plug" size="sm" /></span>
+      <span className="ac-ico" aria-hidden="true"><AppIcon server={c.server.id} name={c.server.name} /></span>
       <div className="ac-main">
         <b className="ac-title">{APP_CARD.importTitle(c.server.name)}</b>
         <p className="ac-body">{APP_CARD.importBody(where)}</p>

@@ -414,9 +414,10 @@ def test_responses_reasoning_rejection_is_reasoning_unsupported() -> None:
     from conductor import diagnose as dx
 
     body = {"error": {"message": "This model does not support this option.", "type": "invalid_request_error", "param": "reasoning.summary"}}
-    assert dx.classify_http(400, "invalid_request_error", body).detail == "reasoning_unsupported"
+    assert dx.classify_http(400, "invalid_request_error", body, reasoning=True).detail == "reasoning_unsupported"
+    assert dx.classify_http(400, "invalid_request_error", body).detail == "provider_bad_request"  # 생각 칸을 안 실은 요청 (끔 · 연결 시험)
     other = {"error": {"message": "Invalid 'input[0]'.", "type": "invalid_request_error", "param": "input"}}
-    assert dx.classify_http(400, "invalid_request_error", other).detail == "provider_bad_request"
+    assert dx.classify_http(400, "invalid_request_error", other, reasoning=True).detail == "provider_bad_request"
     assert dx.classify_response("incomplete", None, None, "max_output_tokens") is None  # 짧은 한도 = 성공
     assert dx.classify_response("completed", None, None, None) is None
     failed = dx.classify_response("failed", "invalid_prompt", "bad prompt", None)

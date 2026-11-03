@@ -17,6 +17,8 @@
 //   그 뒤 signature_delta → reasoning_content "" + thinking_blocks [{thinking:"", signature}] · usage.completion_tokens_details.reasoning_tokens
 //   [fake:omitted] → 서명만 (display omitted · redacted 흉내: 생각은 했지만 글은 없음)
 //   [fake:nothink] → reasoning_effort 가 있어도 생각 없이 바로 답 (adaptive 모델이 쉬운 질문에 생각을 건너뛴 흉내 · reasoning_tokens 0)
+//   [fake:wait] → 첫 조각 전에 3초 아무것도 안 보낸다 (첫 토큰이 늦은 모델 흉내 · 상태 줄 '응답을 기다리는 중')
+//   OpenAI 모델 + [fake:think] [fake:omitted] → 생각 조각 없이 reasoning_tokens 만 (o 시리즈처럼 생각 글을 숨기는 모델 흉내)
 // 툴: 요청 tools 에 그 툴이 있을 때만 tool_calls 로 부른다 → 다음 요청(role tool 결과)에서 결과로 답한다 (OpenAI 왕복 그대로)
 // Anthropic 생각 + 툴 (진짜 Anthropic · LiteLLM modify_params 없음): 생각이 켜진 요청에서 이번 질문 뒤 assistant tool_calls 가
 //   서명된 thinking_blocks 없이 다시 오면 400 (실제 오류 문구 흉내). conductor 는 툴 결과를 들고 가는 요청에서 생각을 꺼야 한다
@@ -51,8 +53,12 @@
 // 캐시 토큰 (usage · LiteLLM 모양, prompt_tokens 안에 들어 있다): Anthropic 모델 = (표시가 있을 때) 입력의 절반 읽기 + 4분의 1 쓰기
 //   (prompt_tokens_details.cached_tokens · cache_read_input_tokens · cache_creation_input_tokens) · OpenAI 모델 = 입력의 30% 읽기 (cached_tokens 만)
 //   [fake:cache-write] → OpenAI 모델도 입력의 4분의 1 을 캐시 쓰기로 (작은 모델은 쓰기 가격이 없다 = 관리자 사용량의 '어림' 흉내)
-// 테스트 조작 (Bearer 필요): POST /__fake/catalog {"late": true|false, "hide": ["fake-chat-large"], "broken": {"<모델>": "<FAILURES 이름>"}, "reset": true}
-//   → 카탈로그를 바꾼다 (새 모델 = 관리자 '후보', 숨긴 모델 = '사라짐', broken = 그 모델의 모든 채팅 호출이 그 실패). 응답 {"models": [id…]}
+// 테스트 조작 (Bearer 필요): POST /__fake/catalog {"late": true|false, "hide": ["fake-chat-large"], "broken": {"<모델>": "<FAILURES 이름>"},
+//   "tools_off": ["fake-chat-small"], "tools_no": ["fake-chat-small"], "reset": true}
+//   → 카탈로그를 바꾼다 (새 모델 = 관리자 '후보', 숨긴 모델 = '사라짐', broken = 그 모델의 모든 채팅 호출이 그 실패,
+//   tools_off = /model_group/info 의 supports_function_calling false + /v1/model/info model_info 에 그 칸 없음 = Azure 사용자 배포처럼
+//   LiteLLM 이 모르는 모델 · tools_no = 둘 다 false = LiteLLM 모델 정보가 '도구 호출 안 됨'). 응답 {"models": [id…]}
+//   /v1/model/info model_info.supports_function_calling = 가격표에 있는 모델처럼 그 값 (tools_off 모델만 칸 없음)
 import http from 'node:http';
 import fs from 'node:fs';
 
@@ -112,7 +118,7 @@ const CACHE_PRICES = {
 };
 // 관리 화면(DB)에서 추가한 모델 = db_model true. 나머지 = config.yaml
 const DB_MODELS = new Set(['fake-chat-large', 'fake-chat-late']);
-const catalog = { late: process.env.FAKE_GATEWAY_LATE === '1', hide: new Set(), broken: new Map() };
+const catalog = { late: process.env.FAKE_GATEWAY_LATE === '1', hide: new Set(), broken: new Map(), toolsOff: new Set(), toolsNo: new Set() };
 
 // LiteLLM 1.106.2 실패 모양 [status, type, message] (infra/litellm/.venv 소스로 확인). 키처럼 보이는 값은 가짜
 const FAILURES = {
@@ -126,7 +132,8 @@ const FAILURES = {
 };
 const failureIn = (question) => Object.keys(FAILURES).find((k) => question.includes(`[fake:${k}]`));
 const modelGroups = () =>
-  [...BASE_GROUPS, ...(catalog.late ? [LATE_GROUP] : [])].filter((m) => !catalog.hide.has(m.model_group));
+  [...BASE_GROUPS, ...(catalog.late ? [LATE_GROUP] : [])].filter((m) => !catalog.hide.has(m.model_group))
+    .map((m) => (catalog.toolsOff.has(m.model_group) || catalog.toolsNo.has(m.model_group) ? { ...m, supports_function_calling: false } : m));
 const findGroup = (id) => modelGroups().find((m) => m.model_group === id);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -209,6 +216,7 @@ function replyFor(model, messages) {
   return `안녕하세요! 가짜 게이트웨이(${model})가 답해요. 받은 질문: ${question.trim() || '(빈 메시지)'}${prev}${system}`;
 }
 
+const WAIT_MS = 3000; // [fake:wait] 첫 조각까지 기다리는 시간
 const THOUGHT = '질문을 살펴보는 중이에요. 무엇을 묻는지 나눠 보고, 필요한 도구가 있는지 확인해요.';
 
 // [fake:md] 답 — 블록 종류마다 하나씩 (코드 안에는 | · ** 를 넣지 않는다: 스펙이 화면 글에서 날것 기호를 찾는다)
@@ -507,6 +515,8 @@ async function chatCompletions(req, res) {
     event({ ...base, object: 'chat.completion.chunk', choices: [{ index: 0, delta, logprobs: null, finish_reason }] });
 
   const delay = question.includes('[fake:slow]') ? 250 : DELAY;
+  if (question.includes('[fake:wait]')) await sleep(WAIT_MS); // 첫 토큰까지 오래 걸림
+  if (res.destroyed) return;
   chunk({ role: 'assistant', content: '' });
   if (thinking) {
     // LiteLLM 은 Anthropic thinking 을 delta.reasoning_content 로 준다 (OpenAI 호환 확장) + thinking_blocks (서명은 끝 조각)
@@ -557,9 +567,13 @@ async function fakeCatalog(req, res) {
     catalog.late = process.env.FAKE_GATEWAY_LATE === '1';
     catalog.hide.clear();
     catalog.broken.clear();
+    catalog.toolsOff.clear();
+    catalog.toolsNo.clear();
   }
   if (typeof body.late === 'boolean') catalog.late = body.late;
   if (Array.isArray(body.hide)) catalog.hide = new Set(body.hide.filter((x) => typeof x === 'string'));
+  if (Array.isArray(body.tools_off)) catalog.toolsOff = new Set(body.tools_off.filter((x) => typeof x === 'string'));
+  if (Array.isArray(body.tools_no)) catalog.toolsNo = new Set(body.tools_no.filter((x) => typeof x === 'string'));
   if (body.broken && typeof body.broken === 'object') {
     catalog.broken = new Map(Object.entries(body.broken).filter(([, v]) => typeof v === 'string' && v in FAILURES));
   }
@@ -589,6 +603,7 @@ const server = http.createServer(async (req, res) => {
           model_info: {
             id: `fake-${m.model_group}`, db_model: DB_MODELS.has(m.model_group), mode: m.mode,
             input_cost_per_token: m.input_cost_per_token, output_cost_per_token: m.output_cost_per_token, ...CACHE_PRICES[m.model_group],
+            ...(catalog.toolsOff.has(m.model_group) ? {} : { supports_function_calling: m.supports_function_calling }),
           },
         })),
       });

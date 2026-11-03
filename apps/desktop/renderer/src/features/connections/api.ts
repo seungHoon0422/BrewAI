@@ -1,4 +1,4 @@
-// 연결된 앱 API — MCP 서버 목록 · 미리 확인 · 추가 · 상세 · 공유 · 가져오기 · 연결 끊기 · 시험 · 자동 로그인 설정 (conductor/api_mcp.py 머리말).
+// 연결된 앱 API — MCP 서버 목록 · 미리 확인 · 추가 · 상세 · 공유 · 가져오기 · 연결 끊기 · 시험 · 자동 로그인 설정 · 아이콘 (conductor/api_mcp.py 머리말).
 // 연결(로그인)은 여기 없다 — main 이 시스템 브라우저 + loopback 으로 한다 (lib/bridge.ts mcp · MCP 토큰은 conductor 에만).
 import type { ScopePath } from '@brewai/ui';
 import { ApiError, bool, isObj, json, list, num, send, str, strOrNull } from '../../lib/api';
@@ -8,6 +8,9 @@ export type AutoAuth = 'unset' | 'on' | 'off';
 export type AppSource = 'install' | 'own' | 'imported';
 export type AppConnection = 'none' | 'connected' | 'expired' | 'needs_login';
 export type AppStatus = 'active' | 'disabled' | 'error';
+// 화면 묶음 (conductor presets.Kinds = 추천 서버 분류 → 이름 · 도메인 낱말 → 도구 이름 → 기타). 안내용
+export type AppCategory = 'docs' | 'search' | 'dev' | 'work' | 'data' | 'design' | 'pay' | 'other';
+export const APP_CATEGORIES: readonly AppCategory[] = ['docs', 'search', 'dev', 'work', 'data', 'design', 'pay', 'other'];
 export type ShareKind = string; // 층 이름 (scope/model.ts TENANT · MEMBERSHIP) — 화면은 'org' · 'space' 를 직접 쓰지 않는다 (ADR-0012)
 
 export type App = {
@@ -32,12 +35,14 @@ export type App = {
   tool_tokens_est: number | null;
   last_used_at: string | null;
   can_manage: boolean;
+  category: AppCategory;
+  merged_into?: string | null; // 같은 주소의 전체 공통 앱으로 합쳐짐 (목록엔 그 공통 앱만 · 추가 · 가져오기 응답에만)
 };
 
 export type Via = { scope_kind: string; scope_id: string; path: ScopePath };
 export type Importable = {
   id: string; name: string; url: string; domain: string; issuer_domain: string | null; description: string; auth: 'oauth' | 'none';
-  tool_count: number | null; owner_name: string; via: Via[];
+  tool_count: number | null; owner_name: string; via: Via[]; category: AppCategory;
 };
 
 export type AppList = { mine: App[]; importable: Importable[]; auto_auth: AutoAuth; allow_user_servers: boolean; vault_ready: boolean };
@@ -58,6 +63,7 @@ export type TestResult = { ok: boolean; connection: string | null; tool_count: n
 const pick = <T extends string>(v: unknown, all: readonly T[], fallback: T): T => (all.find((x) => x === v) ?? fallback);
 const strings = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
 const auth = (v: unknown) => pick(v, ['oauth', 'none'] as const, 'none');
+const category = (v: unknown) => pick(v, APP_CATEGORIES, 'other');
 
 export function toApp(v: Record<string, unknown>): App {
   return {
@@ -69,6 +75,7 @@ export function toApp(v: Record<string, unknown>): App {
     connection: pick(v.connection, ['none', 'connected', 'expired', 'needs_login'] as const, 'needs_login'),
     hidden: bool(v.hidden), share_lost: bool(v.share_lost), blocked: strOrNull(v.blocked), usable: bool(v.usable),
     tool_count: num(v.tool_count), tool_tokens_est: num(v.tool_tokens_est), last_used_at: strOrNull(v.last_used_at), can_manage: bool(v.can_manage),
+    category: category(v.category), merged_into: strOrNull(v.merged_into),
   };
 }
 
@@ -78,7 +85,7 @@ function toImportable(v: Record<string, unknown>): Importable {
   return {
     id: str(v.id), name: str(v.name), url: str(v.url), domain: str(v.domain), issuer_domain: strOrNull(v.issuer_domain),
     description: str(v.description), auth: auth(v.auth),
-    tool_count: num(v.tool_count), owner_name: str(v.owner_name), via: list(v.via).map(toVia),
+    tool_count: num(v.tool_count), owner_name: str(v.owner_name), via: list(v.via).map(toVia), category: category(v.category),
   };
 }
 
@@ -111,8 +118,8 @@ export type AppInput = {
 
 // 추천 서버 (conductor connectors/presets.json · 벤더가 직접 운영하는 원격 MCP). 누르면 칸만 채운다 = 추가는 사람이 누른다
 export type PresetAuth = 'none' | 'oauth' | 'api_key';
-export type PresetCategory = 'dev' | 'docs' | 'data' | 'work' | 'pay' | 'design';
-export const PRESET_CATEGORIES: readonly PresetCategory[] = ['dev', 'docs', 'data', 'work', 'pay', 'design'];
+export type PresetCategory = 'dev' | 'docs' | 'search' | 'data' | 'work' | 'pay' | 'design';
+export const PRESET_CATEGORIES: readonly PresetCategory[] = ['dev', 'docs', 'search', 'data', 'work', 'pay', 'design'];
 export type Preset = {
   id: string; handle: string; name: string; vendor: string; url: string; auth: PresetAuth; category: PresetCategory; description: string;
   available: boolean; reason: string | null; note: string | null; added: boolean;
@@ -135,6 +142,10 @@ export async function addApp(body: AppInput): Promise<App> {
 }
 
 const path = (id: string, rest = '') => `/api/me/mcp/servers/${encodeURIComponent(id)}${rest}`;
+
+// 아이콘 = conductor 가 받아 둔 서버 사이트 그림 (200 그림 · 204 없음). 그리기 = icons.ts (data: 주소로 · CSP img-src 'self' data:)
+export const serverIconPath = (id: string) => path(id, '/icon');
+export const presetIconPath = (id: string) => `/api/me/mcp/presets/${encodeURIComponent(id)}/icon`;
 
 export async function getApp(id: string, signal?: AbortSignal): Promise<AppDetail> {
   const d = await json(path(id), signal);

@@ -284,6 +284,9 @@ function DisplayBits() {
         {['백승훈', '승훈', 'Seung Hoon', 'dev', '김', 'Ada Lovelace'].map((n, i) => (
           <Avatar key={n} name={n} size={(['xs', 'sm', 'md', 'lg', 'md', 'md'] as const)[i]} />
         ))}
+        {['Linear', '메모', 'Context7'].map((n, i) => (
+          <Avatar key={`app-${n}`} name={n} shape="square" initials={[...n][0].toUpperCase()} size={(['sm', 'md', 'lg'] as const)[i]} />
+        ))}
       </Row>
       <Row label="키와 툴팁">
         <Kbd keys={['⌘', 'K']} />

@@ -372,7 +372,9 @@ test.describe('데스크톱: 답 글 · 생각/도구 · 모델 메뉴', () => {
       await ask(win, '[fake:omitted] 생각만');
       const line = ui(win).last.locator('.trace-line');
       await expect(line).toHaveAttribute('data-step', 'done', { timeout: 15_000 });
-      await expect(line).toHaveAccessibleName('생각함');
+      await expect(line.locator('.trace-txt')).toHaveText('생각함');
+      await expect(line).toHaveAccessibleName(/^생각함, 생각 토큰 \d[\d,]*$/); // 시간 없이 '생각함' + 작은 글 (펼치지 않는 알약)
+      await expect(line).not.toHaveAccessibleName(/0\.0초/);
     } finally {
       await ui(win).model.click();
       await ui(win).menu.getByRole('radiogroup', { name: '생각 깊이' }).getByRole('radio', { name: '끄기', exact: true }).click();

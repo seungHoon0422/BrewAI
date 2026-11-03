@@ -1,11 +1,12 @@
 import { useId, useMemo, useState } from 'react';
-import { Avatar, Badge, Chip, Input } from '@brewai/ui';
+import { Badge, Chip, Input } from '@brewai/ui';
 import type { Load } from '../../../shared/load';
 import { PRESET_CATEGORIES, type McpPreset, type PresetCategory } from '../api';
 import { PRESET_COPY as C } from '../copy';
+import { ServerIcon } from './ServerIcon';
 
 // 추천 서버 = 서버 추가 대화상자 위의 빠른 선택 (conductor GET /api/admin/mcp/presets).
-// 줄 = 머리글자 · 이름 · 한 줄 설명 · 로그인 배지. 누르면 onPick (칸만 채움 · 추가는 사람이). 못 씀 · 추가됨 = 누를 수 없음 + 이유
+// 줄 = 서비스 아이콘 (conductor 가 받아 둔 사이트 그림 · 못 쓰는 서버 = 받지 않고 첫 글자) · 이름 · 한 줄 설명 · 로그인 배지. 누르면 onPick (칸만 채움 · 추가는 사람이). 못 씀 · 추가됨 = 누를 수 없음 + 이유
 // 12개 넘으면 찾기 + 분류 칩. 순서 = 쓸 수 있는 것 → 추가됨 → 못 씀 (파일 순서 유지)
 const FILTER_FROM = 12;
 const rank = (p: McpPreset) => (!p.available ? 2 : p.added ? 1 : 0);
@@ -62,7 +63,7 @@ export function PresetPicker({ load, pickedId, onPick }: {
             <li key={p.id}>
               <button type="button" className="mcp-preset" disabled={!p.available || p.added} aria-pressed={p.id === pickedId}
                 data-state={!p.available ? 'off' : p.added ? 'added' : undefined} onClick={() => onPick(p)}>
-                <span aria-hidden="true" className="mcp-preset-mark"><Avatar name={p.vendor} size="sm" /></span>
+                <span aria-hidden="true" className="mcp-preset-mark"><ServerIcon preset={p.available ? p.id : null} name={p.vendor} /></span>
                 <span className="mcp-preset-body">
                   <span className="mcp-preset-top">
                     <b className="mcp-preset-name">{p.name}</b>

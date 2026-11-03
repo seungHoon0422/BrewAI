@@ -18,6 +18,9 @@
   GET    /api/me/settings · PATCH {auto_auth: unset|on|off}   {auto_auth, auto_auth_asked} ('필요할 때 바로 로그인 화면 열기')
   GET    /api/me/mcp/presets                         {presets: [Preset + added]} 추천 서버 (connectors/presets.json · 읽기 전용 · 비밀값 없음)
                                                      added = 내 목록에 같은 주소(정규화)가 있다 · admin_only = 여기선 available false
+  GET    /api/me/mcp/servers/{id}/icon               200 그림 (png · ico · webp · gif · jpeg · 64KB 까지) | 204 없음 (화면 = 머리글자)
+  GET    /api/me/mcp/presets/{id}/icon               같은 모양 · 볼 수 있는 서버 · 쓸 수 있는 추천 서버만 (connectors/icons.py · 서버 사이트의 favicon 을
+                                                     conductor 가 받아 캐시 · 데스크톱은 우리 API 만 부른다). 사용자 서버 = 주소 허용 목록 밖이면 204
 공개
   GET    /api/mcp/oauth/callback                     ?state&code&iss&error → 302 http://127.0.0.1:{port}/cb?code=bwm_… | ?error=<code>
                                                      흐름 없음 · 만료 · 이미 씀 = 400 안내 페이지. ds 는 붙지 않는다 (conductor 가 complete 에서 확인)
@@ -35,17 +38,25 @@
   PATCH  /api/admin/mcp/user-servers/{id}            {status: active|disabled} → AdminServer
   GET    /api/admin/mcp/policy · PATCH               {allow_user_servers, url_allowlist: ['linear.app', '*.example.com']}
   GET    /api/admin/mcp/presets                      {presets: [Preset + added]} added = 전체 공통 서버에 같은 주소가 있다
+  GET    /api/admin/mcp/servers/{id}/icon · /api/admin/mcp/presets/{id}/icon   200 그림 | 204 (사용자 경로와 같은 캐시)
 App        = {id, handle, name, url, domain, issuer_domain, description, aliases, auth (oauth|none), origin (admin|user), source (install|own|imported),
               status (active|disabled|error), connection (none|connected|expired|needs_login), hidden, share_lost,
               blocked (null|user_servers_disabled|url_not_allowed = 관리자 정책이 지금 막은 사용자 서버), usable,
-              tool_count, tool_tokens_est, last_used_at, can_manage}
-Importable = {id, name, url, domain, issuer_domain, description, auth, tool_count, owner_name, via: [{scope_kind, scope_id, path: [{kind, id, name}]}]}
+              tool_count, tool_tokens_est, last_used_at, can_manage, category (docs|search|dev|work|data|design|pay|other = 화면 묶음 · presets.Kinds)}
+Importable = {id, name, url, domain, issuer_domain, description, auth, tool_count, owner_name, category,
+              via: [{scope_kind, scope_id, path: [{kind, id, name}]}]}
 사용자 서버 규칙 (사용자 결정 · ADR-0013 '공유되는 건 정의뿐'): 주소 query 에 비밀값처럼 보이는 칸(?api_key= · ?token= …) = 422 url_has_secret
   · OAuth 로그인 서버가 서버와 다른 사이트 = 422 issuer_foreign (남의 issuer 토큰을 이 서버에 보내지 않게 · 관리자 서버는 예외)
   · 주소 허용 목록은 바깥으로 요청을 보내기 전에 본다 (미리 확인 · 추가) · 추가 뒤에 바뀐 정책도 목록 · 대화 · 연결에서 (blocked)
 Preview    = {url, domain, name, handle, auth, issuer, issuer_domain, resource, tool_count (OAuth = 로그인 전이라 null), write_count, tokens_est,
               prompt_line, prompt_tokens}
 감사 = mcp.server.add · remove · share · unshare · import · disable (여기) · mcp.connect · disconnect (connectors/oauth.py). 토큰 값은 응답 · 로그에 0.
+주소 가리기 = 응답의 url · issuer · resource 는 모두 ssrf.redact_url (query 값 · '=' 없는 query 조각 · 키처럼 보이는 경로 칸 · ';' 값 ·
+  userinfo → ***). 관리자 서버 주소의 키(?tavilyApiKey=… · /s/<키>/mcp)가 사용자 응답 · 화면으로 새지 않게 · 관리자 화면도 가린다 (주소는 아무도 못 고친다 = 원래 값이 필요한 화면이 없다). 호출은 저장한 원래 주소로.
+  관리자 응답의 url_redacted = 가린 칸이 있다 (화면 안내용).
+같은 주소 = 목록에선 전체 공통 하나만 (connectors/catalog.py _merge_twins). 서버 하나를 다루는 API(추가 · 가져오기 · 연결 · 시험)는 그 서버의 줄
+  그대로 + merged_into (합쳐졌으면 공통 서버 id) — 사용자 서버 검사(로그인 사이트 · 사전 등록 client)가 공통 서버 것으로 바뀌지 않게.
+  연결 상태 · 인증정보(resource)는 목록과 같은 줄에서 (live_app: 자세히 · 시험 · 연결 · 끊기 · scope 올리기 = 목록이 '연결됨'이면 여기도).
 """
 
 from __future__ import annotations
@@ -67,7 +78,9 @@ from .auth.policy import Actor, Denied, McpServerFacts, McpShareFacts
 from .connectors import ssrf
 from .connectors.catalog import App, app_line, clean_name, domain_of, make_handle, valid_handle
 from .connectors.client import McpError, NameMap, NeedsAuth, Tool, ToolCache, estimate_tokens
+from .connectors.icons import Icon
 from .connectors.oauth import CALLBACK_PATH, OAuthError
+from .connectors.presets import Kinds, Preset
 from .connectors.presets import load as load_presets
 from .connectors.session import Connectors
 from . import scopes
@@ -174,7 +187,7 @@ class PolicyPatch(_In):
 
 def app_out(a: App) -> dict[str, Any]:
     return {
-        "id": a.server_id, "handle": a.handle, "name": a.name, "url": a.url, "domain": a.domain, "issuer_domain": a.issuer_domain,
+        "id": a.server_id, "handle": a.handle, "name": a.name, "url": ssrf.redact_url(a.url), "domain": a.domain, "issuer_domain": a.issuer_domain,
         "description": a.description, "aliases": list(a.aliases), "auth": a.auth, "origin": a.origin, "source": a.source, "status": a.status,
         "connection": a.connection, "hidden": a.hidden, "share_lost": a.share_lost, "blocked": a.blocked, "usable": a.usable,
         "tool_count": a.tool_count, "tool_tokens_est": a.tool_tokens_est, "last_used_at": a.last_used_at, "can_manage": a.source == "own",
@@ -210,6 +223,16 @@ def _tool_out(t: Tool, handle: str, names: NameMap, pol: dict[str, Any] | None =
     }
 
 
+def _icon_response(icon: Icon | None) -> Response:
+    """그림 그대로 (형식 = 바이트로 본 것 · nosniff · 스크립트 없는 CSP) · 없음 = 204. 사람마다 다르지 않지만 로그인 뒤 경로라 private."""
+    if icon is None:
+        return Response(status_code=204, headers={"cache-control": "private, max-age=3600"})
+    return Response(icon.body, media_type=icon.content_type, headers={
+        "cache-control": "private, max-age=86400", "x-content-type-options": "nosniff",
+        "content-security-policy": "default-src 'none'; sandbox", "content-disposition": "inline",
+    })
+
+
 def _url_error(code: str) -> Denied:
     if code == "bad_url":
         return Denied(422, "bad_url")
@@ -237,6 +260,14 @@ def register(public: APIRouter, user: APIRouter, admin: APIRouter, *, settings: 
     cat = svc.catalog
     presets = load_presets(settings.mcp_presets_path)
 
+    def canon_or_none(url: str) -> str | None:
+        try:
+            return ssrf.canonical_url(url, allow_loopback=svc.allow_loopback)
+        except ssrf.Blocked:
+            return None
+
+    kinds = Kinds(presets, canon_or_none)
+
     # ── 공용 ──
     def facts_or_404(server_id: str, user_id: str) -> tuple[Any, McpServerFacts]:
         found = cat.server_facts(server_id, user_id)
@@ -245,10 +276,32 @@ def register(public: APIRouter, user: APIRouter, admin: APIRouter, *, settings: 
         return found
 
     def my_app(user_id: str, server_id: str) -> App | None:
+        """그 서버의 내 줄 (같은 주소의 전체 공통 줄로 합쳐져 목록엔 안 보이는 내 줄도 · 줄마다 그대로)."""
+        return next((a for a in cat.apps(user_id, merge=False) if a.server_id == server_id), None)
+
+    def shown_app(user_id: str, server_id: str) -> App | None:
+        """내 목록에 보이는 그 줄 (합쳐진 공통 줄 = 내 줄의 인증정보를 빌려 쓰고 있을 수 있다)."""
         return next((a for a in cat.apps(user_id) if a.server_id == server_id), None)
 
+    def live_app(user_id: str, server_id: str) -> App | None:
+        """서버 하나를 다루는 API 가 연결 상태 · 인증정보(resource)를 읽는 줄 = 목록 · 대화와 같은 것 (합쳐진 공통 줄이면 빌린 인증정보).
+        목록에 안 보이는 줄(같은 주소의 공통 줄로 합쳐진 내 줄 · 숨김 줄은 목록에 있다)은 그 줄 그대로."""
+        return shown_app(user_id, server_id) or my_app(user_id, server_id)
+
+    def kind_of(server_id: str, url: str, words: list[str]) -> str:
+        """화면 묶음 (presets.Kinds · 도구 이름은 다른 길로 못 정할 때만 캐시에서)."""
+        return kinds.of(url, words, lambda: [t.name for t in latest_tools(server_id)[0]])
+
+    def app_json(a: App) -> dict[str, Any]:
+        return app_out(a) | {"category": kind_of(a.server_id, a.url, [a.name, a.handle, a.domain, *a.aliases])}
+
+    def mine_out(user_id: str, a: App) -> dict[str, Any]:
+        """한 서버를 다룬 응답 = 그 줄 + merged_into (같은 주소의 전체 공통 앱으로 합쳐져 목록엔 그 공통 앱만 보인다 · 화면 안내용)."""
+        twin = cat.merged_into(user_id, a)
+        return app_json(a) | {"merged_into": twin.server_id if twin is not None else None}
+
     def app_or_404(user_id: str, server_id: str) -> App:
-        a = my_app(user_id, server_id)
+        a = live_app(user_id, server_id)
         if a is None:
             raise Denied(404, "mcp_server_not_found")
         return a
@@ -312,7 +365,8 @@ def register(public: APIRouter, user: APIRouter, admin: APIRouter, *, settings: 
         }
 
     def public_preview(p: dict[str, Any]) -> dict[str, Any]:
-        return {k: v for k, v in p.items() if not k.startswith("_")}
+        out = {k: v for k, v in p.items() if not k.startswith("_")}
+        return out | {k: ssrf.redact_url(out[k]) for k in ("url", "resource", "issuer") if out.get(k)}
 
     def target_facts(user_id: str, body: ShareIn) -> McpShareFacts:
         if body.scope_kind not in USER_SHARE_KINDS:
@@ -369,10 +423,11 @@ def register(public: APIRouter, user: APIRouter, admin: APIRouter, *, settings: 
     async def my_servers(p: Principal = Depends(require_user)) -> dict[str, Any]:
         pol = cat.settings()
         return {
-            "mine": [app_out(a) for a in cat.apps(p.user_id)],
+            "mine": [app_json(a) for a in cat.apps(p.user_id)],
             "importable": [
-                {"id": i.server_id, "name": i.name, "url": i.url, "domain": i.domain, "issuer_domain": i.issuer_domain,
-                 "description": i.description, "auth": i.auth, "tool_count": i.tool_count, "owner_name": i.owner_name, "via": list(i.via)}
+                {"id": i.server_id, "name": i.name, "url": ssrf.redact_url(i.url), "domain": i.domain, "issuer_domain": i.issuer_domain,
+                 "description": i.description, "auth": i.auth, "tool_count": i.tool_count, "owner_name": i.owner_name, "via": list(i.via),
+                 "category": kind_of(i.server_id, i.url, [i.name, i.domain])}
                 for i in cat.importable(p.user_id)
             ],
             "auto_auth": cat.auto_auth(p.user_id), "allow_user_servers": pol["allow_user_servers"], "vault_ready": svc.vault is not None,
@@ -415,18 +470,18 @@ def register(public: APIRouter, user: APIRouter, admin: APIRouter, *, settings: 
         if body.share is not None:
             cat.share(sid, body.share.scope_kind, body.share.scope_id, shared_by=p.user_id)
             audit(request, "mcp.server.share", p.user_id, sid, {"scope_kind": body.share.scope_kind, "scope_id": body.share.scope_id})
-        return app_out(app_or_404(p.user_id, sid)) | {"preview": public_preview(out)}
+        return mine_out(p.user_id, app_or_404(p.user_id, sid)) | {"preview": public_preview(out)}
 
     @user.get("/api/me/mcp/servers/{server_id}")
     async def my_server(server_id: str, p: Principal = Depends(require_user)) -> dict[str, Any]:
         row, facts = facts_or_404(server_id, p.user_id)
         policy.require_mcp_view(p.actor, facts)
-        a = my_app(p.user_id, server_id) or _row_app(row)
+        a = live_app(p.user_id, server_id) or _row_app(row)  # 연결 상태 = 목록과 같게 (합쳐진 공통 줄이 내 로그인을 빌려 쓰면 '연결됨')
         tools, fetched = latest_tools(server_id, svc.user_key(row, p.user_id))
         names = NameMap.of(a.handle, [t.name for t in tools])
         pol = cat.tool_policy(server_id)
-        out = app_out(a) | _line(a) | {
-            "listed": my_app(p.user_id, server_id) is not None,
+        out = app_json(a) | _line(a) | {
+            "listed": shown_app(p.user_id, server_id) is not None,
             "tools": [_tool_out(t, a.handle, names, pol.get(t.name)) for t in tools if pol.get(t.name, {}).get("mode") != "hidden"],
             "tools_fetched_at": fetched,
         }
@@ -458,7 +513,7 @@ def register(public: APIRouter, user: APIRouter, admin: APIRouter, *, settings: 
             cat.set_my_handle(p.user_id, server_id, body.handle, source=a.source)
         if a is not None and "hidden" in fields and body.hidden is not None:
             cat.set_hidden(p.user_id, server_id, body.hidden, source=a.source)
-        return app_out(app_or_404(p.user_id, server_id))
+        return mine_out(p.user_id, app_or_404(p.user_id, server_id))
 
     @user.delete("/api/me/mcp/servers/{server_id}", status_code=204)
     async def delete_server(request: Request, server_id: str, p: Principal = Depends(require_user)) -> Response:
@@ -508,7 +563,7 @@ def register(public: APIRouter, user: APIRouter, admin: APIRouter, *, settings: 
             raise Denied(422, "bad_handle")
         cat.import_server(p.user_id, server_id, handle=handle)
         audit(request, "mcp.server.import", p.user_id, server_id)
-        return app_out(app_or_404(p.user_id, server_id))
+        return mine_out(p.user_id, app_or_404(p.user_id, server_id))
 
     @user.post("/api/me/mcp/servers/{server_id}/connect/start")
     async def connect_start(request: Request, server_id: str, body: StartIn, p: Principal = Depends(require_user)) -> dict[str, Any]:
@@ -517,7 +572,8 @@ def register(public: APIRouter, user: APIRouter, admin: APIRouter, *, settings: 
         if not DS_RE.match(body.ds):
             raise Denied(400, "bad_request")
         throttle(request, f"mcp_connect:{p.user_id}")
-        scope = svc.oauth.step_up_scope(p.user_id, row["resource"], body.scope) if body.scope else None
+        shown = live_app(p.user_id, server_id)  # 합쳐진 공통 줄이 빌려 쓰는 내 인증정보 = 그 resource 의 scope 를 올린다
+        scope = svc.oauth.step_up_scope(p.user_id, shown.resource if shown else row["resource"], body.scope) if body.scope else None
         # 토큰 없이 한 번 = 401 WWW-Authenticate 의 resource_metadata (PRM 을 그 헤더로만 알리는 서버 · MCP 규칙)
         try:
             hint = (await svc.mcp.probe(row["url"])).resource_metadata
@@ -543,14 +599,16 @@ def register(public: APIRouter, user: APIRouter, admin: APIRouter, *, settings: 
         except OAuthError as e:
             raise Denied(503 if e.code == "vault_missing" else 400, e.code) from None
         await svc.prefetch(p.user_id, done.server_id)  # 대화가 처음 쓸 때 왕복 -1 (실패해도 그만)
-        a = my_app(p.user_id, done.server_id) or app_or_404(p.user_id, server_id)
-        return app_out(a)
+        a = live_app(p.user_id, done.server_id) or app_or_404(p.user_id, server_id)
+        return mine_out(p.user_id, a)
 
     @user.delete("/api/me/mcp/servers/{server_id}/connection", status_code=204)
     async def disconnect(request: Request, server_id: str, p: Principal = Depends(require_user)) -> Response:
         row, facts = facts_or_404(server_id, p.user_id)
         policy.require_mcp_view(p.actor, facts)
-        if not await svc.oauth.disconnect(p.user_id, row["resource"], server_id=server_id, ip=client_ip(request)):
+        shown = live_app(p.user_id, server_id)  # 합쳐진 공통 줄이 내 줄의 인증정보를 쓰고 있으면 그 resource
+        resource = shown.resource if shown is not None else row["resource"]
+        if not await svc.oauth.disconnect(p.user_id, resource, server_id=server_id, ip=client_ip(request)):
             raise Denied(404, "not_connected")
         return Response(status_code=204)
 
@@ -558,7 +616,7 @@ def register(public: APIRouter, user: APIRouter, admin: APIRouter, *, settings: 
     async def test_mine(request: Request, server_id: str, p: Principal = Depends(require_user)) -> dict[str, Any]:
         _, facts = facts_or_404(server_id, p.user_id)
         policy.require_mcp_view(p.actor, facts)
-        a = app_or_404(p.user_id, server_id)
+        a = app_or_404(p.user_id, server_id)  # 목록과 같은 인증정보 (합쳐진 공통 줄 = 빌린 내 로그인)
         throttle(request, f"mcp_probe:{p.user_id}")
         out: dict[str, Any] = {"ok": False, "auth": a.auth, "connection": a.connection, "tool_count": None, "write_count": None,
                                "tokens_est": None, "code": None}
@@ -572,7 +630,32 @@ def register(public: APIRouter, user: APIRouter, admin: APIRouter, *, settings: 
         except OAuthError as e:
             return out | {"code": f"oauth_{e.code}"}
         return out | {"ok": True, "tool_count": len(tools), "write_count": sum(t.write for t in tools),
-                      "tokens_est": sum(t.tokens_est for t in tools), "connection": my_app(p.user_id, server_id).connection}  # type: ignore[union-attr]
+                      "tokens_est": sum(t.tokens_est for t in tools), "connection": (live_app(p.user_id, server_id) or a).connection}
+
+    def preset_or_404(preset_id: str) -> Preset:
+        found = next((pr for pr in presets if pr.id == preset_id), None)
+        if found is None:
+            raise Denied(404, "preset_not_found")
+        return found
+
+    @user.get("/api/me/mcp/servers/{server_id}/icon")
+    async def my_server_icon(server_id: str, p: Principal = Depends(require_user)) -> Response:
+        row, facts = facts_or_404(server_id, p.user_id)
+        policy.require_mcp_view(p.actor, facts)  # 볼 수 있는 서버만 = 아무 주소나 대신 받아 주는 길이 아니다
+        if row["status"] == "disabled":
+            return _icon_response(None)  # 관리자가 끈 서버 = 바깥으로 0번
+        if row["origin"] != "user":
+            return _icon_response(await svc.icons.icon(row["url"]))
+        if facts.blocked is not None:
+            return _icon_response(None)  # 관리자 정책이 지금 막은 사용자 서버 (사용자 서버 끔 · 주소 허용 목록 밖) = 바깥으로 0번
+        return _icon_response(await svc.icons.icon(row["url"], allowed=url_allowed))  # 사이트 첫 화면 · 아이콘 주소도 허용 목록 안만
+
+    @user.get("/api/me/mcp/presets/{preset_id}/icon")
+    async def my_preset_icon(preset_id: str, p: Principal = Depends(require_user)) -> Response:
+        pr = preset_or_404(preset_id)
+        if not pr.available or not cat.settings()["allow_user_servers"] or not url_allowed(pr.url):
+            return _icon_response(None)  # 사용자가 추가할 수 없는 추천 = 받지 않는다 (추가 창도 안 열린다)
+        return _icon_response(await svc.icons.icon(pr.url, allowed=url_allowed))
 
     @user.get("/api/me/settings")
     async def my_settings(p: Principal = Depends(require_user)) -> dict[str, Any]:
@@ -620,13 +703,15 @@ def register(public: APIRouter, user: APIRouter, admin: APIRouter, *, settings: 
         a = _row_app(row)
         tools, fetched = latest_tools(row["id"])
         return {
-            "id": row["id"], "handle": row["handle"], "name": row["name"], "url": row["url"], "domain": domain_of(row["url"]),
+            "id": row["id"], "handle": row["handle"], "name": row["name"], "url": ssrf.redact_url(row["url"]),
+            "url_redacted": ssrf.redact_url(row["url"]) != row["url"], "domain": domain_of(row["url"]),
             "description": row["description"], "aliases": list(a.aliases), "auth": row["auth"], "origin": row["origin"],
-            "owner_user_id": row["owner_user_id"], "issuer": row["issuer"], "issuer_domain": domain_of(row["issuer"]) if row["issuer"] else None,
+            "owner_user_id": row["owner_user_id"], "issuer": ssrf.redact_url(row["issuer"]) if row["issuer"] else None, "issuer_domain": domain_of(row["issuer"]) if row["issuer"] else None,
             "status": row["status"], "tool_count": row["tool_count"], "tool_tokens_est": row["tool_tokens_est"],
             "write_count": sum(t.write for t in tools) if tools else None, "tools_fetched_at": fetched,
             "connected_count": cat.connected_count(row["resource"]), "last_error": row["last_error"], "last_checked_at": row["last_checked_at"],
             "created_at": row["created_at"], "updated_at": row["updated_at"], "oauth_client": oauth_client(row["issuer"]), **_line(a),
+            "category": kind_of(row["id"], row["url"], [a.name, a.handle, a.domain, *a.aliases]),
         }
 
     def server_or_404(server_id: str, origin: str | None = None) -> Any:
@@ -778,6 +863,15 @@ def register(public: APIRouter, user: APIRouter, admin: APIRouter, *, settings: 
     async def admin_presets() -> dict[str, Any]:
         rows = svc.store.query("SELECT url FROM mcp_servers WHERE origin = 'admin'")
         return presets_out({r["url"] for r in rows}, admin=True)
+
+    @admin.get("/api/admin/mcp/servers/{server_id}/icon")
+    async def admin_server_icon(server_id: str) -> Response:
+        return _icon_response(await svc.icons.icon(server_or_404(server_id)["url"]))
+
+    @admin.get("/api/admin/mcp/presets/{preset_id}/icon")
+    async def admin_preset_icon(preset_id: str) -> Response:
+        pr = preset_or_404(preset_id)
+        return _icon_response(await svc.icons.icon(pr.url) if pr.available else None)
 
     @admin.get("/api/admin/mcp/policy")
     async def admin_policy() -> dict[str, Any]:

@@ -60,9 +60,17 @@ export const PICKER = {
   fellBack: (label: string) => `${label} 모델을 더 이상 쓸 수 없어서 기본 모델로 바꿨어요`,
 } as const;
 
+// 도구를 못 쓰는 모델 (supports_tools false = 이 모델로는 앱 · 스킬이 안 실린다). 사용자 말로만 (고치는 곳은 관리자 콘솔이 안내)
+export const NO_TOOLS = {
+  row: '앱과 스킬 없이 답해요', // E2E: 메뉴 줄 아래 옅은 글 .mnotools
+  long: '이 모델로는 앱과 스킬을 쓸 수 없어요', // E2E: 툴팁 · 화면 읽기 이름 · 모델 버튼 툴팁
+};
+
 // 이름 · 실패 이유 (툴팁 · 화면 읽기 프로그램 이름). 게이트웨이 id 는 쓰지 않는다
-export const failNote = (m: Model) => (m.health === 'error' ? `, 최근 연결 실패 (${healthShort(m.health_code)})` : '');
+export const failNote = (m: Model) =>
+  (m.health === 'error' ? `, 최근 연결 실패 (${healthShort(m.health_code)})` : '') + (m.supports_tools ? '' : `, ${NO_TOOLS.long}`);
 export const buttonTip = (m: Model, provider: string) =>
-  `${m.label}, ${provider}` + (m.health === 'error' ? `, 최근 연결에 실패했어요 (${healthShort(m.health_code)})` : '');
+  `${m.label}, ${provider}` + (m.health === 'error' ? `, 최근 연결에 실패했어요 (${healthShort(m.health_code)})` : '')
+  + (m.supports_tools ? '' : `, ${NO_TOOLS.long}`);
 // 메뉴 한 줄 툴팁: 이름이 겹치면 등록한 곳으로 가른다 · 실패면 이유
 export const rowTip = (m: Model, dup: boolean) => `${m.label}${dup ? ` (${sourceOf(m)})` : ''}${failNote(m)}`;

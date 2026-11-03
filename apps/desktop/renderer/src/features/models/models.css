@@ -34,6 +34,10 @@
 .mopt[data-active]{background:var(--surface-hover)}
 .mopt .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-base)}
 .mopt .hit{font-weight:var(--fw-semibold)}
+/* 도구를 못 쓰는 모델 = 이름 아래 옅은 한 줄 (앱과 스킬 없이 답해요) */
+.mopt .nmw{flex:1;min-width:0;display:flex;flex-direction:column;padding:var(--space-1) 0}
+.mopt .nmw .nm{flex:none}
+.mopt .mnotools{font-size:var(--fs-xs);line-height:var(--lh-tight);color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mopt .chk{width:var(--icon-sm);display:grid;place-items:center;flex:none;color:var(--text)}
 
 /* 생각 깊이 (ui-segmented 모양) */

@@ -12,6 +12,13 @@ async function launch(apiUrl = API) {
   return { app, win };
 }
 
+// copy.ts 는 돌릴 때만 읽는다 (chat-think.spec 의 trace 와 같은 이유 · e2e tsc 가 renderer 경로를 안 읽는다)
+const COPY_MODULE = '../apps/desktop/renderer/src/features/chat/copy';
+type CopyMod = {
+  failureCopy: (detail: string | null, reasoning: string) => { text: string; hint: string; reasoningOff?: boolean } | undefined;
+  modelNames: (label: string, id: string) => string[];
+};
+
 const ui = (win: Page) => ({
   box: win.getByRole('textbox', { name: '요청 입력' }),
   send: win.getByRole('button', { name: '보내기', exact: true }), // exact: 사이드바 최근(대화 제목)과 안 겹치게
@@ -85,18 +92,19 @@ test.describe('conductor 켜짐', () => {
     await expect(alert).toHaveAttribute('data-detail', 'provider_key_missing', { timeout: 15_000 });
     await expect(alert.locator('.ftxt')).toHaveText('이 모델의 API 키가 설정돼 있지 않아요');
     await expect(alert.locator('.fhint')).toContainText('LiteLLM 관리 화면 › Models › 이 모델의 Credential 키 확인');
-    await expect(alert.locator('.fmodel span')).toHaveText(['fake-chat-small', 'fake-chat-small']); // 어느 모델인지 (이름 · 게이트웨이 id 칸 나눔)
+    await expect(alert.locator('.fmodel span')).toHaveText(['fake-chat-small']); // 어느 모델인지 (이름 = 게이트웨이 id 면 한 번만)
     await expect(alert).not.toContainText('Missing'); // provider 문구는 화면에 안 온다 (conductor 로그에만)
     await expect(alert.getByRole('button', { name: '생각 끄고 다시' })).toHaveCount(0); // 키 문제 = 생각과 무관
     await win.screenshot({ path: shot('desktop-error-hint'), animations: 'disabled' });
   });
 
-  test('실패 종류마다 다른 안내 (키 틀림 · 게이트웨이 키 · 모델 이름 · 생각 설정)', async () => {
+  test('실패 종류마다 다른 안내 (키 틀림 · 게이트웨이 키 · 모델 이름 · 생각 끔인데 생각 오류 문구)', async () => {
+    // 생각 끔 = 생각 칸을 안 보냈다 → provider 문구에 thinking 이 있어도 '생각 설정 거절'이 아니다 (diagnose.py) · '생각 끄고 다시' 없음
     const cases = [
       ['[fake:key-invalid]', 'provider_key_invalid', '이 모델의 API 키가 틀렸거나 권한이 없어요', 'Credential 키 확인'],
       ['[fake:gateway-key]', 'gateway_key_invalid', '게이트웨이 키가 맞지 않아요', 'LLM_GATEWAY_KEY'],
       ['[fake:model-404]', 'provider_model_not_found', '모델 이름이 provider 에 없어요', 'LiteLLM 모델 이름 확인'],
-      ['[fake:reasoning-400]', 'reasoning_unsupported', '이 모델이 생각 깊이 설정을 받지 않아요', '생각 깊이를 끄기로 바꾸고 다시'],
+      ['[fake:reasoning-400]', 'provider_bad_request', '모델이 요청을 거절했어요', '다시 해 보고, 계속되면 다른 모델로'],
     ] as const;
     for (const [mark, detail, text, hint] of cases) {
       await ask(win, `${mark} 실패 종류`);
@@ -104,11 +112,51 @@ test.describe('conductor 켜짐', () => {
       await expect(alert).toHaveAttribute('data-detail', detail, { timeout: 15_000 });
       await expect(alert.locator('.ftxt')).toHaveText(text);
       await expect(alert.locator('.fhint')).toContainText(hint);
+      await expect(alert.getByRole('button', { name: '생각 끄고 다시' })).toHaveCount(0); // 생각 끔 = 끄라고 하지 않는다
       await expect(ui(win).log.locator('p.msg.note').last()).not.toHaveText(''); // 앞 실패는 한 줄로 남는다
     }
     // 진행 상황 목록엔 짧은 이유
     const runs = await (await userApi()).get<{ error_code: string | null }[]>('/api/runs');
     expect(runs.slice(0, 4).map((r) => r.error_code)).toEqual(['provider_rejected', 'provider_rejected', 'gateway_auth_failed', 'provider_auth_failed']);
+  });
+
+  test('생각을 켠 실행의 생각 설정 거절 = 그 안내 + "생각 끄고 다시" → 끈 실행은 생각 탓으로 말하지 않는다', async () => {
+    const menu = win.getByRole('dialog', { name: '모델과 생각 깊이' });
+    await ui(win).model.click();
+    await menu.locator('[role="option"][data-model="fake-chat-large"]').click(); // 생각 되는 모델
+    await ui(win).model.click();
+    await menu.getByRole('radiogroup', { name: '생각 깊이' }).getByRole('radio', { name: '보통', exact: true }).click();
+    await win.keyboard.press('Escape');
+    try {
+      await ask(win, '[fake:reasoning-400] 생각 켜고');
+      const alert = ui(win).log.getByRole('alert');
+      await expect(alert).toHaveAttribute('data-detail', 'reasoning_unsupported', { timeout: 15_000 });
+      await expect(alert.locator('.ftxt')).toHaveText('이 모델이 생각 깊이 설정을 받지 않아요');
+      await expect(alert.locator('.fhint')).toHaveText('생각 깊이를 끄기로 바꾸고 다시 시도해 주세요');
+      await expect(alert.locator('.fmodel span')).toHaveCount(1); // 이름 = id (mock) = 한 번만
+      await alert.getByRole('button', { name: '생각 끄고 다시' }).click();
+      // 끄고 다시 = 생각 칸 없이 같은 질문 → mock 은 같은 문구로 또 거절 = 이번엔 일반 거절 (생각 탓 아님 · 단추 없음)
+      await expect(alert).toHaveAttribute('data-detail', 'provider_bad_request', { timeout: 15_000 });
+      await expect(alert.locator('.ftxt')).toHaveText('모델이 요청을 거절했어요');
+      await expect(alert.getByRole('button', { name: '생각 끄고 다시' })).toHaveCount(0);
+    } finally {
+      await ui(win).model.click();
+      await menu.getByRole('radiogroup', { name: '생각 깊이' }).getByRole('radio', { name: '끄기', exact: true }).click();
+      await menu.locator('[role="option"][data-model="fake-chat-small"]').click();
+    }
+    await expect(ui(win).model).toHaveText(/^fake-chat-small/); // 뒤 테스트 = 작은 모델 그대로 (앞 실패로 '최근 연결 실패' 표시가 붙어 있다)
+  });
+
+  test('실패 카드 문구 고르기: 생각 끔 + 생각 설정 거절 = 모델 설정 문제 (관리자에게) · 모델 이름은 겹치지 않게', async () => {
+    const { failureCopy, modelNames } = (await import(COPY_MODULE)) as CopyMod;
+    expect(failureCopy('reasoning_unsupported', 'off')).toEqual({ text: '모델 설정 문제로 거절됐어요', hint: '관리자에게 알려 주세요', reasoningOff: false });
+    expect(failureCopy('reasoning_unsupported', 'low')).toEqual({ text: '이 모델이 생각 깊이 설정을 받지 않아요', hint: '생각 깊이를 끄기로 바꾸고 다시 시도해 주세요', reasoningOff: true });
+    expect(failureCopy('provider_bad_request', 'off')?.reasoningOff).toBe(false);
+    expect(failureCopy('provider_key_missing', 'off')?.text).toBe('이 모델의 API 키가 설정돼 있지 않아요'); // 생각과 상관없는 것 = 그대로
+    expect(failureCopy('constructor', 'off')).toBeUndefined();
+    expect(modelNames('GPT-6 Luna', 'GPT-6 Luna')).toEqual(['GPT-6 Luna']);
+    expect(modelNames('GPT-6 Luna', 'gpt-6 luna ')).toEqual(['GPT-6 Luna']);
+    expect(modelNames('Claude Sonnet', 'claude-sonnet-5-5')).toEqual(['Claude Sonnet', 'claude-sonnet-5-5']);
   });
 
   test('답이 중간에 끊기면 받은 글은 남고 안내가 뜬다', async () => {

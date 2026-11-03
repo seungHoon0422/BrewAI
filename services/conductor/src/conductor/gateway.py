@@ -29,7 +29,11 @@ class GatewayModel:
     max_output_tokens: int | None
     input_cost_per_token: float | None
     output_cost_per_token: float | None
-    supports_function_calling: bool
+    # 도구 호출: True = LiteLLM 이 된다고 함 · False = LiteLLM 모델 정보(가격표 · Model Info)가 안 된다고 함 · None = 모름
+    #   (`/model_group/info` 는 모를 때도 false 를 준다 = ModelGroupInfo 기본값 → 안 된다는 말인지는 `/v1/model/info` 의 model_info 칸으로 가른다:
+    #    가격표에 있는 모델 · Model Info 에 적은 모델만 그 칸이 있다. Azure 사용자 배포 이름처럼 LiteLLM 이 모르는 모델 = 칸 없음 = None)
+    #   대화에 도구를 싣는 건 True 일 때만 (models.py · 그대로)
+    supports_function_calling: bool | None
     supports_vision: bool
     supports_reasoning: bool
     # 어디서 등록했나 (LiteLLM `/v1/model/info` model_info.db_model): config = config.yaml · ui = 관리 화면(DB) · mixed · None = 모름
@@ -78,7 +82,7 @@ def parse_model_group(item: dict[str, Any]) -> GatewayModel:
         max_output_tokens=_int(item.get("max_output_tokens")),
         input_cost_per_token=_float(item.get("input_cost_per_token")),
         output_cost_per_token=_float(item.get("output_cost_per_token")),
-        supports_function_calling=bool(item.get("supports_function_calling")),
+        supports_function_calling=True if item.get("supports_function_calling") is True else None,  # false = 아직 모름 (위 · _with_info)
         supports_vision=bool(item.get("supports_vision")),
         supports_reasoning=bool(item.get("supports_reasoning")),
         cache_read_input_token_cost=_price(item.get("cache_read_input_token_cost")),
@@ -123,6 +127,21 @@ def cache_prices_from_model_info(data: Any) -> dict[str, CachePrices]:
     return out
 
 
+def function_calling_from_model_info(data: Any) -> dict[str, bool]:
+    """LiteLLM `/v1/model/info` → {model_name: supports_function_calling} — model_info 에 그 칸이 bool 로 있는 모델만 (= LiteLLM 이 아는 값).
+    배포가 여럿이면 하나라도 True 면 True. 칸이 없는 모델 = 결과에 없음 (모름)."""
+    out: dict[str, bool] = {}
+    items = data.get("data") if isinstance(data, dict) else None
+    for d in items if isinstance(items, list) else ():
+        if not isinstance(d, dict) or not isinstance(d.get("model_name"), str):
+            continue
+        info = d.get("model_info") if isinstance(d.get("model_info"), dict) else {}
+        v = info.get("supports_function_calling")
+        if isinstance(v, bool):
+            out[d["model_name"]] = out.get(d["model_name"], False) or v
+    return out
+
+
 def _no_db(res: httpx2.Response) -> bool:
     """LiteLLM config-only 모드(DB 없음)는 틀린 키에 401 대신 400 {"error":{"type":"no_db_connection"}} 을 준다 (1.106.2 확인)."""
     if res.status_code != 400:
@@ -145,6 +164,7 @@ class LiteLLMCatalog:
         self._cache: tuple[float, list[GatewayModel]] | None = None
         self._sources_ok: dict[str, str] = {}  # 마지막으로 읽은 출처 — 한 번 못 읽어도 '알 수 없음'으로 깜빡이지 않게
         self._cache_ok: dict[str, CachePrices] = {}  # 마지막으로 읽은 캐시 가격 (같은 이유)
+        self._tools_ok: dict[str, bool] = {}  # 마지막으로 읽은 도구 호출 값 (같은 이유)
 
     async def list_models(self, *, fresh: bool = False) -> list[GatewayModel]:
         now = time.monotonic()
@@ -164,20 +184,22 @@ class LiteLLMCatalog:
             raise GatewayError("gateway_bad_response") from e
         info = await self._model_info()
         if info is None:
-            sources, cache = self._sources_ok, self._cache_ok  # 일시 오류 = 지난 값 그대로
+            sources, cache, tools = self._sources_ok, self._cache_ok, self._tools_ok  # 일시 오류 = 지난 값 그대로
         else:
-            sources, cache = sources_from_model_info(info), cache_prices_from_model_info(info)
-            self._sources_ok, self._cache_ok = sources, cache
-        if sources or cache:
-            models = [self._with_info(m, sources, cache) for m in models]
+            sources, cache, tools = sources_from_model_info(info), cache_prices_from_model_info(info), function_calling_from_model_info(info)
+            self._sources_ok, self._cache_ok, self._tools_ok = sources, cache, tools
+        if sources or cache or tools:
+            models = [self._with_info(m, sources, cache, tools) for m in models]
         self._cache = (now, models)
         return models
 
     @staticmethod
-    def _with_info(m: GatewayModel, sources: dict[str, str], cache: dict[str, CachePrices]) -> GatewayModel:
+    def _with_info(m: GatewayModel, sources: dict[str, str], cache: dict[str, CachePrices], tools: dict[str, bool] | None = None) -> GatewayModel:
         read, write = cache.get(m.id, (None, None))
+        known = (tools or {}).get(m.id)
         return replace(
             m, source=sources.get(m.id),
+            supports_function_calling=True if m.supports_function_calling or known else (False if known is False else None),
             cache_read_input_token_cost=m.cache_read_input_token_cost if m.cache_read_input_token_cost is not None else read,
             cache_creation_input_token_cost=m.cache_creation_input_token_cost if m.cache_creation_input_token_cost is not None else write,
         )

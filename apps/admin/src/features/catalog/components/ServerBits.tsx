@@ -2,6 +2,7 @@ import { Badge } from '@brewai/ui';
 import type { AdminServer, McpStatus } from '../api';
 import { AUTH_TEXT, MCP_COPY, ORIGIN_TEXT, STATUS_TEXT, type CatalogTab } from '../copy';
 import { serverHref } from '../route';
+import { ServerIcon } from './ServerIcon';
 
 // 표 · 자세히 페이지가 같이 쓰는 작은 조각 (상태 · 로그인 방식 · 이름 링크 · 쓰기 표시)
 const STATUS_TONE: Record<McpStatus, 'ok' | 'neutral' | 'danger'> = { active: 'ok', disabled: 'neutral', error: 'danger' };
@@ -30,12 +31,15 @@ export function AuthText({ s }: { s: Pick<AdminServer, 'auth' | 'issuer_domain' 
   );
 }
 
-// 이름 칸 = 이름(자세히 페이지 링크) / 부르는 이름(고정폭 · 옅게)
+// 이름 칸 = 서버 아이콘 (사이트 그림 · 없으면 첫 글자) + 이름(자세히 페이지 링크) / 부르는 이름(고정폭 · 옅게)
 export function ServerName({ s, from }: { s: AdminServer; from?: CatalogTab }) {
   return (
-    <span className="mcp-name">
-      <a className="mcp-link" href={serverHref(s.id, from)}><b className="ui-ell">{s.name}</b></a>
-      <code className="mcp-handle">{s.handle}</code>
+    <span className="mcp-name-cell">
+      <ServerIcon id={s.id} name={s.name} />
+      <span className="mcp-name">
+        <a className="mcp-link" href={serverHref(s.id, from)}><b className="ui-ell">{s.name}</b></a>
+        <code className="mcp-handle">{s.handle}</code>
+      </span>
     </span>
   );
 }

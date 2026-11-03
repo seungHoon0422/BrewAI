@@ -1,6 +1,6 @@
 // 보여 주기 부품 — 배지 · 칩 · 상태 점 · 아바타 · 키 · 카드 · 숫자 카드 · 알림 줄 · 키/값 · 빈 상태.
 // 색 규칙 (ADR-0012): 색 = 상태만. 배지 = 옅은 바탕 + 상태 글자색 · 점 = 6~8px. 강조 테두리 · 색 띠 · 색 면은 쓰지 않는다.
-import type { ComponentPropsWithRef, ElementType, HTMLAttributes, ReactNode } from 'react';
+import { useState, type ComponentPropsWithRef, type ElementType, type HTMLAttributes, type ReactNode } from 'react';
 import { cx, flag } from './cx';
 import { UI_COPY } from './copy';
 import { Icon, renderIcon, type IconLike } from './icons';
@@ -65,11 +65,26 @@ export function initialsOf(name: string): string {
 }
 
 // 아바타 = 무채색 하나 (색은 상태에만 · ADR-0012 — 사람마다 다른 색이면 노란 아바타가 경고처럼 읽힌다)
-export function Avatar({ name, src, size = 'md', className }: { name: string; src?: string; size?: 'xs' | 'sm' | 'md' | 'lg'; className?: string }) {
+// shape square = 앱 · 서비스 아이콘 (둥근 네모) · initials = 머리글자를 직접 (앱 = 첫 글자 하나) · decorative = 이름이 바로 옆에 있다
+// (화면 읽기 · title 없음). 그림이 깨지면 머리글자로 돌아간다
+export type AvatarProps = {
+  name: string;
+  src?: string;
+  size?: 'xs' | 'sm' | 'md' | 'lg';
+  shape?: 'circle' | 'square';
+  initials?: string;
+  decorative?: boolean;
+  className?: string;
+};
+
+export function Avatar({ name, src, size = 'md', shape = 'circle', initials, decorative, className }: AvatarProps) {
+  const [broken, setBroken] = useState<string | null>(null);
+  const img = !!src && broken !== src;
   return (
-    <span className={cx('ui-avatar', className)} data-size={size} title={name}>
-      {src ? <img src={src} alt="" /> : <span aria-hidden="true">{initialsOf(name)}</span>}
-      <span className="ui-sr">{name}</span>
+    <span className={cx('ui-avatar', className)} data-size={size} data-shape={shape === 'square' ? 'square' : undefined}
+      data-img={flag(img)} title={decorative ? undefined : name} aria-hidden={decorative || undefined}>
+      {img ? <img src={src} alt="" onError={() => setBroken(src)} /> : <span aria-hidden="true">{initials ?? initialsOf(name)}</span>}
+      {!decorative && <span className="ui-sr">{name}</span>}
     </span>
   );
 }
@@ -167,13 +182,13 @@ export type CalloutProps = {
   dismissLabel?: string;
   live?: boolean; // 나타날 때 읽어 준다 (danger = alert · 그 밖 = status)
   className?: string;
-};
+} & { [data: `data-${string}`]: string | undefined }; // data-* = 화면 · E2E 표식 (data-why …) 그대로 바깥 칸에
 
 const CALLOUT_ICON = { neutral: 'info', info: 'info', ok: 'check', warn: 'alert', danger: 'alert' } as const;
 
-export function Callout({ tone = 'neutral', icon, title, children, action, onDismiss, dismissLabel = UI_COPY.close, live, className }: CalloutProps) {
+export function Callout({ tone = 'neutral', icon, title, children, action, onDismiss, dismissLabel = UI_COPY.close, live, className, ...data }: CalloutProps) {
   return (
-    <div className={cx('ui-callout', className)} data-tone={tone} role={live ? (tone === 'danger' ? 'alert' : 'status') : undefined}>
+    <div {...data} className={cx('ui-callout', className)} data-tone={tone} role={live ? (tone === 'danger' ? 'alert' : 'status') : undefined}>
       {renderIcon(icon ?? CALLOUT_ICON[tone], 'sm')}
       <div className="ui-callout-main">
         {title && <p className="ui-callout-title">{title}</p>}

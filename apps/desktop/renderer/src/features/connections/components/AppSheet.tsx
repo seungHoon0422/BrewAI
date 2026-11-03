@@ -9,6 +9,7 @@ import { kindLabel } from '../../scope/model';
 import { disconnectApp, getApp, patchApp, removeApp, shareApp, testApp, unshareApp, type AppDetail } from '../api';
 import { CONNECTIONS, DETAIL, SOURCE_LABEL, STATE_LABEL, connError } from '../copy';
 import { STATE_DOT, bump, cancelConnect, connectApp, stateOf, useConnections, useShareTargets } from '../hooks';
+import { AppIcon } from './AppIcon';
 
 type Note = { tone: 'ok' | 'danger'; text: string } | null;
 
@@ -34,8 +35,11 @@ export function AppSheet({ id, onClose }: { id: string | null; onClose: () => vo
   }, [id, version]);
   const shown = app && app.id === id ? app : null;
   const listed = useConnections((s) => s.apps.data?.mine.find((a) => a.id === id) ?? null);
+  const name = shown?.name ?? listed?.name;
+  // 제목 = 앱 아이콘 + 이름 (아이콘은 장식 = 서랍 이름은 앱 이름 그대로)
+  const title = id && name ? <span className="app-sheet-title"><AppIcon server={id} name={name} />{name}</span> : DETAIL.loading;
   return (
-    <Sheet open={!!id} onClose={onClose} title={shown?.name ?? listed?.name ?? DETAIL.loading} description={shown?.domain ?? listed?.domain} className="app-sheet">
+    <Sheet open={!!id} onClose={onClose} title={title} description={shown?.domain ?? listed?.domain} className="app-sheet">
       {shown ? <Body a={shown} onGone={onClose} /> : error ? (
         <div className="app-detail">
           {/* 공유가 끊긴 앱은 정의를 더 못 본다 (404) — 내 목록에서 빼기만 */}

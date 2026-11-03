@@ -1,12 +1,15 @@
-// 생각 · 도구 상태 줄 한 칸 = 단계 훅(data-step) · 국면(data-phase) · 글. 진행 상황 화면도 같은 문구를 쓴다.
-// 답 상태 → 글 조각 (문구는 copy.ts). 결정적 — 시간과 상태로만 고른다.
+// 생각 · 도구 상태 줄 한 칸 = 단계 훅(data-step) · 국면(data-phase) · 모양(kind) · 글. 진행 상황 화면도 같은 문구를 쓴다.
+// 답 상태 → 글 조각 (문구는 copy.ts). 결정적 — 상태로만 고른다.
 // 끝난 줄 = 조각 여럿 ('3.2초 동안 생각함' · 'Exa 웹 검색 2회' · '1.4초'). 화면은 조각마다 칸을 나누고(가운뎃점 없음), text = 쉼표로 이은 한 줄.
+// 흐르는 줄 모양 (kind): waiting = 첫 이벤트 전 (점 셋) · thinking = 생각하는 중 (반짝임 + 글 위로 빛) · busy = 도구 · 팀 · 답 쓰기 (도구 · 팀 문구가 먼저)
 import { seconds } from '../../lib/format';
-import { READING_RESULT, TEAM, TRACE, WAITING_PHRASE, joinParts, parallelPhrase, stepPhrase } from './copy';
+import { READING_RESULT, TEAM, THINKING_PHRASE, TRACE, WAITING_PHRASE, joinParts, parallelPhrase, stepPhrase } from './copy';
 import { isLive, type Answer, type MemberStep, type ReasoningPart, type TeamMember, type ToolPart } from './model';
 
 export type TracePhase = 'live' | 'done' | 'stopped';
-export type Trace = { step: string; phase: TracePhase; parts: string[]; text: string };
+export type TraceKind = 'waiting' | 'thinking' | 'busy' | 'done' | 'stopped';
+// meta = 줄 끝 작은 글 (생각 글 없이 토큰만 온 답의 '생각 토큰 N') · text 에도 이어 붙인다 (화면 읽기 = 보이는 글 그대로)
+export type Trace = { step: string; phase: TracePhase; kind: TraceKind; parts: string[]; meta: string[]; text: string };
 
 const isTool = (p: Answer['parts'][number]): p is ToolPart => p.kind === 'tool';
 const isReasoning = (p: Answer['parts'][number]): p is ReasoningPart => p.kind === 'reasoning';
@@ -18,6 +21,8 @@ const hasThoughtText = (a: Answer) => a.parts.some((p) => isReasoning(p) && p.te
 // 생각을 했나 = 생각 글이 왔거나, 글은 없어도 생각 토큰이 있다
 export const thought = (a: Answer) => hasThoughtText(a) || (a.usage?.reasoning_tokens ?? 0) > 0;
 export const usedTools = (a: Answer) => a.parts.some(isTool);
+// 패널에 그릴 것이 있나 = 생각 글 · 도구 카드. 끝난 답에 없으면 줄을 펼치지 않는다 (빈 패널 · '생각 내용을 안 보냄' 한 줄 없음)
+export const hasPanel = (a: Answer) => thoughtParts(a).length > 0 || usedTools(a);
 // 생각 깊이를 켰는데 모델이 생각 없이 바로 답했다 (adaptive 모델이 쉬운 질문에서 건너뜀 · 생각 토큰 0) = 고장이 아니라 모델의 선택
 export const skippedThinking = (a: Answer) =>
   a.status === 'done' && a.reasoning !== 'off' && !thought(a) && a.usage?.reasoning_tokens === 0;
@@ -104,14 +109,31 @@ export function doneSummary(a: Answer, tools: Record<string, string> = {}): stri
   return [];
 }
 
-const one = (step: string, phase: TracePhase, text: string): Trace => ({ step, phase, parts: [text], text });
+// 끝난 답의 작은 글: 생각 글 없이 토큰만 = '생각 토큰 N' (N 을 모르면 없음)
+export function doneMeta(a: Answer): string[] {
+  const n = a.usage?.reasoning_tokens ?? 0;
+  return a.status === 'done' && !hasThoughtText(a) && n > 0 ? [TRACE.thinkTokens(n)] : [];
+}
 
-export function tracePhrase(a: Answer, now: number, tools: Record<string, string>, skills: Record<string, string> = {}): Trace {
+const one = (step: string, phase: TracePhase, text: string, kind: TraceKind = 'busy'): Trace => ({ step, phase, kind, parts: [text], meta: [], text });
+const stepKind = (name: string): TraceKind => (name === 'thinking' ? 'thinking' : 'busy');
+
+// 첫 단계 전: 생각을 켠 실행이 시작됐고(brewai.run) 답 글이 아직 없다 = 생각하는 중 (생각 글을 안 보내는 모델도 이 동안 생각한다)
+// 그 밖 (보내는 중 · 생각 끄기) = 응답을 기다리는 중
+function beforeSteps(a: Answer): Trace {
+  const streaming = a.parts.some((p) => isReasoning(p) && p.live);
+  const wrote = a.parts.some((p) => p.kind === 'text' && p.text !== '');
+  if (streaming || (a.status === 'running' && a.reasoning !== 'off' && !wrote)) return one('waiting', 'live', THINKING_PHRASE, 'thinking');
+  return one('waiting', 'live', WAITING_PHRASE, 'waiting');
+}
+
+export function tracePhrase(a: Answer, tools: Record<string, string>, skills: Record<string, string> = {}): Trace {
   if (!isLive(a)) {
-    const parts = a.status === 'done' ? doneSummary(a, tools) : [TRACE.stopped, seconds(a.durationMs)].filter(Boolean);
-    return { step: a.status === 'done' ? 'done' : 'stopped', phase: a.status === 'done' ? 'done' : 'stopped', parts, text: joinParts(parts) };
+    const done = a.status === 'done';
+    const parts = done ? doneSummary(a, tools) : [TRACE.stopped, seconds(a.durationMs)].filter(Boolean);
+    const meta = doneMeta(a);
+    return { step: done ? 'done' : 'stopped', phase: done ? 'done' : 'stopped', kind: done ? 'done' : 'stopped', parts, meta, text: joinParts([...parts, ...meta]) };
   }
-  const elapsed = now - a.startedAt;
   const step = a.steps.findLast((s) => s.status === 'running');
   // 팀: 맡기는 중 → 팀원 n명이 나눠서 하는 중 → 다 끝나고 총괄이 읽는 중 (답을 쓰기 시작하면 평소처럼)
   const team = teamPhrase(a, step?.name ?? null);
@@ -122,9 +144,9 @@ export function tracePhrase(a: Answer, now: number, tools: Record<string, string
   if (!step) {
     // 단계 사이 (앞 단계는 끝났고 다음 단계 전) = 앞 단계의 말을 이어 간다 (도구 뒤 = 결과를 읽는 중)
     const prev = a.steps.at(-1);
-    if (!prev) return one('waiting', 'live', WAITING_PHRASE);
+    if (!prev) return beforeSteps(a);
     if (prev.name.startsWith('tool:')) return one(prev.name, 'live', READING_RESULT);
-    return one(prev.name, 'live', stepPhrase(prev.name, prev.duration_ms ?? 0, tools, skills));
+    return one(prev.name, 'live', stepPhrase(prev.name, tools, skills), stepKind(prev.name));
   }
   // 도구 결과가 이미 왔는데 다음 단계 전 = 모델이 결과를 읽는 중. 스킬은 지침을 읽는 동안 '펼치는 중' 그대로
   if (step.name.startsWith('tool:')) {
@@ -134,7 +156,7 @@ export function tracePhrase(a: Answer, now: number, tools: Record<string, string
   }
   // MCP 앱 도구 = 단계 이름표('<앱>: <도구>')로 '… 쓰는 중'
   const named = step.name.startsWith('tool:') && step.label && !(step.name.slice(5) in tools) ? { ...tools, [step.name.slice(5)]: step.label } : tools;
-  return one(step.name, 'live', stepPhrase(step.name, elapsed - step.started_ms, named, skills));
+  return one(step.name, 'live', stepPhrase(step.name, named, skills), stepKind(step.name));
 }
 
 function teamPhrase(a: Answer, running: string | null): Trace | null {

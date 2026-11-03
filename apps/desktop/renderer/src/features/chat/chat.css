@@ -35,6 +35,9 @@
 .box textarea::placeholder{color:var(--text-muted)}
 .ctrl{display:flex;align-items:center;gap:var(--space-1);margin-top:var(--space-1)}
 .ctrl .grow{flex:1}
+/* 개발용 샘플 단추 (개발 빌드에서만 · SampleMenu) = 첨부 옆 옅은 글 단추 · 메뉴는 입력창 위로 */
+.ctrl .sample-btn{color:var(--text-muted)}
+.ctrl .sample-btn:hover:not(:disabled){color:var(--text)}
 .send-stop .ui-icon{width:var(--icon-sm);height:var(--icon-sm);fill:currentColor;stroke-width:0} /* 멈추기 = 꽉 찬 네모 */
 
 /* 대화 화면 */
@@ -134,6 +137,18 @@
 .breath i{display:block;width:2.5px;height:9px;border-radius:var(--radius-pill);background:var(--text-2);animation:breath 1.2s ease-in-out infinite}
 .breath i:nth-child(2){height:12px;animation-delay:.15s}
 .breath i:nth-child(3){animation-delay:.3s}
+/* 기다림 = 점 셋이 차례로 떠올랐다 가라앉는다 · 알약 위 빛은 없다 (움직임은 점만) */
+.dots{display:inline-flex!important;align-items:center;justify-content:center;gap:2px}
+.dots i{display:block;width:3.5px;height:3.5px;border-radius:var(--radius-pill);background:var(--text-2);animation:dots 1.2s ease-in-out infinite}
+.dots i:nth-child(2){animation-delay:.16s}
+.dots i:nth-child(3){animation-delay:.32s}
+.trace-line[data-kind="waiting"]::before{display:none}
+/* 생각 = 반짝임 아이콘이 천천히 숨 쉰다 (글 위 빛과 같이) */
+.trace-line .glyph[data-glyph-icon="spark"]{color:var(--text-2);animation:twinkle 2.4s ease-in-out infinite}
+/* 펼치지 않는 알약 (끝났고 패널에 그릴 것이 없다) = 눌리는 모양 없음 · 작은 글 = '생각 토큰 N' */
+.trace-line[data-static="true"]{cursor:default}
+.trace-line[data-static="true"]:hover{background:var(--glass-fill),var(--glass-bg)}
+.trace-line .tmeta{flex:none;font-size:var(--fs-xs);color:var(--text-muted)}
 .trace-txt{display:inline-block;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;transition:width var(--dur-base) ease;color:var(--text-2)}
 .trace-txt .ph{display:inline;animation:ui-fade-in .16s ease-out}
 .trace-txt .seg+.seg{margin-left:var(--space-2-5)} /* 요약 조각 = 칸 나눔 (가운뎃점 없음) */
@@ -172,6 +187,9 @@
 .tp-tool .th b{font-weight:var(--fw-semibold);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text)}
 .tp-tool .tkind{flex:none;font-size:var(--fs-2xs);color:var(--text-muted);padding:0 var(--space-1-5);border:1px solid var(--border-subtle);border-radius:var(--radius-pill);line-height:var(--lh-base)}
 .ttile{width:22px;height:22px;border-radius:var(--radius-sm);background:var(--surface-chip);color:var(--text-2);display:grid;place-items:center;flex:none}
+/* 앱 도구 = 앱 아이콘이 칸을 채운다 (사이트 그림 · 없으면 첫 글자) */
+.ttile:has(.app-icon){background:none}
+.ttile .app-icon{width:100%;height:100%}
 .tp-tool .tst{margin-left:auto;display:inline-flex;align-items:center;gap:var(--space-1-5);color:var(--text-muted);font-size:var(--fs-xs);white-space:nowrap}
 .tp-tool[data-state="done"] .tst{color:var(--ok-text)}
 .tp-tool[data-state="error"] .tst{color:var(--danger-text)}
@@ -201,6 +219,7 @@
 /* 앱 도구 고르기 = 카드가 아니라 한 줄 메모 (작은 글 · 아이콘 · 고른 도구 이름은 흐리게) */
 .tp-note{display:flex;align-items:center;gap:var(--space-1-5);margin:0;min-width:0;font-size:var(--fs-xs);color:var(--text-muted);white-space:nowrap}
 .tp-note .ui-icon{flex:none;color:var(--text-faint)}
+.tp-note .app-icon{width:16px;height:16px;font-size:8px}
 .tp-note .tn{flex:none;color:var(--text-2)}
 .tp-note .tn-tools{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .tp-note[data-state="waiting"] .tn{color:var(--warn-text)}
@@ -220,12 +239,16 @@
 .tp-lane[data-running="true"] .run{background:var(--text-faint)}
 
 @keyframes breath{0%,100%{opacity:.3}50%{opacity:1}}
+@keyframes dots{0%,70%,100%{opacity:.3;transform:translateY(0)}35%{opacity:1;transform:translateY(-2px)}}
+@keyframes twinkle{0%,100%{opacity:.65;transform:scale(.92)}50%{opacity:1;transform:scale(1)}}
 @keyframes blink{50%{opacity:0}}
 @media (prefers-reduced-motion: reduce){
   /* 멈춘 그라데이션은 한 낱말만 밝아 강조처럼 보인다 → 그냥 글. 살아 있는지는 숨 쉬는 막대(고정)가 알린다 */
   .trace-txt.run .ph{background:none;color:var(--text-2)}
   .trace-line[data-phase="live"]::before{display:none}
   .breath i{animation:none;opacity:.7}
+  .dots i{animation:none;opacity:.7}
+  .trace-line .glyph[data-glyph-icon="spark"]{animation:none}
   .caret{display:none}
   .md-w{animation:none}
   .msg.user.enter{animation:none}
@@ -250,6 +273,8 @@
 .app-cards{display:flex;flex-direction:column;gap:var(--space-2);margin-top:var(--space-3)}
 .app-card{display:flex;align-items:flex-start;gap:var(--space-3);padding:var(--space-3) var(--space-3-5);border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--surface);font-size:var(--fs-sm);line-height:var(--lh-base)}
 .app-card .ac-ico{width:28px;height:28px;border-radius:var(--radius-md);background:var(--surface-chip);color:var(--text-2);display:grid;place-items:center;flex:none}
+.app-card .ac-ico:has(.app-icon){background:none}
+.app-card .ac-ico .app-icon{width:100%;height:100%;border-radius:var(--radius-md)}
 .app-card .ac-main{display:flex;flex-direction:column;gap:var(--space-1);min-width:0;flex:1}
 .app-card .ac-title{font-weight:var(--fw-semibold);color:var(--text)}
 .app-card .ac-body{margin:0;color:var(--text-muted)}

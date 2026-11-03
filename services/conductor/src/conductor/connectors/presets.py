@@ -4,6 +4,8 @@
 (ADR-0013: 에이전트가 설치하는 MCP = 허용 목록 + 사람 승인 · 주소 검사 · SSRF 는 추가 때 그대로).
 available false = 제공자 쪽 이유로 지금은 못 씀 (사전 등록 client 만 · API 키만 · 자동 등록 거절) → 화면은 회색 + reason.
 파일 = 읽기 전용 데이터 (비밀값 없음). 시험 · E2E 는 CONDUCTOR_MCP_PRESETS 로 다른 파일 (가짜 MCP 주소).
+분류 (Kinds) = 연결된 앱 화면의 묶음 (문서 · 검색 · 개발 · 업무 …). 추천 서버와 같은 주소 → 같은 호스트(분류가 하나일 때) → 이름 · 도메인 · 부르는 이름의
+낱말 → 도구 이름의 낱말 → 기타. 화면 안내용 (권한 · 프롬프트와 상관없음).
 """
 
 from __future__ import annotations
@@ -14,13 +16,14 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 from .catalog import valid_handle
 
 log = logging.getLogger("conductor.mcp.presets")
 
 DEFAULT_PATH = Path(__file__).with_name("presets.json")
-CATEGORIES = ("dev", "docs", "data", "work", "pay", "design")
+CATEGORIES = ("dev", "docs", "search", "data", "work", "pay", "design")
 AUTHS = ("none", "oauth", "api_key")  # api_key = 지금은 못 씀 (정적 헤더 인증 없음)
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}$")
 _URL_PREFIXES = ("https://", "http://127.0.0.1", "http://localhost")
@@ -114,3 +117,65 @@ def load(path: str | Path | None = None) -> list[Preset]:
     except (OSError, ValueError) as e:
         log.warning("mcp presets unavailable (%s): %s", p.name, e)
         return []
+
+
+# ── 분류 (연결된 앱 묶음) ─────────────────────────────────────────────────────────────
+APP_CATEGORIES = ("docs", "search", "dev", "work", "data", "design", "pay", "other")
+# 낱말 (영문 = 낱말 하나와 같을 때 · 한글 = 들어 있으면). 앞 분류가 먼저 (검색 앱의 '문서 검색' 설명보다 이름 · 도메인을 본다)
+_WORDS: dict[str, tuple[str, ...]] = {
+    "search": ("search", "tavily", "exa", "brave", "serp", "serpapi", "serper", "perplexity", "kagi", "bing", "duckduckgo", "searxng", "검색"),
+    "docs": ("docs", "doc", "documentation", "learn", "wiki", "deepwiki", "notion", "confluence", "context7", "mintlify", "gitbook", "readme",
+             "knowledge", "notes", "note", "drive", "dropbox", "box", "문서", "메모", "위키", "노트"),
+    "dev": ("github", "gitlab", "git", "sentry", "vercel", "netlify", "cloudflare", "railway", "render", "buildkite", "circleci", "postman",
+            "npm", "code", "deploy", "repo", "개발", "코드", "배포"),
+    "work": ("linear", "jira", "atlassian", "asana", "slack", "trello", "monday", "clickup", "calendar", "gmail", "mail", "hubspot", "intercom",
+             "zapier", "todoist", "tracker", "issue", "issues", "task", "tasks", "업무", "이슈", "일정", "트래커", "캘린더", "메일", "할일"),
+    "data": ("data", "database", "db", "sql", "postgres", "supabase", "neon", "prisma", "bigquery", "snowflake", "analytics", "grafana",
+             "datadog", "posthog", "airtable", "huggingface", "데이터", "통계"),
+    "design": ("figma", "canva", "miro", "webflow", "design", "디자인"),
+    "pay": ("stripe", "paypal", "square", "squareup", "plaid", "toss", "payment", "payments", "pay", "결제"),
+}
+_TOKEN = re.compile(r"[a-z0-9]+|[가-힣]+")
+
+
+def _hits(text: str) -> dict[str, int]:
+    """글 → 분류마다 맞은 낱말 수."""
+    out: dict[str, int] = {}
+    for tok in _TOKEN.findall(text.lower()):
+        hangul = not tok.isascii()
+        for cat, words in _WORDS.items():
+            if any((w in tok) if hangul else (w == tok) for w in words if w.isascii() != hangul):
+                out[cat] = out.get(cat, 0) + 1
+    return out
+
+
+def _best(hits: dict[str, int]) -> str | None:
+    if not hits:
+        return None
+    top = max(hits.values())
+    return next(c for c in APP_CATEGORIES if hits.get(c) == top)
+
+
+class Kinds:
+    """앱 → 분류 하나. presets 주소는 한 번만 정규화 (canon = 정규 주소 | None · 이 환경에서 막힌 주소는 건너뜀)."""
+
+    def __init__(self, presets: list[Preset], canon: Any) -> None:
+        self.by_url: dict[str, str] = {}
+        hosts: dict[str, set[str]] = {}
+        for p in presets:
+            url = canon(p.url)
+            if not url:
+                continue
+            self.by_url.setdefault(url, p.category)
+            hosts.setdefault(urlsplit(url).netloc, set()).add(p.category)
+        self.by_host = {h: next(iter(c)) for h, c in hosts.items() if len(c) == 1}
+
+    def of(self, url: str, words: list[str], tools: Any = None) -> str:
+        """url = 정규 주소 · words = 이름 · 부르는 이름 · 별칭 · 도메인 · tools = 도구 이름 목록을 돌려주는 함수 (필요할 때만 부른다)."""
+        cat = self.by_url.get(url) or self.by_host.get(urlsplit(url).netloc)
+        if cat:
+            return cat
+        cat = _best(_hits(" ".join(words)))
+        if cat is None and tools is not None:
+            cat = _best(_hits(" ".join(n.replace("_", " ") for n in tools())))
+        return cat or "other"

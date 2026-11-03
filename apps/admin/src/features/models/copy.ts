@@ -39,6 +39,26 @@ export const CAP: Record<CapId, { icon: IconName; label: string; long: string }>
   other: { icon: 'minus', label: '대화 모델 아님', long: '대화 모델 아님, 대화에 안 씀' },
 };
 
+// 도구 꺼짐 = 대화 모델인데 LiteLLM 이 supports_function_calling 을 true 로 주지 않음 → conductor 가 도구(앱 · 스킬 · 팀)를 싣지 않는다 (models.py choice).
+// 동작은 그대로 · 여기는 보이게만. 이유가 둘 (derive.ts toolsOffKind):
+//   unknown = LiteLLM 이 이 모델을 모름 (모델 정보에 그 칸이 없음 · Azure 사용자 배포 이름처럼) → Model Info 에 값을 넣으면 된다
+//   no      = LiteLLM 모델 정보가 '도구 호출 안 됨' → true 로 바꾸라고 하지 않는다 (진짜 못 쓰는 모델에 도구를 실으면 대화가 provider 400)
+//             이름이 실제 모델과 달라 잘못 짚었을 때만 base_model 을 맞춘다. 고치는 곳 = LiteLLM 모델 정보 (등록은 LiteLLM 에서만)
+export const TOOLS_OFF = {
+  badge: '도구 꺼짐', // E2E: 표 기능 칸 .mtools-off
+  title: '도구를 못 써요', // E2E: 자세히 페이지 알림 제목
+  unknown: {
+    why: 'LiteLLM 이 이 모델의 supports_function_calling 을 알려 주지 않아서, 사용자 앱에서 이 모델로는 앱과 스킬을 쓸 수 없어요.', // E2E
+    fix: ['LiteLLM 관리 화면 › 모델 › Model Info 에 ', '{"supports_function_calling": true}', ' (또는 base_model) 를 넣고 동기화해요.'] as const, // E2E: 이어 읽으면 한 문장
+    tip: 'LiteLLM 이 supports_function_calling 을 알려 주지 않아 도구(앱, 스킬)를 못 써요. LiteLLM 관리 화면 › 모델 › Model Info 에 {"supports_function_calling": true} (또는 base_model)', // E2E: 딱지 툴팁
+  },
+  no: {
+    why: 'LiteLLM 모델 정보에 이 모델은 도구 호출을 지원하지 않는다고 나와 있어서, 사용자 앱에서 이 모델로는 앱과 스킬 없이 답해요.', // E2E
+    fix: ['다른 모델로 잘못 알려진 거라면 LiteLLM 관리 화면 › 모델 › Model Info 의 ', 'base_model', ' 을 실제 모델 이름으로 맞추고 동기화해요.'] as const, // E2E
+    tip: 'LiteLLM 모델 정보에 도구 호출을 지원하지 않는 모델로 나와 있어요. 앱과 스킬 없이 답해요', // E2E: 딱지 툴팁
+  },
+};
+
 // 연결 실패 이유 (conductor diagnose.py detail · 공개 code) → 짧은 이름 + 고치는 곳. 데스크톱 features/chat/copy.ts DETAIL 과 같은 뜻
 export const ERROR_DETAIL: Record<string, { short: string; hint: string }> = {
   provider_key_missing: { short: '키 없음', hint: 'LiteLLM 관리 화면 › Models › 이 모델의 Credential 키 확인 (config.yaml 모델이면 .env 의 ANTHROPIC_API_KEY 또는 OPENAI_API_KEY)' },

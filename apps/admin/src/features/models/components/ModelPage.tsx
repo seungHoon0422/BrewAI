@@ -4,8 +4,8 @@ import {
 } from '@brewai/ui';
 import { ModelUsage } from '../../usage/components/ModelUsage';
 import type { AdminModel, GatewayInfo } from '../api';
-import { COPY, LOAD_ERROR, SOURCE } from '../copy';
-import { ago, canExpose, canProbe, failed, fixFor, latency, neighbors, perM, providerName, tokens, type Dup } from '../derive';
+import { COPY, LOAD_ERROR, SOURCE, TOOLS_OFF } from '../copy';
+import { ago, canExpose, canProbe, failed, fixFor, latency, neighbors, perM, providerName, tokens, toolsOffKind, type Dup } from '../derive';
 import type { ModelsApi, TestState } from '../hooks';
 import { tabHref } from '../route';
 import { Caps } from './Caps';
@@ -222,6 +222,7 @@ function HealthCard({ m, test, now, gateway }: { m: AdminModel; test: TestState 
 function GatewayCard({ m, now, gateway }: { m: AdminModel; now: number; gateway: GatewayInfo | null }) {
   const kv = COPY.kv;
   const cost = (c: number | null) => (perM(c) ? kv.perM(perM(c)!) : '—');
+  const off = toolsOffKind(m);
   return (
     <Part title={COPY.partGateway} hint={COPY.readOnly} className="mgw"
       actions={gateway?.ui_url ? (
@@ -249,6 +250,16 @@ function GatewayCard({ m, now, gateway }: { m: AdminModel; now: number; gateway:
         { key: 'first', label: kv.firstSeen, value: ago(m.first_seen, now) ?? '—' },
         { key: 'last', label: kv.lastSeen, value: ago(m.last_seen, now) ?? '—' },
       ]} />
+      {/* 도구 꺼짐 = 게이트웨이 값 탓 → 이유(모름 · 안 됨)마다 고치는 곳(LiteLLM 모델 정보)과 함께. 동작은 그대로 (true 가 오기 전엔 도구를 싣지 않는다) */}
+      {off && (
+        <Callout tone="warn" icon="wrench" title={TOOLS_OFF.title} className="dfix mtools-note" data-why={off}
+          action={gateway?.ui_url ? (
+            <LinkButton size="sm" icon="external" href={gateway.ui_url} target="_blank" rel="noopener noreferrer" title={COPY.addTitle(gateway.ui_url)}>{COPY.fixInLitellm}</LinkButton>
+          ) : undefined}>
+          <span className="hhint">{TOOLS_OFF[off].why}</span>{' '}
+          <span className="hhint">{TOOLS_OFF[off].fix.map((t, i) => (i === 1 ? <code key={i}>{t}</code> : t))}</span>
+        </Callout>
+      )}
     </Part>
   );
 }

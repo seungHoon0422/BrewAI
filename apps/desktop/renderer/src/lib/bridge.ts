@@ -13,6 +13,7 @@ export type BridgeResult = { ok: true; linked?: boolean } | { ok: false; code: s
 export type McpConnectResult = { ok: true; connection: string; tool_count: number } | { ok: false; code: string };
 
 export type DesktopBridge = {
+  dev?: boolean; // 개발 빌드 (배포본 아님 · main.js additionalArguments) — 개발용 도구만 본다
   auth: {
     state: () => Promise<BridgeState>;
     retry: () => Promise<BridgeState>;
@@ -37,6 +38,8 @@ declare global {
 }
 
 export const bridge: DesktopBridge | null = typeof window !== 'undefined' && window.brewai ? window.brewai : null;
+// 개발 빌드에서만 보이는 것 (입력창 '샘플' 메뉴). 브라우저로 연 화면 · 배포본 = false
+export const devBuild = bridge?.dev === true;
 
 // IPC 가 막히면(API 주소 없음 등) 서버 꺼짐과 같게
 export async function viaBridge<T>(run: (b: DesktopBridge) => Promise<T>, fallback: T): Promise<T> {

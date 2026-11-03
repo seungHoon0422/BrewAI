@@ -24,10 +24,14 @@
 //   POST /__fake/reset                 전부 처음으로 (등록 client 포함)
 //   GET  /__fake/state                 {account, registrations, token_requests, refresh_requests, last_authorize,
 //                                       calls: [{server, tool, account, token_sha}], tokens: {계정: 살아 있는 access 수}}
+//   GET  /favicon.ico   사이트 아이콘 (32px PNG · 여기서 그린다) — conductor 가 서버 아이콘으로 받아 캐시 (connectors/icons.py · 진짜 사이트 대신)
+//                       Host 가 localhost 면 404 (아이콘 없는 사이트 = 화면은 첫 글자) · mono.localhost 면 투명 바탕 검은 글자 로고
+//                       (Vercel 같은 단색 로고 = 다크 모드에서 밝은 받침 위에 보이는지)
 //   GET  /health
 // 환경변수: FAKE_MCP_ACCESS_TTL(초 · 기본 3600) · FAKE_MCP_REQUIRE_WRITE_SCOPE=1 (쓰기 도구에 issues:write 없으면 403 insufficient_scope)
 import crypto from 'node:crypto';
 import http from 'node:http';
+import zlib from 'node:zlib';
 
 const arg = (name, fallback) => {
   const i = process.argv.indexOf(`--${name}`);
@@ -112,13 +116,13 @@ let access = new Map(); // token → {account, scope, expires}
 let refresh = new Map(); // token → {account, scope, client_id}
 let calls = [];
 let notes = [];
-let counters = { registrations: 0, token_requests: 0, refresh_requests: 0 };
+let counters = { registrations: 0, token_requests: 0, refresh_requests: 0, favicon_requests: 0 };
 let lastAuthorize = null;
 const reset = () => {
   account = DEFAULT_ACCOUNT;
   clients = new Map(); codes = new Map(); access = new Map(); refresh = new Map();
   calls = []; notes = []; lastAuthorize = null;
-  counters = { registrations: 0, token_requests: 0, refresh_requests: 0 };
+  counters = { registrations: 0, token_requests: 0, refresh_requests: 0, favicon_requests: 0 };
 };
 
 const rand = (n = 24) => crypto.randomBytes(n).toString('base64url');
@@ -415,11 +419,56 @@ function state() {
   return { account, ...counters, last_authorize: lastAuthorize, calls, tokens: live, clients: clients.size };
 }
 
+// ── 사이트 아이콘 (32×32 PNG · 둥근 네모 + 가운데 흰 원 · 의존성 없이 zlib 으로) ─────────────────────
+function png(size, pixel) {
+  const raw = Buffer.alloc((size * 4 + 1) * size);
+  for (let y = 0; y < size; y++) {
+    raw[y * (size * 4 + 1)] = 0; // 줄마다 필터 없음
+    for (let x = 0; x < size; x++) raw.set(pixel(x, y), y * (size * 4 + 1) + 1 + x * 4);
+  }
+  const chunk = (type, data) => {
+    const len = Buffer.alloc(4);
+    len.writeUInt32BE(data.length);
+    const body = Buffer.concat([Buffer.from(type, 'ascii'), data]);
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(zlib.crc32(body));
+    return Buffer.concat([len, body, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(size, 0);
+  ihdr.writeUInt32BE(size, 4);
+  ihdr.set([8, 6, 0, 0, 0], 8); // 8bit RGBA
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
+}
+const FAVICON = png(32, (x, y) => {
+  const cx = x - 15.5, cy = y - 15.5;
+  const corner = Math.max(Math.abs(cx) - 9, 0) ** 2 + Math.max(Math.abs(cy) - 9, 0) ** 2 > 6.5 ** 2; // 둥근 모서리 밖
+  if (corner) return [0, 0, 0, 0];
+  if (cx * cx + cy * cy < 6.5 ** 2) return [255, 255, 255, 255];
+  return [13, 148, 136, 255]; // 청록
+});
+
+// 투명 바탕 + 검은 세모 (단색 로고)
+const MONO = png(32, (x, y) => {
+  const inside = y >= 7 && y <= 25 && Math.abs(x - 15.5) <= (y - 7) * 0.6 + 0.5;
+  return inside ? [0, 0, 0, 255] : [0, 0, 0, 0];
+});
+
+function favicon(req, res) {
+  counters.favicon_requests += 1;
+  const host = req.headers.host ?? '';
+  if (host.startsWith('localhost')) return send(res, 404, { error: 'not_found' });
+  const body = host.startsWith('mono.') ? MONO : FAVICON;
+  res.writeHead(200, { 'content-type': 'image/png', 'content-length': body.length, 'cache-control': 'no-store' });
+  res.end(body);
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', BASE);
   const p = url.pathname;
   try {
     if (req.method === 'GET' && p === '/health') return send(res, 200, { status: 'ok' });
+    if (req.method === 'GET' && p === '/favicon.ico') return favicon(req, res);
     if (req.method === 'GET' && (p === '/.well-known/oauth-protected-resource/mcp' || p === '/.well-known/oauth-protected-resource')) return send(res, 200, prm());
     if (req.method === 'GET' && (p === '/.well-known/oauth-authorization-server' || p === '/.well-known/openid-configuration')) return send(res, 200, asMeta());
     if (req.method === 'POST' && p === '/register') return await register(req, res);

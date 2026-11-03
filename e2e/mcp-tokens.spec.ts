@@ -97,7 +97,8 @@ test('도구 카드: 앱 고르기 = 한 줄 메모 · MCP 도구 = 앱 이름 �
   await expect(write).toHaveAttribute('data-write', 'true');
   await expect(write.locator('.twrite')).toHaveText('쓰기');
   await expect(write.locator('.th b')).toContainText(`${tracker.name}:`);
-  await expect(write.locator('.ttile [data-icon="plug"]')).toHaveCount(1);
+  await expect(write.locator('.ttile .app-icon')).toHaveCount(1); // 플러그 대신 앱 아이콘 (서비스 사이트 그림 · 없으면 첫 글자)
+  await expect(write.locator('.ttile [data-icon="plug"]')).toHaveCount(0);
   await expect(write.locator('[data-row="입력"] dd')).toHaveText(`${m3}, ENG`); // 인자 값만 (제목 먼저 · JSON 아님)
   // 앞 턴의 검색 결과 = JSON 목록 → 제목 목록 (id + 제목)
   const prev = chat(win).log.locator('.msg.agent').nth(-2);

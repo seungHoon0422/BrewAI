@@ -122,7 +122,7 @@ export const PRESET_COPY = {
   searchPlaceholder: '이름이나 하는 일로 찾기',
   filter: '분류',
   all: '전체',
-  category: { dev: '개발', docs: '문서', data: '데이터', work: '업무', pay: '결제', design: '디자인' },
+  category: { dev: '개발', docs: '문서', search: '검색', data: '데이터', work: '업무', pay: '결제', design: '디자인' },
   auth: { none: '로그인 없음', oauth: '로그인 필요', api_key: 'API 키 필요' },
   added: '추가됨',
   unavailable: '지금은 못 써요',
@@ -182,6 +182,7 @@ export const PAGE_COPY = {
   toolTable: '도구 목록',
   urlLabel: '주소',
   urlFixed: '주소는 바꿀 수 없어요. 다른 주소면 새로 추가해요.',
+  urlMasked: '주소는 바꿀 수 없어요. 주소에 든 키 값은 *** 로 가려서 보여요 (호출에는 원래 값). 사용자 앱에도 가린 주소만 가요.', // E2E
   owner: '주인',
   shares: '공유',
   sharesText: (n: number) => (n ? `${n}곳에 공유` : '공유 안 함'),

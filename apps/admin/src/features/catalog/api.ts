@@ -37,7 +37,8 @@ export type AdminServer = {
   id: string;
   handle: string;
   name: string;
-  url: string;
+  url: string; // query 값 · userinfo 는 *** (conductor ssrf.redact_url · 원래 주소는 호출에만)
+  url_redacted: boolean; // 가린 칸이 있다 (?tavilyApiKey=*** 처럼)
   domain: string;
   description: string;
   aliases: string[];
@@ -92,7 +93,7 @@ function toClient(v: unknown): OAuthClient | null {
 function toServer(s: Record<string, unknown>): AdminServer {
   const url = str(s.url);
   return {
-    id: str(s.id), handle: str(s.handle), name: str(s.name, str(s.handle)), url, domain: str(s.domain, url),
+    id: str(s.id), handle: str(s.handle), name: str(s.name, str(s.handle)), url, url_redacted: s.url_redacted === true, domain: str(s.domain, url),
     description: str(s.description), aliases: strs(s.aliases), auth: auth(s.auth), origin: s.origin === 'user' ? 'user' : 'admin',
     owner_user_id: strOrNull(s.owner_user_id), issuer: strOrNull(s.issuer), issuer_domain: strOrNull(s.issuer_domain), status: status(s.status),
     tool_count: num(s.tool_count), tool_tokens_est: num(s.tool_tokens_est), write_count: num(s.write_count), tools_fetched_at: strOrNull(s.tools_fetched_at),
@@ -124,10 +125,14 @@ function toTools(data: unknown): ToolList {
 
 const serverPath = (id: string) => `/api/admin/mcp/servers/${encodeURIComponent(id)}`;
 
+// 아이콘 = conductor 가 받아 둔 서버 사이트 그림 (200 그림 · 204 없음 · 관리자 쿠키). 그리기 = icons.ts
+export const serverIconPath = (id: string) => `${serverPath(id)}/icon`;
+export const presetIconPath = (id: string) => `/api/admin/mcp/presets/${encodeURIComponent(id)}/icon`;
+
 // 추천 서버 (conductor connectors/presets.json · 벤더가 직접 운영하는 원격 MCP). 누르면 칸만 채운다 = 추가는 사람이 누른다
 export type PresetAuth = 'none' | 'oauth' | 'api_key';
-export type PresetCategory = 'dev' | 'docs' | 'data' | 'work' | 'pay' | 'design';
-export const PRESET_CATEGORIES: readonly PresetCategory[] = ['dev', 'docs', 'data', 'work', 'pay', 'design'];
+export type PresetCategory = 'dev' | 'docs' | 'search' | 'data' | 'work' | 'pay' | 'design';
+export const PRESET_CATEGORIES: readonly PresetCategory[] = ['dev', 'docs', 'search', 'data', 'work', 'pay', 'design'];
 export type McpPreset = {
   id: string; handle: string; name: string; vendor: string; url: string; auth: PresetAuth; category: PresetCategory; description: string;
   docs_url: string; verified_on: string; available: boolean; reason: string | null; note: string | null; added: boolean;

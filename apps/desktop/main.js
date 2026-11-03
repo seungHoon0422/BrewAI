@@ -174,6 +174,8 @@ function createWindow() {
     webPreferences: {
       contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true,
       preload: path.join(__dirname, 'preload.cjs'),
+      // 개발 빌드 표시 (배포본 아님 · E2E 포함) → preload 가 window.brewai.dev 로 연다 (입력창 '샘플' 메뉴 같은 개발용 도구만)
+      additionalArguments: app.isPackaged ? [] : ['--brewai-dev'],
     },
   });
   win.once('ready-to-show', () => {

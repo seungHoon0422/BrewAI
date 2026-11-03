@@ -244,11 +244,12 @@ class RunSink(Protocol):
 Prepare = Callable[[ChatRequest], Awaitable[tuple[ModelChoice, list[str], RunSink, RunScope]]]
 
 
-def diagnose(error: BaseException) -> dx.Diagnosis:
+def diagnose(error: BaseException, *, reasoning: bool = False) -> dx.Diagnosis:
     """Pydantic AI 가 OpenAI SDK 오류를 ModelHTTPError · ModelConnectionError 로 감싸서 준다 → diagnose.classify_http.
-    게이트웨이 키 실패(LiteLLM 프록시 type)와 provider 키 실패(provider type · …Exception 문구)를 type 으로 가른다."""
+    게이트웨이 키 실패(LiteLLM 프록시 type)와 provider 키 실패(provider type · …Exception 문구)를 type 으로 가른다.
+    reasoning = 이번 실행이 생각 파라미터를 실었다 (그때만 reasoning_unsupported)."""
     if isinstance(error, ModelHTTPError):
-        return dx.classify_http(error.status_code, error.provider_error_type, error.body)
+        return dx.classify_http(error.status_code, error.provider_error_type, error.body, reasoning=reasoning)
     if isinstance(error, ModelConnectionError):
         return dx.unreachable()
     if isinstance(error, UsageLimitExceeded):
@@ -261,8 +262,10 @@ def error_code(error: BaseException) -> str:
 
 
 class _EventStream(AGUIEventStream):
+    reasoning = False  # 이번 실행이 생각 파라미터를 실었다 (_Adapter.reasoning · 끔이면 생각 거절로 보지 않는다)
+
     async def on_error(self, error: Exception) -> AsyncIterator[BaseEvent]:
-        d = diagnose(error)
+        d = diagnose(error, reasoning=self.reasoning)
         # 진단 한 줄: status · LiteLLM type · 가린 provider 문구 (요청 본문 · 키는 안 찍는다)
         log.warning("chat run failed: %s error=%s", d.log_fields(), type(error).__name__)
         async for event in super().on_error(error):
@@ -274,14 +277,18 @@ class _EventStream(AGUIEventStream):
 
 class _Adapter(AGUIAdapter):
     # 주의: 생성자 인자가 pydantic-ai 2.59 내부와 묶여 있다. 업그레이드 때 test_run_error_is_sanitized 가 잡는다.
+    reasoning = False  # _stream 이 정한다 (settings 에 생각 파라미터가 실렸나)
+
     def build_event_stream(self) -> _EventStream:
-        return _EventStream(
+        stream = _EventStream(
             self.run_input,
             accept=self.accept,
             ag_ui_version=self.ag_ui_version,
             manage_system_prompt=self.manage_system_prompt,
             preserve_file_data=self.preserve_file_data,
         )
+        stream.reasoning = self.reasoning
+        return stream
 
 
 # 서명된 thinking 블록을 다시 보내야 하는 provider (Claude: Anthropic · Bedrock · Vertex 의 claude-*)
@@ -1448,6 +1455,7 @@ class ChatRuntime:
         single = _Adapter(agent=self.agent, run_input=adapter.run_input.model_copy(update={"messages": keep}), accept=adapter.accept)
         settings = self.model_settings(model, req.reasoning)
         effective: Reasoning = req.reasoning if settings is not None else "off"
+        single.reasoning = effective != "off"  # 실패 진단: 생각 칸을 실었을 때만 '생각 설정 거절'
         if scope.user_id:  # LiteLLM 요청 user = users.id (게이트웨이 로그 · 예산 · trace)
             settings = OpenAIChatModelSettings(**(settings or {}), openai_user=scope.user_id)  # type: ignore[typeddict-item]
         if wants_cache_markers(model):  # Claude = 명시 캐시 (LiteLLM 이 system · 마지막 메시지에 cache_control 을 붙인다)

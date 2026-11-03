@@ -14,6 +14,8 @@
   --text:#1d1d1f; --text-2:#3a3a3c; --text-muted:#6e6e73; --text-faint:#86868b;
   /* 선: subtle = 안쪽 구분선 · default = 상자 테두리 · 입력칸 · hair = 면 경계 · edge = 면 그림자 선 */
   --border-subtle:#efeff1; --border:#e7e7e9; --border-hair:#f0f0f2; --border-edge:rgba(0,0,0,.05);
+  /* 아이콘 받침 = 남의 사이트 그림(favicon)을 올리는 판 · 두 테마 모두 밝게 (투명 바탕 검은 로고가 다크 면에 묻히지 않게) */
+  --icon-plate:#ffffff; --icon-plate-ring:rgba(0,0,0,.08);
   /* 강조 = 잉크 (라이트 = 검정 · 다크 = 흰색). 주 버튼 · 켬 · 고른 것. 색은 상태에만 쓴다 */
   --accent:#111113; --on-accent:#ffffff;
   /* 상태: 점 · 막대 = info|ok|warn|danger · 글 = *-text (흰 바탕 4.5:1) */
@@ -45,6 +47,7 @@
     --surface-hover:#29292d; --surface-active:rgba(255,255,255,.07); --scrim:rgba(0,0,0,.55);
     --text:#ececee; --text-2:#d0d0d4; --text-muted:#9a9aa0; --text-faint:#7c7c82;
     --border-subtle:#2a2a2e; --border:#34343a; --border-hair:#2a2a2e; --border-edge:rgba(255,255,255,.06);
+    --icon-plate:#f2f2f4; --icon-plate-ring:rgba(255,255,255,.14);
     --accent:#f2f2f4; --on-accent:#111113;
     --info:#5b8cff; --ok:#3fcf7f; --warn:#f0b34a; --danger:#ff6b6b;
     --info-text:#7aa2ff; --ok-text:#3fcf7f; --warn-text:#f0b34a; --danger-text:#ff7b7b;
@@ -66,6 +69,7 @@
   --surface-hover:#29292d; --surface-active:rgba(255,255,255,.07); --scrim:rgba(0,0,0,.55);
   --text:#ececee; --text-2:#d0d0d4; --text-muted:#9a9aa0; --text-faint:#7c7c82;
   --border-subtle:#2a2a2e; --border:#34343a; --border-hair:#2a2a2e; --border-edge:rgba(255,255,255,.06);
+  --icon-plate:#f2f2f4; --icon-plate-ring:rgba(255,255,255,.14);
   --accent:#f2f2f4; --on-accent:#111113;
   --info:#5b8cff; --ok:#3fcf7f; --warn:#f0b34a; --danger:#ff6b6b;
   --info-text:#7aa2ff; --ok-text:#3fcf7f; --warn-text:#f0b34a; --danger-text:#ff7b7b;

@@ -10,6 +10,8 @@ import {
 // A = alice · B = bob · C = 일반 멤버 (같은 조직 · S 멤버 아님)
 const SPACE = `앱 공유 ${Date.now().toString(36)}`;
 const NAME = '디자인 트래커';
+// 전체 공통 트래커(TRACKER_URL)와 다른 주소 — 같은 주소면 목록에선 전체 공통 앱 하나로 합쳐진다 (catalog _merge_twins · mcp-auto.spec)
+const SHARE_URL = `${TRACKER_URL}?team=design`;
 
 test.describe.configure({ mode: 'serial' });
 let alice: NewUser;
@@ -49,7 +51,7 @@ test('A: [앱 추가] + 공유 = 스페이스 S → 내가 추가 · 공유된 �
   await expectHeading(win, '연결된 앱');
   await win.getByRole('button', { name: '앱 추가' }).first().click();
   const dlg = win.getByRole('dialog', { name: '앱 추가' });
-  await dlg.getByRole('textbox', { name: '주소' }).fill(TRACKER_URL);
+  await dlg.getByRole('textbox', { name: '주소' }).fill(SHARE_URL);
   await dlg.getByRole('textbox', { name: '이름' }).fill(NAME);
   await dlg.getByRole('textbox', { name: '에이전트가 읽는 한 줄 설명' }).fill('디자인팀 이슈');
   await dlg.getByRole('radio', { name: '스페이스' }).click();

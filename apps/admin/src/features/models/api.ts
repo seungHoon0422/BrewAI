@@ -26,7 +26,7 @@ export type AdminModel = {
   max_output_tokens: number | null;
   input_cost_per_token: number | null;
   output_cost_per_token: number | null;
-  supports_function_calling: boolean;
+  supports_function_calling: boolean | null; // null = LiteLLM 이 모름 (모델 정보에 칸 없음) · false = LiteLLM 이 안 된다고 함
   supports_vision: boolean;
   supports_reasoning: boolean;
   source: 'config' | 'ui' | 'mixed' | null; // 등록 출처 (LiteLLM model_info.db_model) · null = 모름
@@ -70,7 +70,7 @@ function toModel(m: Record<string, unknown>, i: number): AdminModel {
     max_output_tokens: num(m.max_output_tokens),
     input_cost_per_token: num(m.input_cost_per_token),
     output_cost_per_token: num(m.output_cost_per_token),
-    supports_function_calling: m.supports_function_calling === true,
+    supports_function_calling: m.supports_function_calling === true ? true : m.supports_function_calling === false ? false : null,
     supports_vision: m.supports_vision === true,
     supports_reasoning: m.supports_reasoning === true,
     source: m.source === 'config' || m.source === 'ui' || m.source === 'mixed' ? m.source : null,

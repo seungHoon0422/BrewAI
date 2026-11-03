@@ -87,6 +87,7 @@
 .mcap{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:var(--radius-sm);color:var(--text-2);cursor:default}
 .mcap:hover{background:var(--surface-hover);color:var(--text)}
 .mcap[data-cap="embedding"],.mcap[data-cap="other"]{color:var(--text-muted)}
+.mcaps .mtools-off{flex:none;margin-left:var(--space-1);white-space:nowrap} /* 도구 꺼짐 (LiteLLM 이 도구 호출을 안 알려 줌) */
 .mcaps[data-labeled]{gap:var(--space-1-5) var(--space-3)}
 /* 이름 붙은 줄 (자세히 페이지): 기준선 = 글자 (아이콘 밑변이 아니라) → 왼쪽 '기능' 칸 이름과 한 줄에 맞는다 */
 .mcaps[data-labeled] .mcap{display:inline-flex;align-items:baseline;gap:var(--space-1);width:auto;height:auto;font-size:var(--fs-sm);color:var(--text)}
@@ -157,6 +158,8 @@
 .dkv .ui-kv-row{grid-template-columns:112px minmax(0,1fr)}
 .dprov{display:inline-flex;align-items:center;flex-wrap:wrap;gap:var(--space-1-5)}
 .dfix .ui-btn{flex:none}
+.mtools-note{margin-top:var(--space-3)}
+.mtools-note code{font:var(--fs-xs)/var(--lh-base) var(--font-mono);overflow-wrap:anywhere}
 
 /* 넓은 창 (≥1100): 왼쪽 = 사용자 앱 · 연결 / 오른쪽 = 게이트웨이 값 */
 @media (min-width:1100px){

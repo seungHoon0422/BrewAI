@@ -1,6 +1,7 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
 import { adminApi, userApi, type Client } from './auth';
 import { ADMIN_URL, GATEWAY, GATEWAY_KEY } from './env';
+import { separatorsOnScreen } from './copy-rule';
 import { optionsOf, overflowX, pickOption, pickedText, shot } from './helpers';
 
 // 관리자 '모델' = conductor /api/admin/models (mock 게이트웨이 /model_group/info 를 동기화한 model_exposure, ADR-0006)
@@ -556,6 +557,74 @@ test('검색 · 상태 필터 · 제공사 필터를 함께 쓴다 · 필터 지
   await expect(seg.getByRole('radio', { name: '전체' })).toHaveAttribute('aria-checked', 'true');
   await expect(rowsOf(page)).toHaveCount(3);
   await expect(table(page).locator('.grip')).toHaveCount(3); // 게이트웨이에 있는 줄마다 (사라짐 줄 빼고)
+});
+
+// LiteLLM 이 supports_function_calling 을 알려 주지 않는 모델 (Azure 사용자 배포처럼) = conductor 는 도구를 싣지 않는다 (그대로).
+// 보이게만: 표 기능 칸 '도구 꺼짐' 딱지 (툴팁 = 고치는 곳) · 자세히 페이지 게이트웨이 값 카드 안 알림 (카드 수는 그대로 셋)
+test('도구 꺼짐: 표 딱지 · 자세히 페이지 알림 = LiteLLM Model Info 에 supports_function_calling', async ({ page }) => {
+  await fakeCatalog({ tools_off: ['fake-chat-small'] });
+  try {
+    await admin.post('/api/admin/models/sync', {});
+    await page.goto('/#/models');
+    const off = cell(page, 'fake-chat-small', 'caps').locator('.mtools-off');
+    await expect(off).toHaveText('도구 꺼짐');
+    await expect(off).toHaveAttribute('data-why', 'unknown'); // LiteLLM 이 모름 (model_info 에 칸 없음)
+    await expect(off).toHaveAttribute('title', /Model Info 에 \{"supports_function_calling": true\} \(또는 base_model\)/);
+    expect(await caps(page, 'fake-chat-small')).not.toContain('tools');
+    await expect(cell(page, 'fake-chat-large', 'caps').locator('.mtools-off')).toHaveCount(0);
+    await expect(cell(page, 'fake-embed', 'caps').locator('.mtools-off')).toHaveCount(0); // 대화 모델 아님 = 해당 없음
+    expect((await userModels()).find((m) => m.id === 'fake-chat-small')).toMatchObject({ supports_tools: false });
+    await page.screenshot({ path: shot('admin-models-tools-off'), animations: 'disabled' });
+
+    await page.goto('/#/models/fake-chat-small');
+    await expect(h1(page)).toHaveText(['fake-chat-small']);
+    await expect(detail(page).locator('section.mcard .ui-card-title')).toHaveText(['사용자 앱', '연결', '게이트웨이 값']);
+    const note = part(page, '게이트웨이 값').locator('.mtools-note');
+    await expect(note).toContainText('도구를 못 써요');
+    await expect(note).toContainText('사용자 앱에서 이 모델로는 앱과 스킬을 쓸 수 없어요');
+    await expect(note).toContainText('LiteLLM 관리 화면 › 모델 › Model Info 에 {"supports_function_calling": true} (또는 base_model) 를 넣고 동기화해요.');
+    await expect(note.locator('code')).toHaveText('{"supports_function_calling": true}');
+    await page.screenshot({ path: shot('admin-model-tools-off'), fullPage: true, animations: 'disabled' });
+  } finally {
+    await fakeCatalog({ reset: true });
+    await admin.post('/api/admin/models/sync', {});
+  }
+  await page.goto('/#/models');
+  await page.reload(); // 해시만 바뀌면 목록을 다시 읽지 않는다
+  await expect(cell(page, 'fake-chat-small', 'caps').locator('.mcap[data-cap="tools"]')).toHaveCount(1);
+  await expect(page.locator('.mtools-off')).toHaveCount(0);
+});
+
+// LiteLLM 모델 정보가 '도구 호출 안 됨'이라고 하는 모델 (모름과 다르다) = true 로 바꾸라고 하지 않는다 (진짜 못 쓰는 모델이면 대화가 provider 400)
+test('도구 꺼짐 (LiteLLM 이 안 된다고 함): true 로 넣으라는 말 없이 base_model 만 · 딱지 툴팁도', async ({ page }) => {
+  await fakeCatalog({ tools_no: ['fake-chat-small'] });
+  try {
+    await admin.post('/api/admin/models/sync', {});
+    const row = (await admin.get<{ id: string; supports_function_calling: boolean | null }[]>('/api/admin/models')).find((m) => m.id === 'fake-chat-small');
+    expect(row?.supports_function_calling).toBe(false); // 모름(null)이 아니다
+    await page.goto('/#/models');
+    const off = cell(page, 'fake-chat-small', 'caps').locator('.mtools-off');
+    await expect(off).toHaveText('도구 꺼짐');
+    await expect(off).toHaveAttribute('data-why', 'no');
+    await expect(off).toHaveAttribute('title', 'LiteLLM 모델 정보에 도구 호출을 지원하지 않는 모델로 나와 있어요. 앱과 스킬 없이 답해요');
+    expect(await off.getAttribute('title')).not.toContain('true');
+    expect((await userModels()).find((m) => m.id === 'fake-chat-small')).toMatchObject({ supports_tools: false });
+
+    await page.goto('/#/models/fake-chat-small');
+    await expect(h1(page)).toHaveText(['fake-chat-small']);
+    const note = part(page, '게이트웨이 값').locator('.mtools-note');
+    await expect(note).toHaveAttribute('data-why', 'no');
+    await expect(note).toContainText('도구를 못 써요');
+    await expect(note).toContainText('LiteLLM 모델 정보에 이 모델은 도구 호출을 지원하지 않는다고 나와 있어서, 사용자 앱에서 이 모델로는 앱과 스킬 없이 답해요.');
+    await expect(note).toContainText('다른 모델로 잘못 알려진 거라면 LiteLLM 관리 화면 › 모델 › Model Info 의 base_model 을 실제 모델 이름으로 맞추고 동기화해요.');
+    await expect(note).not.toContainText('supports_function_calling": true');
+    await expect(note.locator('code')).toHaveText('base_model');
+    expect(await separatorsOnScreen(page)).toEqual([]);
+    await page.screenshot({ path: shot('admin-model-tools-no'), fullPage: true, animations: 'disabled' });
+  } finally {
+    await fakeCatalog({ reset: true });
+    await admin.post('/api/admin/models/sync', {});
+  }
 });
 
 test('자세히 페이지: 줄을 누르면 #/models/<id> → 머리(이름 h1 · 실제 이름 · 노출 · 기본 · 연결 테스트) · 사용자 앱 · 연결 · 게이트웨이 값(읽기 전용) → 바꾼 값이 목록에', async ({ page }) => {

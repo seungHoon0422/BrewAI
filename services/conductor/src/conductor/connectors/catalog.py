@@ -11,6 +11,11 @@ handle = 사람마다 겹치지 않게 (내 별칭 > 서버 handle · 겹치면 
 프롬프트 블록 = 한 줄 `exa, linear 외 3개` · 지금 바로 쓸 수 있는 앱(인증 없음 · 연결됨)의 handle 만 · handle 순 고정 · 300토큰 상한
   (로그인이 필요한 앱 · 넘친 앱은 개수만 · 이름으로 use_app 을 부르면 서버가 찾는다). 설명은 안 싣는다. 서버 0개 = 빈 문자열 (0토큰).
 handle = 소문자 · 숫자 · _ 만 (HANDLE_RE) → 지시처럼 보이는 글이 실릴 수 없다. 설명 · 이름(서버를 추가한 사람이 쓴 데이터)은 use_app 검색 · 화면용.
+같은 주소 두 줄 (내가 추가 · 가져옴 + 전체 공통, url_key 가 같다) = 전체 공통 하나만 보인다 (_merge_twins). 내 줄만 로그인돼 있으면 그 인증정보
+  (resource)를 공통 줄이 쓴다. 내 줄은 DB 에 남는다 (공통 서버가 꺼지거나 숨기면 다시 보인다).
+  이름 = 보이는 줄이 이 사람이 쓰던 handle 을 갖는다 (대화에 고정된 `<handle>__<tool>` · 프롬프트 캐시 · 내가 정한 별칭이 그대로):
+  공통 줄이 나중에 생겨 처음 이름을 받을 때 내 줄의 이름과 맞바꾼다 (_carry_twin_handles) · 공통 줄을 숨기거나 다시 보이게 하면 다시 맞바꾼다
+  (set_hidden) · 대화 기록이 옛 줄(같은 주소)에 묶은 이름도 그대로 부른다 (session.call pinned).
 """
 
 from __future__ import annotations
@@ -20,7 +25,7 @@ import re
 import sqlite3
 import uuid
 from collections.abc import Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
@@ -55,6 +60,35 @@ def valid_handle(h: str | None) -> bool:
 def domain_of(url: str) -> str:
     host = (urlsplit(url).hostname or "").lower()
     return host.removeprefix("www.").removeprefix("mcp.") or host
+
+
+def url_key(url: str) -> str:
+    """같은 서버인지 비교하는 값 (저장된 주소 = 이미 ssrf.canonical_url 모양): 호스트 소문자 · 끝 / 무시 · query 순서 무시."""
+    parts = urlsplit(url or "")
+    query = "&".join(sorted(q for q in parts.query.split("&") if q))
+    return f"{parts.scheme.lower()}://{parts.netloc.lower()}{parts.path.rstrip('/')}" + (f"?{query}" if query else "")
+
+
+_CONN_RANK = {"connected": 3, "expired": 2, "needs_login": 1, "none": 0}
+
+
+def _merge_twins(apps: list[App]) -> list[App]:
+    """내가 추가 · 가져온 줄의 주소가 쓸 수 있는 전체 공통 줄과 같으면 공통 줄 하나만 (handle = 공통 줄에 적어 둔 그대로).
+    공통 줄이 아직 로그인 전인데 내 줄은 로그인돼 있으면 내 인증정보(resource · 연결 상태)를 공통 줄이 쓴다."""
+    common = {url_key(a.url): a for a in apps if a.source == "install" and a.usable}
+    if not common:
+        return apps
+    lent: dict[str, App] = {}
+    keep: list[App] = []
+    for a in apps:
+        twin = common.get(url_key(a.url)) if a.source != "install" else None
+        if twin is None:
+            keep.append(a)
+            continue
+        best = lent.get(twin.server_id, twin)
+        if a.auth == "oauth" and twin.auth == "oauth" and _CONN_RANK[a.connection] > _CONN_RANK[best.connection]:
+            lent[twin.server_id] = a
+    return [replace(a, resource=lent[a.server_id].resource, connection=lent[a.server_id].connection) if a.server_id in lent else a for a in keep]
 
 
 def make_handle(name: str, url: str) -> str:
@@ -213,8 +247,9 @@ class _Reads:
         return {r["resource"]: r["status"] for r in self.store.query("SELECT resource, status FROM mcp_credentials WHERE user_id = ?", (user_id,))}
 
     # ── 내 목록 ──
-    def apps(self, user_id: str) -> list[App]:
-        """설정 › 연결된 앱 = 숨김 · 공유 끊김까지 전부. 대화 = usable(). 정렬 = handle (고정)."""
+    def apps(self, user_id: str, *, merge: bool = True) -> list[App]:
+        """설정 › 연결된 앱 = 숨김 · 공유 끊김까지 전부. 대화 = usable(). 정렬 = handle (고정).
+        merge = 같은 주소의 내 줄을 전체 공통 줄 하나로 (화면 · 대화). False = 줄마다 그대로 (API 가 그 서버 하나를 다룰 때)."""
         m = self.memberships(user_id)
         actor = Actor(user_id)
         pol = self.settings()
@@ -260,8 +295,42 @@ class _Reads:
                 last_used_at=row["last_used_at"] if row is not None else None, issuer=s["issuer"], blocked=facts.blocked,
             ))
         if fresh:
+            out = self._carry_twin_handles(user_id, out, fresh)
             self._pin_handles(user_id, fresh)
-        return sorted(out, key=lambda a: a.handle)
+        return sorted(_merge_twins(out) if merge else out, key=lambda a: a.handle)
+
+    def _carry_twin_handles(self, user_id: str, out: list[App], fresh: dict[str, tuple[str, Source]]) -> list[App]:
+        """공통 줄이 지금 처음 이름을 받는데 같은 주소의 내 줄(이미 이름 있음)이 그 공통 줄로 합쳐진다 = 두 이름을 맞바꾼다
+        (보이는 공통 줄 = 쓰던 이름 · 숨는 내 줄 = 새 이름). 내 줄의 새 이름은 여기서 적고 공통 줄 이름은 fresh 로 _pin_handles 가 적는다."""
+        common = {url_key(a.url): a for a in out if a.source == "install" and a.usable and a.server_id in fresh}
+        if not common:
+            return out
+        renamed: dict[str, str] = {}
+        for a in out:
+            twin = common.get(url_key(a.url)) if a.source != "install" and a.server_id not in fresh else None
+            if twin is None or twin.server_id in renamed:
+                continue
+            new = fresh[twin.server_id][0]
+            try:
+                with self.store.tx() as db:  # 새 이름은 아직 DB 에 없다 → 내 줄 먼저 바꾸면 쓰던 이름이 빈다
+                    if db.execute("UPDATE mcp_user_servers SET handle = ? WHERE user_id = ? AND server_id = ? AND handle = ?",
+                                  (new, user_id, a.server_id, a.handle)).rowcount != 1:
+                        continue
+            except sqlite3.IntegrityError:
+                continue
+            fresh[twin.server_id] = (a.handle, "install")
+            renamed |= {twin.server_id: a.handle, a.server_id: new}
+        return [replace(a, handle=renamed[a.server_id]) if a.server_id in renamed else a for a in out]
+
+    def merged_into(self, user_id: str, app: App) -> App | None:
+        """이 줄이 내 목록에서 같은 주소의 전체 공통 줄로 합쳐졌으면 그 공통 줄 (아니면 None)."""
+        if app.source == "install":
+            return None
+        shown = self.apps(user_id)
+        if any(a.server_id == app.server_id for a in shown):
+            return None
+        key = url_key(app.url)
+        return next((a for a in shown if a.source == "install" and url_key(a.url) == key), None)
 
     def _pin_handles(self, user_id: str, fresh: dict[str, tuple[str, Source]]) -> None:
         """처음 정한 handle 을 내 줄에 적는다 (이미 적힌 줄은 그대로 · 동시에 다른 요청이 먼저 적었으면 그 값)."""
@@ -331,9 +400,10 @@ class _Reads:
         for sh in shares:
             by_server.setdefault(sh["server_id"], []).append(sh)
         found: list[tuple[sqlite3.Row, list[McpShareFacts]]] = []
+        common = {url_key(a.url) for a in self.apps(user_id) if a.source == "install" and a.usable}  # 이미 전체 공통으로 있는 주소 = 가져올 것 없음
         for s in servers:
             facts = self._facts(s, by_server.get(s["id"], ()), mine.get(s["id"]), m)
-            if facts.imported or not policy.mcp_importable(actor, facts):
+            if facts.imported or not policy.mcp_importable(actor, facts) or url_key(s["url"]) in common:
                 continue
             via = [sh for sh in facts.shares if not sh.auto_include and policy.mcp_in_scope(actor, sh)]
             found.append((s, via))
@@ -488,13 +558,37 @@ class _Writes:
             ).rowcount > 0
 
     def set_hidden(self, user_id: str, server_id: str, hidden: bool, *, source: Source = "install") -> None:
-        """전체 공통 [숨기기] · 다시 보이기 (줄이 없으면 source install 로 만든다)."""
+        """전체 공통 [숨기기] · 다시 보이기 (줄이 없으면 source install 로 만든다).
+        같은 주소의 내 줄이 있으면 보이는 쪽이 바뀐다 → 두 이름을 맞바꿔 쓰던 이름이 보이는 줄에 남는다 (숨김 = 내 줄 · 다시 보임 = 공통 줄)."""
         with self.store.tx() as db:
+            before = db.execute("SELECT state FROM mcp_user_servers WHERE user_id = ? AND server_id = ?", (user_id, server_id)).fetchone()
             db.execute(
                 "INSERT INTO mcp_user_servers (user_id, server_id, state, source, created_at) VALUES (?, ?, ?, ?, ?)"
                 " ON CONFLICT (user_id, server_id) DO UPDATE SET state = excluded.state",
                 (user_id, server_id, "hidden" if hidden else "added", source, now_iso()),
             )
+            if source == "install" and (before["state"] if before else "added") != ("hidden" if hidden else "added"):
+                self._swap_twin_handle(db, user_id, server_id)
+
+    @staticmethod
+    def _swap_twin_handle(db: sqlite3.Connection, user_id: str, server_id: str) -> None:
+        """공통 줄과 같은 주소의 내 줄(내가 추가 · 가져옴) 하나와 이름 맞바꾸기 (둘 다 이름이 적혀 있을 때만 · 한 tx 안)."""
+        s = db.execute("SELECT url, origin FROM mcp_servers WHERE id = ?", (server_id,)).fetchone()
+        mine = db.execute("SELECT handle FROM mcp_user_servers WHERE user_id = ? AND server_id = ?", (user_id, server_id)).fetchone()
+        if s is None or s["origin"] != "admin" or mine is None or not mine["handle"]:
+            return
+        key = url_key(s["url"])
+        twin = next((r for r in db.execute(
+            "SELECT u.server_id, u.handle, s.url FROM mcp_user_servers u JOIN mcp_servers s ON s.id = u.server_id"
+            " WHERE u.user_id = ? AND u.server_id != ? AND u.source IN ('own', 'imported') AND u.handle IS NOT NULL"
+            " ORDER BY u.created_at, u.server_id", (user_id, server_id),
+        ).fetchall() if url_key(r["url"]) == key), None)
+        if twin is None:
+            return
+        set_handle = "UPDATE mcp_user_servers SET handle = ? WHERE user_id = ? AND server_id = ?"
+        db.execute(set_handle, (None, user_id, server_id))  # 겹침 검사(user_id, handle)를 피해 셋 걸음
+        db.execute(set_handle, (mine["handle"], user_id, twin["server_id"]))
+        db.execute(set_handle, (twin["handle"], user_id, server_id))
 
     def set_my_handle(self, user_id: str, server_id: str, handle: str | None, *, source: Source = "install") -> None:
         if handle is not None and not valid_handle(handle):

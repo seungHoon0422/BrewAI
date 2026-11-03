@@ -73,7 +73,7 @@ function LiveRunRow({ l }: { l: LiveRun }) {
           <b className="ui-ell">{l.title}</b>
         </button>
         <Meta className="row-sub" items={[
-          <span className="doing">{tracePhrase(a, now, tools, skills).text}</span>,
+          <span className="doing">{tracePhrase(a, tools, skills).text}</span>,
           <span aria-hidden="true">{seconds(now - a.startedAt)}</span>,
         ]} />
         <Steps steps={[...a.steps.filter((s) => !s.parent), ...liveChildren(a)]} live now={now - a.startedAt} tools={tools} skills={skills} />
@@ -123,7 +123,7 @@ function Steps({ steps, live, now = 0, tools = {}, skills = {} }: {
         <li key={`${s.name}-${i}`} data-state={STEP_DOT[s.status]}>
           {i > 0 && <span className="arr" aria-hidden="true"><Icon name="chevron-right" size="xs" /></span>}
           <StatusDot state={STEP_DOT[s.status]} size="sm" />
-          <span>{live && s.status === 'running' ? stepPhrase(s.name, now - s.started_ms, tools, skills) : s.label}</span>
+          <span>{live && s.status === 'running' ? stepPhrase(s.name, tools, skills) : s.label}</span>
           <span className="tm ui-num">{s.status === 'running' ? seconds(now - s.started_ms) : seconds(s.duration_ms)}</span>
         </li>
       ))}

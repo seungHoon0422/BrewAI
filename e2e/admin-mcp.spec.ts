@@ -372,6 +372,30 @@ test('사용자 추가 서버 탭: 주인 · 공유 수 · 연결한 사람 수 
   if (created.status === 201) await me.del(`/api/me/mcp/servers/${mine.id}`);
 });
 
+// 주소에 키가 든 관리자 서버 (Tavily ?tavilyApiKey=… 처럼) = 관리자 화면 · 응답도 *** 로 가린다 (호출만 원래 주소 · 주소는 아무도 못 고친다)
+test('주소의 키 = 관리자 목록 · 자세히 · 응답에서 *** · 사용자 응답에도 없음', async ({ page }) => {
+  const key = 'e2e-admin-key-NOT-REAL-77';
+  const s = await admin.post<Server & { url_redacted: boolean; name: string }>('/api/admin/mcp/servers', { url: `${NOTES.url}?apiKey=${key}`, name: 'E2E 키 주소' });
+  try {
+    expect([s.url, s.url_redacted]).toEqual([`${NOTES.url}?apiKey=***`, true]);
+    expect(JSON.stringify(await adminServers())).not.toContain(key);
+    expect(JSON.stringify(await me.get('/api/me/mcp/servers'))).not.toContain(key);
+    await page.goto('/#/catalog');
+    await expect(rowOf(page, 'E2E 키 주소')).toBeVisible();
+    await page.goto(`/#/catalog/mcp/${s.id}`);
+    await expect(h1(page)).toHaveText(['E2E 키 주소']);
+    await expect(page.locator('.mcp-head .mcp-url')).toHaveText(`${NOTES.url}?apiKey=***`);
+    const info = part(page, '정보');
+    await expect(info.getByRole('textbox', { name: '주소' })).toHaveValue(`${NOTES.url}?apiKey=***`);
+    await expect(info).toContainText('주소에 든 키 값은 *** 로 가려서 보여요');
+    expect(await page.content()).not.toContain(key);
+    expect(await separatorsOnScreen(page), 'masked').toEqual([]);
+    await page.screenshot({ path: shot('admin-mcp-masked-url'), fullPage: true });
+  } finally {
+    await admin.del(`/api/admin/mcp/servers/${s.id}`);
+  }
+});
+
 test.describe('폰 폭 390px', () => {
   test.use({ viewport: { width: 390, height: 844 } });
 

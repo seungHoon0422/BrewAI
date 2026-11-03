@@ -2,7 +2,7 @@
 // 가운뎃점 같은 구분 글자 대신 칸 나눔 · 쉼표 (e2e/copy-rule.ts).
 import type { Note } from '../shell/components/Page';
 import { count } from '../../lib/format';
-import type { AppSource } from './api';
+import type { AppCategory, AppSource } from './api';
 
 export const CONNECTIONS = {
   sub: '에이전트가 일할 때 쓰는 내 앱 연결이에요.',
@@ -18,6 +18,7 @@ export const CONNECTIONS = {
   importableList: '가져올 수 있는 앱 목록',
   importableEmpty: '지금은 가져올 앱이 없어요',
   added: (name: string) => `${name} 앱을 추가했어요`,
+  addedMerged: (name: string) => `${name} 앱은 같은 주소의 전체 공통 앱이 있어서 그 앱 하나로 보여요`,
   connected: (name: string) => `${name} 앱을 연결했어요`,
   loading: '불러오는 중…',
   loadFailed: '앱 목록을 불러오지 못했어요',
@@ -47,6 +48,14 @@ export const CONNECTIONS = {
 } as const;
 
 export const SOURCE_LABEL: Record<AppSource, string> = { install: '전체 공통', own: '내가 추가', imported: '가져옴' };
+
+// 묶음 (분류 칩 · 전체 보기의 묶음 머리). 분류 = conductor 가 추천 서버 분류 · 이름 · 도구 이름으로 정한 것 (모르면 기타)
+export const CATEGORY = {
+  filter: '분류',
+  all: '전체',
+  group: (label: string) => `${label} 앱`,
+  label: { docs: '문서', search: '검색', dev: '개발', work: '업무', data: '데이터', design: '디자인', pay: '결제', other: '기타' } satisfies Record<AppCategory, string>,
+} as const;
 
 // 줄 상태 (색 = 상태만)
 export type AppStateKey = 'connected' | 'needs_login' | 'expired' | 'share_lost' | 'disabled' | 'error';
@@ -108,7 +117,7 @@ export const PRESET = {
   searchPlaceholder: '이름이나 하는 일로 찾기',
   filter: '분류',
   all: '전체',
-  category: { dev: '개발', docs: '문서', data: '데이터', work: '업무', pay: '결제', design: '디자인' },
+  category: { dev: '개발', docs: '문서', search: '검색', data: '데이터', work: '업무', pay: '결제', design: '디자인' },
   auth: { none: '로그인 없음', oauth: '로그인 필요', api_key: 'API 키 필요' },
   added: '추가됨',
   unavailable: '지금은 못 써요',
