@@ -2,7 +2,8 @@ import os from 'node:os';
 import path from 'node:path';
 
 // E2E 주소 · 계정 한곳에. API = 데스크톱 기본값과 같다. 관리자 콘솔은 /api 를 Vite proxy 로 넘긴다 (같은 출처 · 쿠키).
-export const API = 'http://127.0.0.1:8787';
+// BREWAI_E2E_API_PORT = 개발용 conductor 가 8787 을 쓰는 중에도 E2E 를 돌릴 때 (예: 8797)
+export const API = `http://127.0.0.1:${process.env.BREWAI_E2E_API_PORT || '8787'}`;
 export const GATEWAY = 'http://127.0.0.1:4010';
 export const GATEWAY_KEY = 'sk-e2e-gateway'; // mock 전용 가짜 키 (진짜 키 아님)
 export const ADMIN_URL = 'http://localhost:4174'; // 관리자 빌드본 (vite preview)

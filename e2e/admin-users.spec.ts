@@ -73,6 +73,12 @@ test('조직 만들기 → 그 조직 초대 코드 (한 번만 보임) → 데�
   await page.getByRole('dialog', { name: '이 초대 코드를 취소할까요?' }).getByRole('button', { name: '코드 취소' }).click();
   await expect(toast(page, '초대 코드를 취소했어요')).toBeVisible();
   expect((await post('/api/auth/invite/preview', { code })).status).toBe(404);
+  // 전체 보기: 취소한 코드 = 만료 칸 '—' (아직 안 온 만료 시각이 '방금' 으로 보이던 버그)
+  await page.getByRole('radio', { name: '전체' }).click();
+  const revoked = invites.getByRole('row').filter({ hasText: '취소함' }).first();
+  await expect(revoked).toBeVisible();
+  await expect(revoked).not.toContainText('방금');
+  await page.screenshot({ path: shot('admin-invites-all'), fullPage: true });
 });
 
 test('스페이스 탭: 공유 스페이스는 이름 · 숫자만 · 내 스페이스는 개수만', async ({ page }) => {

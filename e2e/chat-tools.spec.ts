@@ -191,6 +191,18 @@ test('기록에서 다시 열어도 같은 묶음 · 같은 메모 줄 (새 창 
   }
 });
 
+test('앱 고르기 실패 = 사람이 읽는 문구 (모델용 지시 "사용자에게 묻는다" 는 화면에 없음)', async () => {
+  await home(win);
+  const { box, send } = ui(win);
+  await box.fill('[fake:app zzqx zzqx] 없는 앱으로 해 줘');
+  await send.click();
+  await idle(win);
+  const panel = await openTrace(win);
+  await expect(panel.locator('.tp-note[data-tool="use_app"] .tn')).toHaveText('앱 도구를 고르지 못했어요: 맞는 앱이 없어요');
+  await expect(panel).not.toContainText('묻는다');
+  await win.screenshot({ path: shot('desktop-tools-app-missed'), animations: 'disabled' });
+});
+
 test('움직임 줄이기: 홈 복제본 · 말풍선 이동 없이 바로 끝 모양', async () => {
   await win.emulateMedia({ reducedMotion: 'reduce' });
   await home(win);

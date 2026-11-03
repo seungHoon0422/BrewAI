@@ -114,6 +114,7 @@ export default defineConfig({
       url: ADMIN_URL,
       reuseExistingServer: !process.env.CI,
       timeout: 60_000,
+      env: { VITE_BREWAI_API_URL: API }, // /api proxy 대상 = E2E conductor
     },
     {
       name: 'admin-dev',
@@ -122,6 +123,7 @@ export default defineConfig({
       url: ADMIN_DEV_URL,
       reuseExistingServer: false,
       timeout: 60_000,
+      env: { VITE_BREWAI_API_URL: API }, // /api proxy 대상 = E2E conductor
     },
   ],
 });

@@ -253,7 +253,8 @@ function sentenceFromTool(message) {
   } catch {
     out = { raw: textOf(message.content) };
   }
-  if (out?.error) return `도구가 오류를 냈어요: ${out.message ?? out.error}`;
+  // 오류 = 코드만 (message 는 모델에게 주는 지시라 답에 옮기지 않는다 · 앱이 준 tool_error 만 그 글)
+  if (out?.error) return `도구가 오류를 냈어요: ${out.error === 'tool_error' ? out.message ?? out.error : out.error}`;
   if (out?.app && Array.isArray(out?.tools)) return `${out.app_name ?? out.app}에서 쓸 도구 ${out.tools.length}개를 골랐어요.`; // use_app
   if (out?.instructions !== undefined) return `스킬 '${out.label ?? out.name}' 지침을 따랐어요.`;
   if (out?.result !== undefined) {
