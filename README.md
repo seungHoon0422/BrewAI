@@ -58,29 +58,3 @@
 
 스택은 `npm run stack:down` 으로 끈다 (`docker compose` 를 직접 쓸 땐 `docker compose -p brewai -f infra/compose.yaml --env-file .env --profile trace …`). 포트가 이미 쓰이면 `.env` 의 `LITELLM_PORT` · `LANGFUSE_PORT` · `LANGFUSE_MEDIA_PORT` 로 바꾼다 (`LITELLM_PORT` 를 바꾸면 `LLM_GATEWAY_URL` 도).
 venv 게이트웨이·conductor 는 Ctrl+C 로 끈다. 래퍼만 `kill -9` 하면 uv·python 이 남아 포트를 잡는다 → `lsof -i :4000` / `:8787` 로 찾아 끈다.
-
-## 게이트웨이 서버 (Oracle 무료)
-
-두 PC 가 **같은 게이트웨이**(모델 · provider 키 한 곳)를 쓴다. 요금 0 (Always Free) · 주소 = `https://<IP 의 . 을 - 로>.sslip.io` (무료 · 자동 https) · 결정 = [ADR-0014](docs/adr/0014-gateway-server-oracle-free.md). 한 번만, 한 PC 에서 (맥 터미널 또는 Git Bash, 레포 폴더):
-
-1. **Oracle Cloud 가입** (cloud.oracle.com · 카드 = 본인 확인, Always Free 만 쓰면 청구 없음). 홈 리전은 나중에 못 바꾼다 → A1 여유가 있는 리전으로
-2. **VM 만들기**: Compute › Instances › Create — 이미지 **Ubuntu 24.04** (aarch64) · Shape **VM.Standard.A1.Flex 2 OCPU / 12 GB** · 공인 IPv4 자동 할당 · SSH 키 = 내 공개키 업로드 (`~/.ssh/id_ed25519.pub`, 없으면 `ssh-keygen -t ed25519`). "Out of capacity" 면 다른 AD 를 고르거나 몇 시간 뒤 다시
-3. **포트 열기**: Networking › Virtual cloud networks › (그 VCN) › Security Lists › Default › Add Ingress Rules — Source `0.0.0.0/0` · TCP · 포트 `80` 한 줄, `443` 한 줄 (22 는 이미 있음)
-4. **서버 준비**: `ssh ubuntu@<IP>` 로 한 번 접속(지문 yes) 후 `ssh ubuntu@<IP> 'sudo bash -s' < infra/deploy/bootstrap.sh` → Docker · swap · 방화벽 · `/opt/brewai/.env`(master key · salt · DB 비번 = 서버에서 만들고 화면에 안 찍음). 다시 돌려도 있는 값은 안 바뀐다
-5. **배포 키** (GitHub 전용): `ssh-keygen -t ed25519 -f ~/.ssh/brewai_deploy -N "" -C brewai-deploy` → `ssh ubuntu@<IP> 'cat >> ~/.ssh/authorized_keys' < ~/.ssh/brewai_deploy.pub`
-6. **GitHub Secrets 4개**: 레포 › Settings › Environments › New environment `gateway` → Deployment branches = Selected › `develop` 만 → 그 Environment 의 Environment secrets 에 (레포 Actions secrets 아님 · 배포 키 = 서버 root 라 다른 브랜치가 못 읽게): `DEPLOY_HOST` = IP · `DEPLOY_USER` = `ubuntu` · `DEPLOY_SSH_KEY` = `~/.ssh/brewai_deploy` 파일 내용 전체 · `DEPLOY_KNOWN_HOSTS` = `ssh-keygen -F <IP> | grep -v '^#'` 출력. (gh: `gh secret set DEPLOY_SSH_KEY --env gateway < ~/.ssh/brewai_deploy`) — 게이트웨이 비밀값은 GitHub 에 넣지 않는다
-7. **배포**: develop 에 `infra/deploy/**` · `infra/litellm/**` 가 push 되면 자동 (시크릿 없으면 건너뜀). 시크릿 등록 전 실행이었다면 Actions › deploy-gateway › 그 실행 › **Re-run all jobs**. 초록 + "게이트웨이 https://… 정상" 이면 끝 (첫 배포는 인증서 발급으로 1~2분)
-8. **두 PC `.env`**: `LLM_GATEWAY_URL=https://<IP-대시>.sslip.io` · `LITELLM_MASTER_KEY=<서버 값>` (`ssh ubuntu@<IP> sudo grep ^LITELLM_MASTER_KEY= /opt/brewai/.env` · 채팅에 붙여 넣지 말 것) → `npm run dev` 가 "게이트웨이 = 원격 서버" 라고 말하고 로컬 Docker 게이트웨이는 안 띄운다
-9. **모델 다시 등록**: `https://<도메인>/ui` → 브라우저 창 `admin` / `ssh ubuntu@<IP> sudo cat /opt/brewai/admin-ui-password` → LiteLLM 로그인 `admin` / master key → Models + Endpoints 에서 provider 키와 함께 추가 (로컬 스택에 넣은 모델은 안 옮겨진다)
-
-| 알아 둘 것 | |
-|---|---|
-| 공개 범위 | 밖에서 되는 건 conductor 가 쓰는 4개(`/v1/chat/completions` · `/model_group/info` · `/v1/model/info` · `/health/liveliness`)뿐, 그것도 master key 필요. 관리 화면 · 관리 API = 1차 basic auth 뒤 · docs · metrics = 404 |
-| 백업 | 매일 03:30 KST `pg_dump` 7개 (`/opt/brewai/backups`, 같은 VM 안). 매주 또는 모델을 추가한 뒤 PC 로 꺼내기: `ssh ubuntu@<IP> 'sudo cat /opt/brewai/backups/latest.dump' > brewai-litellm.dump`. `/opt/brewai/.env` 도 비밀번호 관리자에 한 부 (SALT 없으면 덤프 속 키를 못 읽음) |
-| `LITELLM_SALT_KEY` | **절대 안 바꾼다.** 서버를 새로 만들면 = 새 DB → 모델 다시 등록, 또는 아래 **복원** |
-| 내 도메인 | DNS A 레코드 → IP, `ssh ubuntu@<IP> 'sudo bash -s -- gw.example.com' < infra/deploy/bootstrap.sh` → Re-run → `.env` 주소도 바꿈 |
-| 회수 주의 | Oracle 은 7일 내내 거의 안 쓰는 Always Free VM 을 회수할 수 있다 → 계정을 Pay As You Go 로 올리면 대상 아님 (Always Free 한도 안이면 여전히 0원) |
-| 서버 명령 | `sudo docker compose -p brewai-gateway --env-file /opt/brewai/.env -f /opt/brewai/app/infra/deploy/compose.yaml ps` (`logs litellm` · `restart`) |
-| 업데이트 (매달) | 자동은 Ubuntu 보안 패키지뿐. Docker 엔진 · 커널은 `ssh -t ubuntu@<IP> 'sudo apt-get update && sudo apt-get upgrade -y && sudo reboot'` (컨테이너는 재부팅 뒤 저절로 다시 뜬다) |
-| 게이트 쿠키 바꾸기 | 쿠키가 샜으면 (공용 브라우저 등): `ssh ubuntu@<IP> "sudo sed -i '/^ADMIN_GATE_TOKEN=/d' /opt/brewai/.env"` → bootstrap 다시 (빠진 값만 만듦) → deploy-gateway Re-run (`.env` 가 바뀌면 caddy 를 새로 띄운다) |
-| 복원 | 새 서버나 DB 를 되돌릴 때, 순서대로. ① bootstrap ② **첫 배포 전에** `ssh -t ubuntu@<IP> sudoedit /opt/brewai/.env` 로 `LITELLM_SALT_KEY=` 를 예전 값으로 (배포 뒤엔 바꾸지 않는다) ③ deploy-gateway Re-run ④ PC 에서 `ssh ubuntu@<IP> 'sudo docker compose -p brewai-gateway --env-file /opt/brewai/.env -f /opt/brewai/app/infra/deploy/compose.yaml stop litellm'` ⑤ `ssh ubuntu@<IP> 'sudo docker compose -p brewai-gateway --env-file /opt/brewai/.env -f /opt/brewai/app/infra/deploy/compose.yaml exec -T litellm-db pg_restore --clean --if-exists --no-owner -U litellm -d litellm' < brewai-litellm.dump` ⑥ `ssh ubuntu@<IP> 'sudo docker compose -p brewai-gateway --env-file /opt/brewai/.env -f /opt/brewai/app/infra/deploy/compose.yaml start litellm'` |

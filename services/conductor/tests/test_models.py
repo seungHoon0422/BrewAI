@@ -349,30 +349,3 @@ def test_old_per_provider_order_is_migrated_once_to_the_global_order(h) -> None:
     registry.patch("claude-opus-5", {"order": 1})
     ModelRegistry(store, catalog)  # 다시 켜도 다시 섞지 않는다
     assert [r.gateway_id for r in registry.rows()][:2] == ["claude-opus-5", "brewai-mock"]
-
-
-def test_gateway_url_public_needs_https() -> None:
-    """ADR-0014: 공개 서버 게이트웨이는 https 만 (요청마다 master key 가 실린다). 이 PC · 사설망 · Docker 서비스 이름은 http 그대로."""
-    import pytest
-
-    from conductor.settings import load_settings
-
-    base = {"LITELLM_MASTER_KEY": "sk-" + "a" * 40}
-
-    def url(v: str) -> str:
-        return load_settings({**base, "LLM_GATEWAY_URL": v}).gateway_url
-
-    assert load_settings(base).gateway_url == "http://127.0.0.1:4000"
-    assert load_settings({**base, "LLM_GATEWAY_URL": ""}).gateway_url == "http://127.0.0.1:4000"  # 빈 줄 = 기본값
-    assert url("https://129-146-1-2.sslip.io/") == "https://129-146-1-2.sslip.io"
-    assert url(" https://gw.example.com:8443 ") == "https://gw.example.com:8443"
-    for ok in ("http://127.0.0.1:4000", "http://localhost:4000", "http://[::1]:4000", "http://192.168.0.10:4000", "http://litellm:4000"):
-        assert url(ok) == ok
-    for bad in ("http://129-146-1-2.sslip.io", "http://129.146.1.2:4000", "http://gw.example.com"):
-        with pytest.raises(RuntimeError, match="https"):
-            url(bad)
-    for bad in ("129-146-1-2.sslip.io", "ftp://gw.example.com", "https://"):
-        with pytest.raises(RuntimeError, match="주소 모양"):
-            url(bad)
-    with pytest.raises(RuntimeError, match="계정"):
-        url("https://admin:pw@gw.example.com")

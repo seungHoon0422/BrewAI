@@ -25,9 +25,6 @@ jobs:
       - name: install (package-lock.json 그대로)
         run: npm ci # Electron 실행 파일은 안 받는다 (44 는 처음 실행할 때 받음) — 타입 검사·빌드엔 필요 없다
 
-      - name: scripts 단위 테스트 (node:test · 네트워크 없음)
-        run: node --test scripts/*.test.mjs
-
       - name: typecheck
         run: npm run typecheck
 

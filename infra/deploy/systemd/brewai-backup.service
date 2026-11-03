@@ -1,8 +1,0 @@
-[Unit]
-Description=BrewAI gateway DB backup (pg_dump, keep 7)
-Wants=docker.service
-After=docker.service
-
-[Service]
-Type=oneshot
-ExecStart=/usr/bin/bash /opt/brewai/app/infra/deploy/backup.sh
