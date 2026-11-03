@@ -49,7 +49,9 @@ import contextlib
 import json
 import logging
 import re
+import tempfile
 import time
+from pathlib import Path
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from typing import Any, Literal
@@ -64,7 +66,8 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from . import api_admin, api_auth, api_mcp, api_spaces
+from . import api_admin, api_auth, api_files, api_mcp, api_spaces
+from .api_files import file_error_response
 from .agent import ChatRequest, ChatRequestError, ChatRuntime, RunScope, render_run
 from .auth import policy
 from .auth.accounts import Accounts, AuthFailed, Principal
@@ -77,6 +80,7 @@ from .connectors.session import Connectors
 from .connectors.ssrf import redact_text
 from .connectors.vault import Vault
 from .diagnose import MODEL_HEALTH_CODES
+from .files import Attachment, Caps, FileError, FileRow, Files, file_line, plan
 from .gateway import GatewayCatalogPort, GatewayError, LiteLLMCatalog
 from .models import ExposureRow, ModelChoice, ModelPatchError, ModelRegistry
 from .providers import provider_label
@@ -158,6 +162,7 @@ class ModelOut(BaseModel):
     supports_vision: bool
     max_input_tokens: int | None
     max_output_tokens: int | None = None
+    supports_pdf_input: bool = False  # 파일 칩의 전달 배지 (데스크톱 · 판정은 서버 files.plan)
     source: Literal["config", "ui", "mixed"] | None = None  # 등록 출처 (LiteLLM model_info.db_model) · None = 모름
     # 연결 상태 (대화 결과 · 관리자 연결 시험 중 나중 것). error 여도 고를 수 있다 — 화면은 경고만
     health: Literal["ok", "error", "unknown"] = "unknown"
@@ -258,7 +263,7 @@ def _model_out(r: ExposureRow, default: str | None, health: Any = None) -> Model
         id=r.gateway_id, label=r.label, provider=r.provider, provider_label=r.provider_label, family=r.family,
         is_default=r.gateway_id == default, supports_reasoning=bool(r.info.get("supports_reasoning")),
         supports_tools=bool(r.info.get("supports_function_calling")), supports_vision=bool(r.info.get("supports_vision")),
-        max_input_tokens=r.info.get("max_input_tokens"),
+        max_input_tokens=r.info.get("max_input_tokens"), supports_pdf_input=bool(r.info.get("supports_pdf_input")),
     )
 
 
@@ -321,6 +326,38 @@ def _thread_out(t: Any, user_id: str, path: list[Crumb]) -> dict[str, Any]:
     }
 
 
+def files_root(settings: Settings) -> Path:
+    """파일 원본 폴더: CONDUCTOR_FILES_DIR · 없으면 DB 옆 files/ · 메모리 DB(테스트) = 임시 폴더."""
+    if settings.files_dir:
+        return Path(settings.files_dir)
+    if settings.db_path == ":memory:":
+        return Path(tempfile.mkdtemp(prefix="brewai-files-"))
+    return Path(settings.db_path).parent / "files"
+
+
+def _check_files(files: Files, req: ChatRequest, user_id: str, space_id: str, choice: ModelChoice) -> tuple[Attachment, ...]:
+    """이번 턴 첨부 = 내가 올린 · 이 스페이스의 · 아직 안 묶였거나 이 대화에 묶인 파일만 (프로젝트 파일은 첨부가 아니라 목록 한 줄)."""
+    caps = Caps(vision=choice.supports_vision, pdf=choice.supports_pdf)
+    out = []
+    for fid in req.files:
+        f = files.get(fid)
+        if f is None or f.owner_user_id != user_id or f.space_id != space_id or f.project_id is not None or f.thread_id not in (None, req.thread_id):
+            raise ChatRequestError(400, "bad_files")  # 남의 파일 · 다른 곳 파일 = 이유를 알려 주지 않는다
+        d = plan(f, caps)
+        out.append(Attachment(f, d, files.text_of(f, d), files.data(f) if d.mode == "original" else None))
+    return tuple(out)
+
+
+def _bind_files(files: Files, req: ChatRequest, attachments: tuple[Attachment, ...], project_id: str | None) -> tuple[tuple[FileRow, ...], str]:
+    """첨부를 이 대화 · 턴에 묶고 → read_file 로 읽을 파일 (대화 + 프로젝트) · 프로젝트 파일 한 줄."""
+    if attachments:
+        files.bind([a.file.id for a in attachments], thread_id=req.thread_id, run_id=req.run_id)
+    readable = {f.id: f for f in files.list(thread_id=req.thread_id)}
+    project_rows = files.list(project_id=project_id) if project_id else []
+    readable.update({f.id: f for f in project_rows})
+    return tuple(readable.values()), file_line(project_rows)
+
+
 def create_app(
     settings: Settings | None = None,
     *,
@@ -345,6 +382,7 @@ def create_app(
     scopes = Scopes(store)
     guard = Guard(directory, scopes)
     google = google or GoogleOIDC(settings)
+    files = Files(store, files_root(settings))
     connectors = Connectors(
         store, accounts, vault=Vault.from_settings(settings), public_url=settings.public_url, allow_loopback=settings.mcp_loopback_ok,
         transport=mcp_transport,
@@ -409,6 +447,7 @@ def create_app(
     app.state.scopes = scopes
     app.state.guard = guard
     app.state.connectors = connectors
+    app.state.files = files
 
     # 라우터 3개 = 인증 3종류. 경로는 반드시 이 중 하나에 (app 에 직접 붙이지 않는다 · /healthz 만 예외)
     public = APIRouter()
@@ -447,6 +486,10 @@ def create_app(
             if fields and len(fields) == len(errors):
                 return JSONResponse({"detail": f"bad_{fields[0]}"}, status_code=422)
         return await request_validation_exception_handler(request, e)
+
+    @app.exception_handler(FileError)
+    async def _file_error(_: Request, e: FileError) -> JSONResponse:
+        return file_error_response(e)
 
     @app.exception_handler(StoreConflict)
     async def _conflict(_: Request, e: StoreConflict) -> JSONResponse:
@@ -529,6 +572,7 @@ def create_app(
                 # 숨긴 모델 · 없는 모델 · 채팅 모델 아님 = 모두 unknown_model (무엇이 숨겨져 있는지 알려 주지 않는다)
                 raise ChatRequestError(503, "no_models") if req.model is None else ChatRequestError(400, "unknown_model")
             effective = req.reasoning if ChatRuntime.model_settings(choice, req.reasoning) is not None else "off"
+            attachments = _check_files(files, req, p.user_id, space.id, choice)  # 실행 기록 전에 (거절 = 400 · 기록 없음)
             try:
                 store.start_run(
                     run_id=req.run_id, thread_id=req.thread_id, model=choice.id, model_label=choice.label,
@@ -537,13 +581,14 @@ def create_app(
                 )
             except StoreConflict as e:
                 raise ChatRequestError(404 if e.code == "thread_not_found" else 409, e.code) from e
+            readable, line = _bind_files(files, req, attachments, project["id"] if project else None)
             instructions = (
                 f"이 대화는 프로젝트 '{project['name']}' 안에 있다. 아래 프로젝트 지침을 따른다 (위 규칙이 우선).\n{project['instructions']}"
                 if project is not None and project["instructions"] else None
             )
             scope = RunScope(
                 user_id=p.user_id, space_id=space.id, project_id=project["id"] if project else None, instructions=instructions,
-                apps=apps, resume=resume,
+                apps=apps, resume=resume, attachments=attachments, readable=readable, file_store=files, file_line=line,
             )
             return choice, blobs, _Sink(store, req, choice.id), scope
 
@@ -569,10 +614,14 @@ def create_app(
         thread, _ = guard.thread(p.actor, thread_id)
         messages: list[dict[str, Any]] = []
         carry: dict[str, dict[str, Any]] = {}  # 툴 칸을 실행끼리 공유 (이어서 하기 결과가 앞 실행의 대기 카드를 채운다)
-        for r in store.thread_runs(thread_id):
+        runs = store.thread_runs(thread_id)
+        attached = files.of_runs([r["id"] for r in runs])  # 내 말풍선의 첨부 칩 (지운 파일은 빠진다)
+        for r in runs:
             resumed = r["prompt"] == ""  # 이어서 하기 실행 = 사용자 메시지 없음
             if not resumed:
-                messages.append({"id": f"{r['id']}:user", "role": "user", "run_id": r["id"], "content": r["prompt"], "created_at": r["started_at"]})
+                got = attached.get(r["id"])
+                messages.append({"id": f"{r['id']}:user", "role": "user", "run_id": r["id"], "content": r["prompt"], "created_at": r["started_at"],
+                                 **({"files": [f.out() for f in got]} if got else {})})  # 첨부가 있을 때만 (기존 응답 모양 그대로)
             waiting = [w for w in _json(r["pending_json"]) or [] if isinstance(w, dict)]
             answer = render_run(r["messages"], pending=[str(w.get("call_id")) for w in waiting], carry=carry)
             messages.append(
@@ -703,6 +752,7 @@ def create_app(
 
     api_auth.register(public, user, admin, settings=settings, google=google)
     api_spaces.register(user)
+    api_files.register(user, files=files, registry=registry)
     api_admin.register(admin)
     api_mcp.register(public, user, admin, settings=settings, connectors=connectors)
     for router in (public, user, admin):

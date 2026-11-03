@@ -387,6 +387,41 @@ CREATE TABLE IF NOT EXISTS mcp_icons (
 MCP_SCHEMA = MCP_SCHEMA.replace("{SHARE_KINDS}", ", ".join(f"'{k}'" for k in MCP_SHARE_KINDS))
 _SCHEMA += MCP_SCHEMA
 
+# 파일 (slice 07 · ADR-0015 · files.py). 원본 = 데이터 폴더 files/<sha256> (같은 내용 한 번) · 뽑은 글 = file_chunks (쪽 · 시트 · 슬라이드)
+# 붙는 곳: thread_id (대화 첨부 · 보낸 첫 턴에 묶인다) · project_id (프로젝트 파일) · 둘 다 없음 = 올렸지만 아직 안 보냄 (올린 사람만)
+FILES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS files (
+  id            TEXT PRIMARY KEY,
+  owner_user_id TEXT NOT NULL,
+  space_id      TEXT NOT NULL,
+  project_id    TEXT,
+  thread_id     TEXT,
+  run_id        TEXT,  -- 보낸 그 턴 (내 말풍선의 첨부 칩)
+  name          TEXT NOT NULL,
+  kind          TEXT NOT NULL CHECK (kind IN ('image', 'pdf', 'text', 'docx', 'xlsx', 'pptx')),
+  mime          TEXT NOT NULL,
+  size          INTEGER NOT NULL,
+  sha256        TEXT NOT NULL,
+  pages         INTEGER,
+  text_tokens   INTEGER NOT NULL DEFAULT 0,
+  note          TEXT,
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS files_space ON files (space_id, created_at);
+CREATE INDEX IF NOT EXISTS files_thread ON files (thread_id);
+CREATE INDEX IF NOT EXISTS files_run ON files (run_id);
+CREATE INDEX IF NOT EXISTS files_project ON files (project_id);
+CREATE INDEX IF NOT EXISTS files_owner ON files (owner_user_id);
+CREATE TABLE IF NOT EXISTS file_chunks (
+  file_id TEXT NOT NULL REFERENCES files (id) ON DELETE CASCADE,
+  idx     INTEGER NOT NULL,
+  label   TEXT NOT NULL,
+  text    TEXT NOT NULL,
+  PRIMARY KEY (file_id, idx)
+);
+"""
+_SCHEMA += FILES_SCHEMA
+
 # v3 → v4: 이미 있는 표에 더하는 칸 (새 DB 는 CREATE TABLE 이 처음부터 갖고 있다 · 표가 없으면 CREATE 가 만든다)
 _V4_COLUMNS = {
     "users": ("mcp_auto_auth TEXT NOT NULL DEFAULT 'unset' CHECK (mcp_auto_auth IN ('unset', 'on', 'off'))",),

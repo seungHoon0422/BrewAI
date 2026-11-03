@@ -18,6 +18,10 @@ import { CHAT, SUGGESTIONS, TEAM, TOOL_TRY, appStarters, type Starter } from '..
 import { send, stop, updateThread, useConvBusy, useCurrentConv } from '../hooks';
 import { leaveHome } from '../motion';
 import { Composer } from './Composer';
+import { DraftChips } from '../../files/components/FileChips';
+import { ProjectFiles } from '../../files/components/ProjectFiles';
+import { addFiles, take, uploading as isUploading, useDrafts, usePlans } from '../../files/hooks';
+import { effectiveModel, useModelState } from '../../models/hooks';
 import { Messages } from './Messages';
 import { SampleMenu } from './SampleMenu';
 import { TeamPanel, closeTeamPanel, openTeamPanel, useTeamPanel } from './TeamPanel';
@@ -37,18 +41,26 @@ export function ChatScreen() {
   const loading = conv?.load === 'loading';
   const panel = useTeamPanel(conv); // 오른쪽 진행 상황 (팀이 생긴 대화만)
   const toggle = useRef<HTMLButtonElement>(null); // 패널을 닫으면 포커스가 돌아올 곳 (덮개가 덮던 머리 토글)
-  const canSend = text.trim() !== '' && !busy && !loading;
+  // 첨부 (slice 07): 입력창마다 따로 (새 대화 = 'new') · 전달 배지 = 지금 고른 모델로 서버에 묻는다
+  const draftKey = conv?.id ?? 'new';
+  const drafts = useDrafts(draftKey);
+  const modelId = useModelState((s) => effectiveModel(s)?.id ?? null);
+  const readyIds = drafts.flatMap((d) => (d.file ? [d.file.id] : []));
+  const plans = usePlans(readyIds, modelId);
+  const pending = drafts.some((d) => d.status === 'uploading');
+  const canSend = (text.trim() !== '' || readyIds.length > 0) && !pending && !busy && !loading;
+  const onFiles = (files: File[]) => addFiles(draftKey, files, { space: conv?.scope.space_id ?? space?.id ?? null, project: null });
 
   useEffect(() => input.current?.focus(), []);
 
   // 새 대화(홈 · 프로젝트 화면)에서 보내면 이 화면이 대화 화면으로 바뀐다 → 바뀌기 직전 자리를 넘긴다 (from = 글이 있던 자리)
-  const sendFrom = (ask: string, from: Element | null) => {
+  const sendFrom = (ask: string, from: Element | null, files: ReturnType<typeof take> = []) => {
     if (!conv) leaveHome(view.current, ask.trim(), from);
-    return send(ask);
+    return send(ask, files);
   };
   const onSend = () => {
-    if (!canSend) return;
-    if (sendFrom(text, input.current)) setText('');
+    if (!canSend || isUploading(draftKey)) return;
+    if (sendFrom(text, input.current, take(draftKey))) setText('');
     input.current?.focus();
   };
   // 제안 = 바로 보낸다 (입력창은 그대로 · 쓰던 글이 있어도 지우지 않는다)
@@ -75,7 +87,8 @@ export function ChatScreen() {
     <ProjectPicker mode="new" value={project?.id ?? null} onChange={focusProject} />
   );
   const composer = (
-    <Composer input={input} text={text} onText={setText} onSend={onSend} canSend={canSend}
+    <Composer input={input} text={text} onText={setText} onSend={onSend} canSend={canSend} onFiles={onFiles}
+      chips={<DraftChips drafts={drafts} plans={plans} draftKey={draftKey} />}
       busy={busy} onStop={() => conv && stop(conv.id)} scope={scope}
       tools={devBuild && <SampleMenu onPick={onSample} disabled={busy || loading} />}
       placeholder={loading ? CHAT.placeholderLoading : conv?.turns.length ? CHAT.placeholderThread : project ? PROJECTS.composerHint(project.name) : CHAT.placeholderHome} />
@@ -87,6 +100,7 @@ export function ChatScreen() {
         <div className="proj-in">
           <ProjectHeader project={project} />
           {composer}
+          <ProjectFiles projectId={project.id} spaceId={project.space_id} />
         </div>
         <div className="proj-list ui-scroll">
           <div className="proj-in">

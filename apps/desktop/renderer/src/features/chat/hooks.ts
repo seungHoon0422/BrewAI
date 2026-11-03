@@ -4,6 +4,7 @@
 // 스페이스가 바뀌면 홈으로 돌아가고 최근 목록을 다시 읽는다 (watchScope).
 // 앱 연결 (ADR-0013): 연결 필요 = 답 아래 카드 (model.ts AppCard) → 연결(main 의 시스템 브라우저 · connections/hooks) → 같은 대화에서
 // '이어서 하기' (forwardedProps.resume · 질문 없이 · 서버가 멈춘 호출을 다시 계산). auto + auto_open = 묻지 않고 바로 브라우저.
+import type { FileItem } from '../files/api';
 import { useEffect, useState } from 'react';
 import { ApiError, failureOf, isAbort, type Failure } from '../../lib/api';
 import { titleOf } from '../../lib/format';
@@ -165,7 +166,7 @@ export function openThread(id: string) {
         if (m.role !== 'user') continue;
         const a = t.messages[i + 1];
         if (a?.role !== 'assistant') continue;
-        turns.push({ id: m.run_id || m.id, ask: m.content, answer: historyAnswer(a) });
+        turns.push({ id: m.run_id || m.id, ask: m.content, answer: historyAnswer(a), files: m.files.length ? m.files : undefined });
         i++;
       }
       set((s) => {
@@ -213,16 +214,16 @@ function patchAnswer(threadId: string, runId: string, fn: (a: Answer) => Answer)
   });
 }
 
-export function send(text: string): boolean {
+export function send(text: string, files: FileItem[] = []): boolean {
   const ask = text.trim();
   const state = store.get();
-  if (!ask || convBusy(state, state.current)) return false;
+  if ((!ask && !files.length) || convBusy(state, state.current)) return false;
   if (state.current && state.convs[state.current]?.load === 'loading') return false; // 기록을 다 읽은 뒤에
   const id = state.current ?? crypto.randomUUID();
   const answer = freshAnswer();
   set((s) => {
-    const c: Conv = s.convs[id] ?? { id, title: titleOf(ask), ...freshScope(), turns: [], load: 'local', loadError: null };
-    const turn: Turn = { id: answer.runId, ask, answer };
+    const c: Conv = s.convs[id] ?? { id, title: titleOf(ask || files[0]?.name || ''), ...freshScope(), turns: [], load: 'local', loadError: null };
+    const turn: Turn = { id: answer.runId, ask, answer, files: files.length ? files : undefined };
     return { ...s, current: id, convs: { ...s.convs, [id]: { ...c, turns: [...c.turns, turn] } } };
   });
   void start(id, answer);
@@ -293,6 +294,7 @@ async function start(threadId: string, answer: Answer) {
           reasoning: answer.reasoning,
           spaceId: store.get().convs[threadId].scope.space_id,
           projectId: store.get().convs[threadId].scope.project_id,
+          files: turn.files?.map((f) => f.id),
           signal: ctrl.signal,
           onEvent: (ev) => {
             patchAnswer(threadId, answer.runId, (a) => apply(a, ev, labels));

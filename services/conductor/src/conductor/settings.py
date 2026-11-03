@@ -39,6 +39,7 @@ class Settings:
     bootstrap_models: tuple[str, ...] = BOOTSTRAP_MODELS
     gateway_ui_url: str | None = None  # 관리자 '모델 추가' 링크 (LiteLLM Admin UI). 없으면 gateway_url + /ui
     model_sync_interval_s: float = 0.0  # 게이트웨이 모델 자동 동기화 주기. 0 = 끔 (테스트 기본값). load_settings 는 60초
+    files_dir: str | None = None  # 파일 원본 (slice 07) · None = db_path 옆 files/ (메모리 DB = 임시 폴더)
     skills_dir: str | None = None  # 제품 스킬 폴더 (None = 스킬 없음 · 테스트 기본값). load_settings 는 runtime/skills
     # ↓ 로그인 (ADR-0010). 첫 관리자 = users 가 비어 있을 때만 이 값으로 만든다
     admin_email: str | None = None
@@ -125,6 +126,7 @@ def load_settings(env: Mapping[str, str] = os.environ) -> Settings:
         gateway_ui_url=(env.get("LLM_GATEWAY_UI_URL") or "").rstrip("/") or None,
         model_sync_interval_s=_seconds(env.get("MODEL_SYNC_INTERVAL_S"), 60.0),
         skills_dir=env.get("CONDUCTOR_SKILLS_DIR") or str(DEFAULT_SKILLS_DIR),
+        files_dir=env.get("CONDUCTOR_FILES_DIR") or None,
         admin_email=(env.get("BREWAI_ADMIN_EMAIL") or "").strip() or None,
         admin_password=env.get("BREWAI_ADMIN_PASSWORD") or None,
         password_min=_password_min(env.get("CONDUCTOR_PASSWORD_MIN")),

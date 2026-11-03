@@ -6,6 +6,7 @@ import { AuthGate } from '../features/auth/components/AuthGate';
 import { ChatScreen } from '../features/chat/components/ChatScreen';
 import { useChat } from '../features/chat/hooks';
 import { ConnectionsScreen } from '../features/connections/components/ConnectionsScreen';
+import { FilesScreen } from '../features/files/components/FilesScreen';
 import { ScheduledScreen } from '../features/scheduled/components/ScheduledScreen';
 import { clearNotice, useScopeState } from '../features/scope/hooks';
 import { SettingsScreen } from '../features/settings/components/SettingsScreen';
@@ -22,6 +23,7 @@ const PAGES: Record<MenuId, ComponentType> = {
   activity: ActivityScreen,
   scheduled: ScheduledScreen,
   skills: SkillsScreen,
+  files: FilesScreen,
   connections: ConnectionsScreen,
   settings: SettingsScreen,
 };

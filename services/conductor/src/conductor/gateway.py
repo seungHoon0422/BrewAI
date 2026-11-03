@@ -42,6 +42,7 @@ class GatewayModel:
     # None = 모름 → 사용량 비용은 입력 가격으로 어림하고 '어림' 표시 (usage.py cost_parts)
     cache_read_input_token_cost: float | None = None
     cache_creation_input_token_cost: float | None = None
+    supports_pdf_input: bool = False  # PDF 원본을 받는다 (files.plan · 아니면 뽑은 글 · ADR-0015)
 
     @property
     def is_chat(self) -> bool:
@@ -85,6 +86,7 @@ def parse_model_group(item: dict[str, Any]) -> GatewayModel:
         supports_function_calling=True if item.get("supports_function_calling") is True else None,  # false = 아직 모름 (위 · _with_info)
         supports_vision=bool(item.get("supports_vision")),
         supports_reasoning=bool(item.get("supports_reasoning")),
+        supports_pdf_input=bool(item.get("supports_pdf_input")),
         cache_read_input_token_cost=_price(item.get("cache_read_input_token_cost")),
         cache_creation_input_token_cost=_price(item.get("cache_creation_input_token_cost")),
     )

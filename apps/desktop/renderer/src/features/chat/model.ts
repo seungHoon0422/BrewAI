@@ -1,4 +1,5 @@
 // 대화 상태의 모양 — 대화(Conv) › 턴(Turn: 질문 + 답) › 답(Answer: 조각 · 단계 · 모델). hooks · events · trace · 화면이 같이 본다.
+import type { FileItem } from '../files/api';
 import type { ScopePath } from '@brewai/ui';
 import type { Failure, Reasoning } from '../../lib/api';
 import type { AppAuthMode, AppAuthReason, AppServer, Step, StepStatus, ThreadScope, Usage, Via } from './api';
@@ -69,7 +70,7 @@ export type Answer = {
 };
 // resumed = 앱 연결 뒤 '이어서 하기' 실행 (질문 말풍선 없이 답만)
 // resume = 이어서 하기로 다시 계산할 호출 id (이 창에서 보낸 것 · 다시 시도에도 그대로)
-export type Turn = { id: string; ask: string; answer: Answer; resumed?: boolean; resume?: string };
+export type Turn = { id: string; ask: string; answer: Answer; resumed?: boolean; resume?: string; files?: FileItem[] }; // files = 이 턴 첨부 (내 말풍선 칩)
 // path = 범위 경로 (서버 기록 · 이 창에서 막 시작한 대화는 그 스페이스 · 프로젝트의 경로) · scope = 어디 있고 누구 것인지
 export type Conv = {
   id: string; title: string; path: ScopePath; scope: ThreadScope; turns: Turn[]; load: 'local' | 'loading' | 'ready' | 'error'; loadError: Failure | null;

@@ -90,6 +90,9 @@ class ModelChoice:
     max_output_tokens: int | None
     # True = LiteLLM `/v1/responses` 로 부른다 (게이트웨이 mode = responses · Azure 사용자 지정 배포). False = `/v1/chat/completions`
     responses_api: bool = False
+    # 파일 전달 (files.plan · ADR-0015): 이미지 원본 · PDF 원본을 받나
+    supports_vision: bool = False
+    supports_pdf: bool = False
 
 
 @dataclass(frozen=True)
@@ -250,6 +253,8 @@ class ModelRegistry:
             supports_tools=bool(r.info.get("supports_function_calling")),
             max_output_tokens=r.info.get("max_output_tokens"),
             responses_api=r.responses_api,
+            supports_vision=bool(r.info.get("supports_vision")),
+            supports_pdf=bool(r.info.get("supports_pdf_input")),
         )
 
     def resolve(self, requested: str | None) -> ModelChoice | None:

@@ -1,6 +1,7 @@
 // 대화 내용 (role=log) — 질문 말풍선 · 답 · 기록 불러오는 중 · 기록 실패. 맨 아래를 보고 있으면 새 글을 따라 내려간다.
 // 답 글은 상태와 따로 펼쳐지므로(markdown/reveal) 높이가 바뀔 때마다(ResizeObserver) 따라간다.
 // 새 질문 = 뚝 끊겨 올라가지 않게 부드럽게 내려간다 (말풍선은 아래에서 떠오른다 · chat.css) · 홈에서 막 보낸 첫 말풍선 = 입력 자리에서 올라온다 (motion.ts)
+import { SentChips } from '../../files/components/FileChips';
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import { reduceMotion } from '../../../lib/hooks';
 import { Button, Spinner, StatusDot } from '@brewai/ui';
@@ -65,7 +66,12 @@ export function Messages({ conv }: { conv: Conv }) {
       <div ref={col} className="col" role="log" aria-label={CHAT.log} aria-live="polite">
         {conv.turns.map((t, i) => (
           <div key={t.id} className="turn">
-            {!t.resumed && <div className="msg user enter"><div className="bubble">{t.ask}</div></div>}
+            {!t.resumed && (
+              <div className="msg user enter">
+                {t.files && <SentChips files={t.files} />}
+                {t.ask && <div className="bubble">{t.ask}</div>}
+              </div>
+            )}
             <AnswerView turn={t} latest={i === conv.turns.length - 1} threadId={conv.id} teamRun={teamRun} />
           </div>
         ))}

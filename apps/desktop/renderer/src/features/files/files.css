@@ -1,0 +1,59 @@
+/* 파일 (slice 07) — 첨부 칩(입력창 · 내 말풍선) · 끌어다 놓기 · 스페이스 '파일' 화면 카드 · 프로젝트 파일 묶음. 토큰만. */
+
+/* 칩 = 썸네일/아이콘 · 이름 · 종류 크기 · 전달 배지 · 예상 토큰 · 빼기 */
+.fc-wrap{display:grid;gap:var(--space-1-5);margin:0 0 var(--space-2)}
+.fc-list{display:flex;flex-wrap:wrap;gap:var(--space-1-5);list-style:none;margin:0;padding:0}
+.fc{display:flex;align-items:center;gap:var(--space-2);min-width:0;max-width:300px;padding:var(--space-1-5) var(--space-1) var(--space-1-5) var(--space-1-5);
+  border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--surface-sunken)}
+.fc.is-error{border-color:var(--danger);background:var(--danger-soft)}
+.fc-thumb{display:grid;place-items:center;flex:none;width:36px;height:36px;overflow:hidden;border-radius:var(--radius-md);background:var(--surface);color:var(--text-2)}
+.fc-thumb img{width:100%;height:100%;object-fit:cover}
+.fc-body{display:grid;gap:1px;min-width:0;flex:1}
+.fc-body b{font-size:var(--fs-sm);font-weight:var(--fw-medium);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fc-meta{display:flex;align-items:center;gap:var(--space-1-5);min-width:0;font-size:var(--fs-xs);color:var(--text-muted);white-space:nowrap}
+.fc-meta>span{overflow:hidden;text-overflow:ellipsis}
+.fc-err{color:var(--danger-text);white-space:normal}
+/* 전달 배지 = 차별점: 이 모델에 어떻게 가는지 (원본 · 글 · 필요할 때 · 못 받음) */
+.fc-mode{flex:none;padding:0 var(--space-1-5);border-radius:var(--radius-pill);border:1px solid var(--border);color:var(--text-2);background:var(--surface)}
+.fc-mode[data-mode="original"]{color:var(--ok-text);border-color:currentColor}
+.fc-mode[data-mode="outline"]{color:var(--accent);border-color:currentColor}
+.fc-mode[data-mode="blocked"]{color:var(--warn-text);border-color:currentColor}
+.fc-tok{flex:none}
+.fc-sum{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-2);margin:0;font-size:var(--fs-xs);color:var(--text-muted)}
+.fc-warn{display:inline-flex;align-items:center;gap:var(--space-1);color:var(--warn-text)}
+
+/* 내 말풍선: 칩 줄 위 · 말풍선 아래 (오른쪽 정렬) */
+.msg.user:has(.fc-sent){flex-direction:column;align-items:flex-end;gap:var(--space-1-5)}
+.fc-sent{justify-content:flex-end;max-width:75%}
+.fc-sent .fc{background:var(--surface)}
+
+/* 끌어다 놓기 = 입력창 위 덮개 */
+.box{position:relative}
+.box.is-drop{border-color:var(--focus);box-shadow:0 0 0 1px var(--focus),var(--shadow-sm)}
+.drop-hint{position:absolute;inset:0;z-index:2;display:flex;align-items:center;justify-content:center;gap:var(--space-2);border-radius:inherit;
+  background:var(--surface);color:var(--text-2);font-size:var(--fs-sm);pointer-events:none}
+
+/* 스페이스 '파일' 화면 = 카드 격자 (연결된 앱과 같은 결) */
+.files-filter{display:flex;flex-wrap:wrap;gap:var(--space-1-5);margin:0 0 var(--space-3)}
+.file-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:var(--space-2-5);list-style:none;margin:0;padding:0}
+.file-card{position:relative;display:flex;flex-direction:column;gap:var(--space-2);min-width:0;padding:var(--space-3);border:1px solid var(--border);
+  border-radius:var(--radius-lg);background:var(--surface)}
+.file-card:hover{box-shadow:var(--shadow-sm)}
+.file-card-top{display:flex;align-items:center;gap:var(--space-2-5);min-width:0}
+.file-card-top .fc-thumb{width:44px;height:44px}
+.file-card-name{display:grid;gap:2px;min-width:0}
+.file-card-name b{font-weight:var(--fw-semibold);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.file-card-name span{font-size:var(--fs-xs);color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.file-where{display:flex;align-items:center;gap:var(--space-1-5);min-width:0;padding:0;border:0;background:none;font:inherit;font-size:var(--fs-xs);
+  color:var(--text-2);text-align:left;cursor:pointer;border-radius:var(--radius-sm)}
+.file-where:hover span{color:var(--text);text-decoration:underline;text-underline-offset:3px}
+.file-where:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.file-where span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.file-card-foot{display:flex;align-items:center;justify-content:space-between;gap:var(--space-2);margin-top:auto;font-size:var(--fs-xs);color:var(--text-muted)}
+
+/* 프로젝트 파일 묶음 (프로젝트 화면) */
+.proj-files{display:grid;gap:var(--space-2);margin-top:var(--space-4)}
+.proj-files-head{display:flex;align-items:center;gap:var(--space-2)}
+.proj-files-head h2{margin:0;font-size:var(--fs-sm);font-weight:var(--fw-semibold)}
+.proj-files-head .grow{flex:1}
+.proj-files p{margin:0;font-size:var(--fs-xs);color:var(--text-muted)}

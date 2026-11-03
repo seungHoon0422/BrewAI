@@ -14,11 +14,12 @@ const MENU: MenuItem[] = [
   { id: 'activity', label: '진행 상황' },
   { id: 'scheduled', label: '예약 작업' },
   { id: 'skills', label: '스킬' },
+  { id: 'files', label: '파일' },
   { id: 'connections', label: '연결된 앱' },
   { id: 'settings', label: '설정' },
 ];
 const CHAT = MENU[0];
-const SETTINGS = MENU[5];
+const SETTINGS = MENU[6];
 
 let app: ElectronApplication;
 let win: Page;

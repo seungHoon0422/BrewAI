@@ -2,7 +2,7 @@
 // 관리자 메뉴는 apps/admin 에만 둔다 (사용자 앱에 관리자 화면·경로 금지).
 import type { IconName } from '@brewai/ui';
 
-export type MenuId = 'chat' | 'activity' | 'scheduled' | 'skills' | 'connections' | 'settings';
+export type MenuId = 'chat' | 'activity' | 'scheduled' | 'skills' | 'files' | 'connections' | 'settings';
 export type MenuItem = { id: MenuId; label: string; icon: IconName };
 
 export const MENU: readonly MenuItem[] = [
@@ -10,6 +10,7 @@ export const MENU: readonly MenuItem[] = [
   { id: 'activity', label: '진행 상황', icon: 'team' },
   { id: 'scheduled', label: '예약 작업', icon: 'clock' },
   { id: 'skills', label: '스킬', icon: 'layers' },
+  { id: 'files', label: '파일', icon: 'file' },
   { id: 'connections', label: '연결된 앱', icon: 'link' },
 ];
 

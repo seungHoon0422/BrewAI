@@ -57,6 +57,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import base64
 import re
 import time
 from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Iterator, Sequence
@@ -71,8 +72,10 @@ from ag_ui.core import (
     RunErrorEvent,
     StepFinishedEvent,
     StepStartedEvent,
+    TextInputContent,
     UserMessage,
 )
+from ag_ui.core import DocumentInputContent, ImageInputContent, InputContentDataSource
 from openai import APIConnectionError, APIStatusError, AsyncOpenAI
 from pydantic import ValidationError
 from pydantic import Field, TypeAdapter
@@ -80,6 +83,7 @@ from pydantic_ai import Agent, AgentRunResultEvent, FunctionToolset, RunContext,
 from pydantic_ai.exceptions import CallDeferred, ModelConnectionError, ModelHTTPError, UsageLimitExceeded
 from pydantic_ai.messages import (
     INTERRUPTED_TOOL_RETURN_CONTENT,
+    BinaryContent,
     FunctionToolCallEvent,
     FunctionToolResultEvent,
     ModelMessage,
@@ -113,6 +117,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from . import diagnose as dx
+from . import files as fl
 from . import team as tm
 from .connectors.client import split_public
 from .connectors.session import AppSession, AuthNeeded, MemberApps, Revealed
@@ -155,6 +160,8 @@ _CLOSEOUT = {"Tool execution was interrupted by an error.": "error", INTERRUPTED
 APP_TOOL_TIMEOUT_S = 45.0  # use_app (tools/list 여러 쪽) · MCP 도구 한 번 (MCP 클라이언트 자체 시간 제한 30초가 먼저)
 PROBE_MAX_TOKENS = 16  # 관리자 '연결 시험' (LiteLLM 자체 health check 기본값과 같다. 1 은 생각 모델에서 거절될 수 있다)
 _ID = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+_FILE_ID = re.compile(r"^f_[0-9a-f]{20}$")  # files.py Files.add
+MAX_FILES = fl.MAX_FILES_PER_MESSAGE
 
 ModelFactory = Callable[[str], Model]
 
@@ -207,6 +214,7 @@ class ChatRequest:
     space_id: str | None = None  # forwardedProps.spaceId (새 대화만 · 없으면 내 스페이스)
     project_id: str | None = None  # forwardedProps.projectId (새 대화만)
     resume: str | None = None  # forwardedProps.resume.call_id = 연결 뒤 이어서 하기 (prompt 없음 · 기존 대화만)
+    files: tuple[str, ...] = ()  # forwardedProps.files = 이번 턴 첨부 id (PUT /api/files 로 올린 내 파일 · 판정은 app.py prepare)
 
 
 @dataclass(frozen=True)
@@ -219,6 +227,11 @@ class RunScope:
     instructions: str | None = None  # 프로젝트 지침 (시스템 프롬프트 뒤에 붙는다)
     apps: AppSession | None = None  # 이 사람이 쓸 수 있는 MCP 앱 (없으면 None = 앱 목록 · use_app 0)
     resume: tuple[str, ...] = ()  # 이어서 하기: 서버가 다시 계산할 대기 호출 id (prepare 가 runs.pending_json 으로 확인)
+    # 파일 (slice 07 · ADR-0015): 이번 턴 첨부(files.Attachment) · read_file 로 읽을 수 있는 파일(대화 + 프로젝트) · 프로젝트 파일 한 줄
+    attachments: tuple[Any, ...] = ()
+    readable: tuple[Any, ...] = ()
+    file_store: Any = None
+    file_line: str = ""
 
 
 class RunSink(Protocol):
@@ -419,6 +432,50 @@ def _tool(s: ToolSpec) -> Tool[None]:
     t: Tool[None] = Tool.from_schema(s.function, s.name, s.description, s.schema)  # 손으로 쓴 짧은 스키마 (use_skill = 이름 enum)
     t.requires_approval = s.requires_approval
     return t
+
+
+def file_toolset(scope: RunScope) -> FunctionToolset[None] | None:
+    """read_file (slice 07 · ADR-0015) = 이 대화 · 프로젝트에 파일이 있을 때만 (없으면 도구 배열 그대로 = hello 바이트 그대로)."""
+    if not scope.readable or scope.file_store is None:
+        return None
+    rows = list(scope.readable)
+    store = scope.file_store
+
+    def read_file(file: str, page: str | None = None, query: str | None = None) -> dict[str, Any]:
+        f = fl.find(rows, file)
+        if f is None:
+            return {"error": "file_not_found", "message": "그 파일이 없다. 이 대화의 파일: " + ", ".join(f"{r.name} ({r.id})" for r in rows[:20])}
+        return store.read(f, page=page, query=query)  # type: ignore[no-any-return]
+
+    return FunctionToolset([Tool.from_schema(read_file, fl.READ_FILE, fl.READ_FILE_DESC, fl.READ_FILE_SCHEMA)], max_retries=1, timeout=TOOL_TIMEOUT_S)
+
+
+def with_files(last: UserMessage, prompt: str, attachments: Sequence[Any]) -> UserMessage:
+    """이번 질문 + 첨부: 글 블록(<file …>) · 원본(이미지 · PDF 를 받는 모델 = Image/DocumentInputContent → Pydantic AI BinaryContent)."""
+    parts: list[Any] = [TextInputContent(text=prompt)] if prompt else []
+    for a in attachments:
+        parts.append(TextInputContent(text=a.text))
+        if a.data is not None:
+            src = InputContentDataSource(value=base64.b64encode(a.data).decode(), mime_type=a.file.mime)
+            parts.append(ImageInputContent(source=src) if a.file.kind == "image" else DocumentInputContent(source=src))
+    return UserMessage(id=last.id, content=parts)
+
+
+def strip_originals(messages: Sequence[ModelMessage], names: Sequence[str]) -> list[ModelMessage]:
+    """저장 전: 원본 바이트(BinaryContent)를 이름 한 줄로 (다음 턴에 다시 안 보낸다 · DB 가 커지지 않게 · 필요하면 read_file)."""
+    it = iter(names)
+    out: list[ModelMessage] = []
+    for m in messages:
+        if isinstance(m, ModelRequest):
+            parts = []
+            for p in m.parts:
+                if isinstance(p, UserPromptPart) and not isinstance(p.content, str):
+                    p = replace(p, content=[f"[첨부 원본: {next(it, '파일')} · 다시 보려면 read_file]" if isinstance(x, BinaryContent) else x
+                                            for x in p.content])
+                parts.append(p)
+            m = replace(m, parts=parts)
+        out.append(m)
+    return out
 
 
 def build_toolset(specs: Sequence[ToolSpec]) -> FunctionToolset[None]:
@@ -1359,7 +1416,7 @@ class ChatRuntime:
             if not isinstance(last, UserMessage):
                 raise ChatRequestError(400, "last_message_not_user")
             prompt = _user_text(last).strip()
-            if not prompt:
+            if not prompt and not props.get("files"):
                 raise ChatRequestError(400, "empty_message")
             if len(prompt) > MAX_PROMPT_CHARS:
                 raise ChatRequestError(400, "message_too_long")
@@ -1369,13 +1426,21 @@ class ChatRuntime:
         reasoning = props.get("reasoning", "off")
         if reasoning not in REASONING_LEVELS:
             raise ChatRequestError(400, "bad_reasoning")
+        raw_files = props.get("files") or []
+        if not isinstance(raw_files, list) or len(raw_files) > MAX_FILES or not all(isinstance(x, str) and _FILE_ID.match(x) for x in raw_files):
+            raise ChatRequestError(400, "bad_files")
+        file_ids = tuple(dict.fromkeys(raw_files))
+        if file_ids and not prompt:
+            prompt = "첨부한 파일을 살펴봐 줘."  # 파일만 보냄 (빈 prompt = 이어서 하기와 헷갈리지 않게)
+        if resume_id is not None and file_ids:
+            raise ChatRequestError(400, "bad_files")
         scope = {k: props.get(k) for k in ("spaceId", "projectId")}
         for key, value in scope.items():
             if value is not None and not (isinstance(value, str) and _ID.match(value)):
                 raise ChatRequestError(400, f"bad_{key}")
         return ChatRequest(
             thread_id=run_input.thread_id, run_id=run_input.run_id, prompt=prompt, model=model or None, reasoning=reasoning,
-            space_id=scope["spaceId"], project_id=scope["projectId"], resume=resume_id,
+            space_id=scope["spaceId"], project_id=scope["projectId"], resume=resume_id, files=file_ids,
         )
 
     async def handle(self, request: Request, prepare: Prepare) -> Response:
@@ -1451,6 +1516,8 @@ class ChatRuntime:
         # 서버가 원본: 이번 질문(마지막 user 메시지)만 어댑터에 남긴다. 클라이언트가 보낸 앞 대화는 쓰지 않는다 · 이어서 하기 = 메시지 없음
         # 질문 앞에 날짜 · 시각 한 줄 (사용자 메시지 · 기록에 남아 다음 턴에도 같은 바이트 = 캐시 앞부분이 산다 · 시스템 지침은 그대로)
         last = adapter.run_input.messages[-1] if adapter.run_input.messages else None
+        if last is not None and scope.attachments:
+            last = with_files(last, req.prompt, scope.attachments)
         keep = [] if resumed is not None or last is None else [UserMessage(id=f"{last.id}:now", content=now_line()), last]
         single = _Adapter(agent=self.agent, run_input=adapter.run_input.model_copy(update={"messages": keep}), accept=adapter.accept)
         settings = self.model_settings(model, req.reasoning)
@@ -1470,6 +1537,8 @@ class ChatRuntime:
 
         def on_complete(result: Any) -> None:
             new = result.all_messages()[len(history):]  # 이번 질문 + 이번 답 (툴 왕복 포함)
+            if scope.attachments:
+                new = strip_originals(new, [a.file.name for a in scope.attachments if a.data is not None])
             activity.messages = ModelMessagesTypeAdapter.dump_json(new).decode()
             u = result.usage
             # 생각 토큰: OpenAI 형식 completion_tokens_details.reasoning_tokens (LiteLLM 이 Anthropic thinking 글자로 센다).
@@ -1531,11 +1600,12 @@ class ChatRuntime:
         toolsets: list[AbstractToolset[None]] | None = None
         if model.supports_tools:  # 실행마다 동시 실행 상한 하나 (스킬 · 앱 도구가 같이 센다) · 도구 배열 = 고정 도구 → delegate → use_app → 공개 순
             gate = asyncio.Semaphore(MAX_PARALLEL_TOOLS)  # delegate 는 gate 밖 (팀원이 칸을 잡고 기다리면 4칸 교착)
+            files_ts = file_toolset(scope)  # read_file = 파일이 있는 대화만 (고정 도구 · 팀 다음 · 앱 앞 = 그 대화에서 늘 같은 자리)
             toolsets = [bounded(self._toolset, gate=gate), *([_TeamTools(team)] if team else []),
-                        *([bounded(_AppTools(apps), gate=gate)] if apps else [])]
+                        *([bounded(files_ts, gate=gate)] if files_ts else []), *([bounded(_AppTools(apps), gate=gate)] if apps else [])]
         # 실행 지침 = 앱 목록 한 줄 (handle 순 고정 = 프롬프트 캐시) → 프로젝트 지침 (conductor 규칙 · 앱 목록 뒤에)
         block = apps.apps.prompt() if apps else ""
-        instructions = "\n\n".join(x for x in (block, scope.instructions) if x) or None
+        instructions = "\n\n".join(x for x in (block, scope.file_line, scope.instructions) if x) or None
         events = single.run_stream(
             model=llm,
             message_history=history,

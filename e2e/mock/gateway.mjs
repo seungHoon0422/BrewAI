@@ -91,6 +91,7 @@ const group = (g) => ({
   otpm: null,
   supports_parallel_function_calling: false,
   supports_vision: g.vision ?? false,
+  supports_pdf_input: g.pdf ?? false, // 파일 (slice 07): PDF 원본을 받는 모델
   supports_web_search: false,
   supports_url_context: false,
   supports_reasoning: g.reasoning ?? false,
@@ -106,7 +107,7 @@ const group = (g) => ({
 });
 const BASE_GROUPS = [
   group({ id: 'fake-chat-small', providers: ['openai'], maxIn: 128000, maxOut: 16384, inCost: 1.5e-7, outCost: 6e-7, vision: true, tools: true }),
-  group({ id: 'fake-chat-large', providers: ['anthropic'], maxIn: 200000, maxOut: 64000, inCost: 3e-6, outCost: 1.5e-5, vision: true, tools: true, reasoning: true }),
+  group({ id: 'fake-chat-large', providers: ['anthropic'], maxIn: 200000, maxOut: 64000, inCost: 3e-6, outCost: 1.5e-5, vision: true, tools: true, reasoning: true, pdf: true }),
   group({ id: 'fake-embed', providers: ['openai'], maxIn: 8191, inCost: 2e-8, outCost: 0, mode: 'embedding' }), // 채팅 목록에서 빠져야 한다
 ];
 // LiteLLM 에 나중에 등록되는 모델 (관리자 '후보' 흉내). provider = gemini → conductor 는 google 로 묶는다
@@ -208,12 +209,24 @@ const systemTail = (messages) =>
   messages.filter((m) => m?.role === 'system').map((m) => textOf(m.content)).join('\n').split('\n').map((l) => l.trim()).filter(Boolean).at(-1) ?? '';
 
 // 결정적인 답: 같은 대화 + 같은 모델 = 같은 답. 앞 질문이 있으면 끝에 붙인다 (멀티턴 확인)
+// 첨부 (slice 07): 마지막 사용자 메시지의 원본(image_url · file) 수 + 글 블록(<file name kind>) → '받은 첨부: …' (files.spec 이 본다)
+const FILE_BLOCK = /<file id="[^"]*" name="([^"]*)" kind="([a-z]+)"[^>]*>[\s\S]*?<\/file>/g;
+function attachmentsOf(messages) {
+  const last = messages.findLast((m) => m?.role === 'user' && !NOW_LINE.test(textOf(m.content)));
+  const parts = Array.isArray(last?.content) ? last.content : [];
+  const images = parts.filter((p) => p?.type === 'image_url').length;
+  const docs = parts.filter((p) => p?.type === 'file').length;
+  const blocks = [...textOf(last?.content ?? '').matchAll(FILE_BLOCK)].map((m) => `${m[1]}(${m[2]})`);
+  if (!images && !docs && !blocks.length) return '';
+  return `, 받은 첨부: 원본 이미지 ${images}개, 원본 문서 ${docs}개, 파일 ${blocks.join(', ')}`;
+}
+
 function replyFor(model, messages) {
-  const users = userTexts(messages);
+  const users = userTexts(messages).map((t) => t.replace(FILE_BLOCK, '').trim());
   const question = users.at(-1) ?? '';
   const prev = users.length > 1 ? `, 이전 질문: ${users.at(-2).trim()}` : '';
   const system = question.includes('[fake:system]') ? `, 지침: ${systemTail(messages) || '(없음)'}` : '';
-  return `안녕하세요! 가짜 게이트웨이(${model})가 답해요. 받은 질문: ${question.trim() || '(빈 메시지)'}${prev}${system}`;
+  return `안녕하세요! 가짜 게이트웨이(${model})가 답해요. 받은 질문: ${question.trim() || '(빈 메시지)'}${prev}${system}${attachmentsOf(messages)}`;
 }
 
 const WAIT_MS = 3000; // [fake:wait] 첫 조각까지 기다리는 시간

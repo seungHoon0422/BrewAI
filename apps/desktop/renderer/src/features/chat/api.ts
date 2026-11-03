@@ -1,5 +1,6 @@
 // 대화 API — 최근 대화 · 대화 기록 · 한 번 실행(AG-UI SSE).
 // 대화 = POST /api/chat (AG-UI RunAgentInput) → AG-UI SSE. 새 의존성 없이 fetch + ReadableStream 으로 읽는다.
+import { toFile, type FileItem } from '../files/api';
 import { ApiError, bool, call, isObj, json, kindOf, list, num, reasoningOf, send, str, strOrNull, type Reasoning } from '../../lib/api';
 import type { ScopePath } from '@brewai/ui';
 import { toScopePath } from '../scope/api';
@@ -76,7 +77,7 @@ function toPending(v: Record<string, unknown>): PendingCall | null {
   };
 }
 
-export type HistoryUser = { id: string; role: 'user'; run_id: string; content: string; created_at: string };
+export type HistoryUser = { id: string; role: 'user'; run_id: string; content: string; created_at: string; files: FileItem[] };
 export type HistoryAssistant = {
   id: string;
   role: 'assistant';
@@ -217,7 +218,7 @@ export async function getThread(id: string, signal?: AbortSignal): Promise<Threa
   const data = await json(`/api/threads/${encodeURIComponent(id)}`, signal);
   if (!isObj(data) || !Array.isArray(data.messages)) throw new ApiError('server', 'bad_shape');
   const messages = data.messages.filter(isObj).flatMap((m): (HistoryUser | HistoryAssistant)[] => {
-    if (m.role === 'user') return [{ id: str(m.id), role: 'user', run_id: str(m.run_id), content: str(m.content), created_at: str(m.created_at) }];
+    if (m.role === 'user') return [{ id: str(m.id), role: 'user', run_id: str(m.run_id), content: str(m.content), created_at: str(m.created_at), files: list(m.files).map(toFile) }];
     if (m.role !== 'assistant') return [];
     const parts = Array.isArray(m.parts) ? m.parts.filter(isObj).map(toPart).filter((p): p is HistoryPart => p !== null) : [];
     return [{
@@ -250,6 +251,7 @@ export async function runChat(opts: {
   reasoning: Reasoning;
   spaceId: string | null; // 새 대화만 쓰인다 (있는 대화는 서버가 기록에서 정한다)
   projectId: string | null;
+  files?: string[]; // 이번 턴 첨부 id (PUT /api/files 로 올린 것 · 서버가 내 것인지 · 모델에 어떻게 갈지 정한다)
   signal: AbortSignal;
   onEvent: (ev: AgUiEvent) => void;
 }): Promise<void> {
@@ -266,6 +268,7 @@ export async function runChat(opts: {
       ...(opts.spaceId ? { spaceId: opts.spaceId } : {}),
       ...(opts.projectId ? { projectId: opts.projectId } : {}),
       ...(opts.resume ? { resume: { call_id: opts.resume } } : {}),
+      ...(opts.files?.length ? { files: opts.files } : {}),
     },
   };
   const res = await call('/api/chat', {
