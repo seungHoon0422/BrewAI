@@ -1,5 +1,5 @@
 // 앱 상세 서랍 — 주소 · 로그인 방식 · 출처 · 상태 · [연결] [다시 연결] [연결 끊기] [연결 확인] · 에이전트가 보는 줄 + 토큰
-// · 도구 목록 (쓰기 표시) · 공유 (내가 추가한 앱만: 내 스페이스 · 조직에 · 끊기) · 지우기 / 목록에서 빼기 / 숨기기.
+// · 도구 목록 (쓰기 표시) · 공유 (내가 추가한 앱만: 내 스페이스 · 조직에 · 끊기) · 지우기 / 목록에서 빼기 (숨기기는 없앴다 · 예전에 숨긴 앱만 다시 보이기).
 // 쓰기 도구는 지금 바로 실행된다 (ADR-0013 사용자 결정) — 표시만. 승인 카드는 slice 07.
 import { useEffect, useState } from 'react';
 import { Badge, Button, Callout, Dialog, KeyValue, Select, Sheet, Spinner, StatusDot } from '@brewai/ui';
@@ -161,9 +161,11 @@ function Body({ a, onGone }: { a: AppDetail; onGone: () => void }) {
         ) : a.source === 'imported' ? (
           <Button size="sm" variant="ghost" loading={busy === 'remove'} onClick={() => void run('remove', () => removeApp(a.id), undefined, true)}>{CONNECTIONS.remove}</Button>
         ) : (
-          <Button size="sm" variant="ghost" loading={busy === 'hide'} onClick={() => void run('hide', () => patchApp(a.id, { hidden: !a.hidden }))}>
-            {a.hidden ? CONNECTIONS.unhide : CONNECTIONS.hide}
-          </Button>
+          a.hidden ? (
+            <Button size="sm" variant="ghost" loading={busy === 'hide'} onClick={() => void run('hide', () => patchApp(a.id, { hidden: false }))}>
+              {CONNECTIONS.unhide}
+            </Button>
+          ) : null
         )}
       </div>
       <Dialog size="sm" open={confirm} onClose={() => setConfirm(false)} title={DETAIL.deleteTitle} description={DETAIL.deleteBody}

@@ -146,7 +146,6 @@ const thinkTokens = (n: number) => `생각 토큰 ${count(n)}`;
 // 끝난 줄 요약 조각 (trace.ts 가 모은다 · 화면은 조각마다 칸을 나눈다)
 export const TRACE = {
   thought: (t: string) => (t ? `${t} 동안 생각함` : '생각함'),
-  noThink: '생각 없이 바로 답함',
   stopped: '중간에 멈춤',
   toolsMany: (n: number) => `도구 ${n}회`,
   toolCount: (label: string, n: number) => `${label} ${n}회`,

@@ -32,7 +32,6 @@ export const CONNECTIONS = {
   disconnect: '연결 끊기',
   connecting: '브라우저에서 로그인 중',
   stop: '그만두기',
-  hide: '숨기기',
   unhide: '다시 보이기',
   remove: '목록에서 빼기',
   delete: '앱 지우기',

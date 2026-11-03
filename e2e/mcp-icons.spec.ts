@@ -19,7 +19,6 @@ const LONG = {
   url: `http://a-very-long-workspace-tenant-name-for-testing.localhost:${new URL(MCP).port}/noauth/mcp?team=icons-long`,
   name: 'E2E 팀 협업 도구', handle: 'e2e_long',
 };
-const OLD_ROW_PX = 66; // 예전 두 줄 카드 (패딩 12 + 이름 줄 + 도메인 줄 + 패딩 12)
 
 test.describe.configure({ mode: 'serial' });
 let admin: Client;
@@ -74,16 +73,19 @@ test('연결된 앱: 한 줄 앱 줄 (예전 절반 높이) · 서비스 아이�
   await goHash(win, '#/connections');
   await expectHeading(win, '연결된 앱');
   await expect(row(tracker.name)).toHaveCount(1);
-  // 묶음 머리 = 있는 분류만 · 고정 순서 (문서 → 검색 → 개발 → 업무 → … → 기타)
-  const heads = await list().locator('.conn-group-head').evaluateAll((els) => els.map((e) => e.firstChild?.textContent ?? ''));
-  expect(heads.filter((h) => ['문서', '검색', '개발', '업무'].includes(h))).toEqual(['문서', '검색', '개발', '업무']);
-  await expect(list().locator('.conn-group[data-category="search"] li.conn-app')).toContainText([SEARCH.name]);
+  // 분류 칩 = 있는 분류만 · 고정 순서 (문서 → 검색 → 개발 → 업무 → … → 기타) · 전체 = 묶음 머리 없이 한 격자
+  const names = (await chips().getByRole('button').allTextContents()).map((t) => t.replace(/\d+$/, '').trim());
+  expect(names.filter((h) => ['문서', '검색', '개발', '업무'].includes(h))).toEqual(['문서', '검색', '개발', '업무']);
+  await expect(list().locator('.conn-group-head')).toHaveCount(0);
+  await expect(list().locator('li.conn-app[data-category="search"]')).toContainText([SEARCH.name]);
   await expect(chips().getByRole('button').first()).toContainText('전체');
   await expect(chips().getByRole('button', { name: /^문서/ })).toHaveAttribute('aria-pressed', 'false');
-  // 줄 높이 = 예전의 절반쯤 (한 줄 · 작은 버튼)
+  // 카드 = 가로를 줄인 격자 (목록 폭의 절반보다 좁다 · 같은 줄에 2개 이상) · 숨기기 버튼 없음
+  const listBox = (await list().boundingBox())!;
   for (const name of [tracker.name, SEARCH.name, MEMO.name]) {
-    const box = await row(name).boundingBox();
-    expect(box?.height ?? 999).toBeLessThanOrEqual(OLD_ROW_PX * 0.6);
+    const box = (await row(name).boundingBox())!;
+    expect(box.width).toBeLessThan(listBox.width / 2);
+    await expect(row(name).getByRole('button', { name: '숨기기' })).toHaveCount(0);
   }
   await expect(row(tracker.name).getByRole('button', { name: `${tracker.name} 연결` })).toBeVisible(); // 같은 버튼 그대로
   // 아이콘: conductor 가 받아 둔 사이트 그림 (data: 주소 = 우리 API 로 받은 것) · 아이콘 없는 사이트 = 첫 글자
@@ -101,7 +103,7 @@ test('연결된 앱: 한 줄 앱 줄 (예전 절반 높이) · 서비스 아이�
   await win.emulateMedia({ colorScheme: 'light' });
 });
 
-test('분류 칩: 검색 = 검색 앱만 (묶음 머리 없음) · 전체로 돌아가면 다시 묶음', async () => {
+test('분류 칩: 검색 = 검색 앱만 · 전체로 돌아가면 모든 앱', async () => {
   await chips().getByRole('button', { name: /^검색/ }).click();
   await expect(chips().getByRole('button', { name: /^검색/ })).toHaveAttribute('aria-pressed', 'true');
   await expect(list()).toHaveAttribute('data-category', 'search');
@@ -112,7 +114,7 @@ test('분류 칩: 검색 = 검색 앱만 (묶음 머리 없음) · 전체로 돌
   expect(await separatorsOnScreen(win)).toEqual([]);
   await win.screenshot({ path: shot('desktop-connections-category'), animations: 'disabled' });
   await chips().getByRole('button', { name: /^전체/ }).click();
-  await expect(list().locator('.conn-group-head').first()).toBeVisible();
+  await expect(row(tracker.name)).toHaveCount(1);
 });
 
 test('아이콘은 conductor 캐시에서 (가짜 사이트에 다시 안 감) · 로그인한 API 로만 · 상세 서랍 · 추천 서버에도', async () => {
@@ -192,7 +194,7 @@ test('좁은 창 (960px): 긴 도메인 = 줄임표 · 이름 · 도구 수 · �
     await expectHeading(win, '연결된 앱');
     const r = row(LONG.name);
     await expect(r.locator('.app-src')).toHaveText('전체 공통');
-    await expect(r.getByRole('button', { name: '숨기기' })).toBeVisible();
+    await expect(r.getByRole('button', { name: '숨기기' })).toHaveCount(0); // 숨기기 없앰
     const fit = (el: Element) => el.scrollWidth <= el.clientWidth + 1;
     expect(await r.locator('.app-open b').evaluate(fit)).toBe(true); // 이름은 다 보인다
     const items = r.locator('.app-meta .ui-meta-item');
@@ -204,7 +206,7 @@ test('좁은 창 (960px): 긴 도메인 = 줄임표 · 이름 · 도구 수 · �
     await expect(r.locator('.app-meta')).toHaveAttribute('title', /^a-very-long-workspace-tenant-name-for-testing\.localhost, 도구 \d+개$/);
     for (const name of [LONG.name, tracker.name, SEARCH.name]) {
       expect(await row(name).evaluate(fit), name).toBe(true); // 줄 안에서 가로로 넘치지 않는다
-      expect((await row(name).boundingBox())?.height ?? 999).toBeLessThanOrEqual(OLD_ROW_PX * 0.6); // 여전히 한 줄
+      expect((await row(name).boundingBox())?.width ?? 9999).toBeLessThan(((await list().boundingBox())?.width ?? 0) / 2 + 1); // 좁아도 2칸
     }
     await expect(row(tracker.name).getByRole('button', { name: `${tracker.name} 연결` })).toBeVisible();
     expect(await win.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);

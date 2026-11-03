@@ -251,15 +251,11 @@ test.describe('모델 · 생각 · 도구 · 상태 줄', () => {
     await expect(ui(win).last.locator('.tp-think, .tp-none')).toHaveCount(0); // 빈 생각 블록 · 빈 줄 글을 그리지 않는다
   });
 
-  test('생각 깊이를 켰는데 모델이 생각을 건너뛰면 (adaptive) "생각 없이 바로 답함" — 고장이 아니라 모델의 선택', async () => {
+  test('생각 깊이를 켰는데 모델이 생각을 건너뛰면 (adaptive) 상태 줄 없이 답만 — "생각 없음" 같은 표시는 하지 않는다', async () => {
     await ask(win, '[fake:nothink] 쉬운 질문이라 바로 답해');
-    const line = ui(win).last.locator('.trace-line');
-    await expect(line).toHaveAttribute('data-step', 'done', { timeout: 15_000 });
-    await expect(line.locator('.trace-txt .seg')).toHaveText(['생각 없이 바로 답함', /^\d+(\.\d)?초$/]); // 칸 나눔 (가운뎃점 없음)
-    await expect(line).toHaveAttribute('data-glyph', 'done'); // 생각 말풍선이 아니다
-    await expect(line).toHaveAccessibleName(/^생각 없이 바로 답함/); // 줄 이름 = 보이는 글 (시간 빼고 · 늦지 않게)
-    await expect(line).toHaveAttribute('data-static', 'true'); // 생각 글 · 도구가 없다 = 펼치지 않는다 (빈 패널 없음)
-    await expect(line.locator('.tmeta')).toHaveCount(0); // 생각 토큰 0 = 작은 글 없음
+    await expect(ui(win).last.locator('.txt')).not.toHaveText('', { timeout: 15_000 });
+    await expect(ui(win).last.locator('.trace-line')).toHaveCount(0, { timeout: 15_000 }); // 끝나면 줄이 사라진다
+    await expect(ui(win).last).not.toContainText('생각 없이');
   });
 
   test('도구: 상태 줄이 생각 → 스킬을 펼치는 중 → 답을 다듬는 중 → "생각함 · 스킬 사용 1회" · 패널에 스킬 카드', async () => {
@@ -344,13 +340,13 @@ test.describe('기록 · 진행 상황', () => {
     await expect(log.locator('.msg.user')).toHaveCount(7); // 멈춘 실행은 기록에 없고, 다시 시도한 답만 남는다
     // 기록의 답: 생각 · 도구가 있던 답만 상태 줄 (시간 없이 요약) · 접힘. 없던 답은 줄 없음
     const lines = log.locator('.trace-line');
-    await expect(lines).toHaveCount(4);
+    await expect(lines).toHaveCount(3);
     await expect(lines.nth(0)).toHaveAttribute('aria-expanded', 'false');
     await expect(lines.nth(0).locator('.trace-txt')).toHaveText('생각함');
     const calc = log.locator('.msg.agent').filter({ hasText: "스킬 '요약' 지침을 따랐어요" });
     await expect(calc.locator('.trace-txt .seg')).toHaveText(['생각함', '스킬 사용 1회']);
     // 생각을 건너뛴 답도 기록에서 그대로 (시간 없이)
-    await expect(log.locator('.msg.agent').filter({ hasText: '[fake:nothink]' }).locator('.trace-txt')).toHaveText('생각 없이 바로 답함');
+    await expect(log.locator('.msg.agent').filter({ hasText: '[fake:nothink]' }).locator('.trace-line')).toHaveCount(0);
     await calc.locator('.trace-line').click();
     await expect(calc.getByRole('group', { name: '스킬 사용' })).toContainText(/결과지침 불러옴 \(\d+줄\)/);
     await expect(log.locator('.msg.agent').first().locator('.by svg')).toHaveAttribute('data-provider', 'anthropic');

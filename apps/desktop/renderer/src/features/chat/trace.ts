@@ -23,9 +23,6 @@ export const thought = (a: Answer) => hasThoughtText(a) || (a.usage?.reasoning_t
 export const usedTools = (a: Answer) => a.parts.some(isTool);
 // 패널에 그릴 것이 있나 = 생각 글 · 도구 카드. 끝난 답에 없으면 줄을 펼치지 않는다 (빈 패널 · '생각 내용을 안 보냄' 한 줄 없음)
 export const hasPanel = (a: Answer) => thoughtParts(a).length > 0 || usedTools(a);
-// 생각 깊이를 켰는데 모델이 생각 없이 바로 답했다 (adaptive 모델이 쉬운 질문에서 건너뜀 · 생각 토큰 0) = 고장이 아니라 모델의 선택
-export const skippedThinking = (a: Answer) =>
-  a.status === 'done' && a.reasoning !== 'off' && !thought(a) && a.usage?.reasoning_tokens === 0;
 
 // 앱 도구 고르기(use_app) = 실제 일이 아니라 준비 단계 (패널엔 한 줄 메모 · 횟수엔 안 센다)
 export const isAppPick = (p: ToolPart) => p.name === 'use_app';
@@ -104,7 +101,7 @@ export function doneSummary(a: Answer, tools: Record<string, string> = {}): stri
     const ms = hasThoughtText(a) ? thinkMs(a) : null;
     return [TRACE.thought(seconds(ms)), ...tally];
   }
-  if (skippedThinking(a)) return [TRACE.noThink, ...tally, took].filter(Boolean);
+  // 생각 안 한 답 = 따로 표시하지 않는다 ('생각 없이 바로 답함' 없앰 · 도구를 썼으면 도구 요약만)
   if (tally.length) return [...tally, took].filter(Boolean);
   return [];
 }

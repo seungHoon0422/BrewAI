@@ -1,6 +1,6 @@
-// 연결된 앱 — 맨 위 '필요할 때 바로 로그인 화면 열기' · [내 앱] (한 줄 = 아이콘 · 이름 · 출처 배지 · 도메인 · 상태 · 연결 / 연결 끊기 / 숨기기)
-// · 분류 칩 (전체 + 있는 분류만 · 2개 이상일 때) · 전체 = 분류마다 묶음 머리 · 숨긴 앱
-// · [가져올 수 있는 앱] (스페이스 경로별 가져오기) · [앱 추가] 대화상자 · 줄을 누르면 상세 서랍 (도구 · 쓰기 표시 · 공유).
+// 연결된 앱 — 맨 위 '필요할 때 바로 로그인 화면 열기' · [내 앱] (카드 격자 = 아이콘 · 상태 / 이름 · 도메인 · 도구 수 / 출처 배지 · 연결 / 연결 끊기)
+// · 분류 칩 (전체 + 있는 분류만 · 2개 이상일 때 · 묶음 머리 없이 칩으로만 거른다) · 예전에 숨긴 앱 (다시 보이기만 · 숨기기 버튼은 없앴다)
+// · [가져올 수 있는 앱] (스페이스 경로별 가져오기) · [앱 추가] 대화상자 · 카드를 누르면 상세 서랍 (도구 · 쓰기 표시 · 공유).
 // 아이콘 = conductor 가 받아 둔 서비스 사이트 그림 (AppIcon · 없으면 첫 글자).
 // 연결 = 시스템 브라우저 로그인 (main · bridge.mcp) — 화면은 결과만 받는다. 판정은 서버 (UI 는 권한 근거 아님 · ADR-0013).
 import { useEffect, useState } from 'react';
@@ -46,8 +46,7 @@ export function ConnectionsScreen() {
   for (const a of shown) counts.set(a.category, (counts.get(a.category) ?? 0) + 1);
   const cats = APP_CATEGORIES.filter((c) => counts.has(c));
   const active = cat !== 'all' && counts.has(cat) ? cat : 'all';
-  const grouped = active === 'all' && cats.length > 1;
-  const rows = (list: App[]) => list.map((a) => <AppRow key={a.id} a={a} onNote={say} />);
+  const cards = (list: App[]) => list.map((a) => <AppCard key={a.id} a={a} onNote={say} />);
 
   return (
     <Page id="connections" sub={CONNECTIONS.sub}>
@@ -70,18 +69,9 @@ export function ConnectionsScreen() {
             ))}
           </div>
         )}
-        {shown.length > 0 && grouped ? (
-          <ul className="conn-groups" aria-label={CONNECTIONS.list}>
-            {cats.map((c) => (
-              <li key={c} className="conn-group" data-category={c}>
-                <h3 className="conn-group-head">{CATEGORY.label[c]}<span className="ui-num">{counts.get(c)}</span></h3>
-                <ul className="rows apps" aria-label={CATEGORY.group(CATEGORY.label[c])}>{rows(shown.filter((a) => a.category === c))}</ul>
-              </li>
-            ))}
-          </ul>
-        ) : shown.length > 0 ? (
-          <ul className="rows apps" aria-label={CONNECTIONS.list} data-category={active}>
-            {rows(active === 'all' ? shown : shown.filter((a) => a.category === active))}
+        {shown.length > 0 ? (
+          <ul className="conn-cards" aria-label={CONNECTIONS.list} data-category={active}>
+            {cards(active === 'all' ? shown : shown.filter((a) => a.category === active))}
           </ul>
         ) : apps.status === 'loading' ? (
           <p className="rows rows-state">{CONNECTIONS.loading}</p>
@@ -95,7 +85,7 @@ export function ConnectionsScreen() {
         {hidden.length > 0 && (
           <details className="apps-hidden">
             <summary>{CONNECTIONS.hiddenTitle} <span className="ui-num">{hidden.length}</span></summary>
-            <ul className="rows apps">{rows(hidden)}</ul>
+            <ul className="conn-cards">{cards(hidden)}</ul>
           </details>
         )}
         <Notes items={CONNECTION_NOTES} />
@@ -137,7 +127,9 @@ function AutoAuth({ value, onError }: { value: 'unset' | 'on' | 'off' | null; on
   );
 }
 
-function AppRow({ a, onNote }: { a: App; onNote: (n: Note) => void }) {
+// 카드 = 위: 아이콘 · 상태 / 가운데: 이름 · 도메인 · 도구 수 (카드 전체가 자세히 열기) / 아래: 출처 배지 · 버튼
+// 버튼은 하나만 보인다 (연결 필요 = 연결 · OAuth 연결됨 = 연결 끊기 · 공유 끊김 = 목록에서 빼기 · 숨김 = 다시 보이기)
+function AppCard({ a, onNote }: { a: App; onNote: (n: Note) => void }) {
   const connecting = useConnections((s) => !!s.connecting[a.id]);
   const [busy, setBusy] = useState(false);
   const key = stateOf(a);
@@ -161,40 +153,35 @@ function AppRow({ a, onNote }: { a: App; onNote: (n: Note) => void }) {
   };
   const needsLogin = !a.share_lost && !a.blocked && a.status === 'active' && (a.connection === 'needs_login' || a.connection === 'expired');
   return (
-    <li className="row conn-app" data-app={a.handle} data-state={key} data-source={a.source} data-category={a.category}>
-      <AppIcon server={a.id} name={a.name} />
-      <button type="button" className="row-main app-open" onClick={() => focusApp(a.id)} aria-label={CONNECTIONS.details(a.name)}>
-        <b>{a.name}</b>
-        <Badge size="sm" variant="outline" className="app-src">{SOURCE_LABEL[a.source]}</Badge>
-        <Meta className="row-sub app-meta" title={metaText(a)} items={[
+    <li className="conn-app conn-card" data-app={a.handle} data-state={key} data-source={a.source} data-category={a.category}>
+      <span className="conn-card-top">
+        <AppIcon server={a.id} name={a.name} />
+        <span className="state app-state"><StatusDot state={connecting ? 'run' : STATE_DOT[key]} size="sm" />{connecting ? CONNECTIONS.connecting : STATE_LABEL[key]}</span>
+      </span>
+      <button type="button" className="app-open" onClick={() => focusApp(a.id)} aria-label={CONNECTIONS.details(a.name)}>
+        <b title={a.name}>{a.name}</b>
+        <Meta className="app-meta" title={metaText(a)} items={[
           a.domain, loginOf(a) && <span className="app-login">{loginOf(a)}</span>,
           a.tool_count != null && <span className="app-count">{CONNECTIONS.toolCount(a.tool_count)}</span>,
         ]} />
       </button>
-      <span className="state app-state"><StatusDot state={connecting ? 'run' : STATE_DOT[key]} size="sm" />{connecting ? CONNECTIONS.connecting : STATE_LABEL[key]}</span>
-      <span className="app-acts">
-        {connecting ? (
-          <Button size="sm" variant="ghost" onClick={() => void cancelConnect()}>{CONNECTIONS.stop}</Button>
-        ) : a.hidden ? (
-          <Button size="sm" variant="ghost" loading={busy} onClick={() => void run(() => patchApp(a.id, { hidden: false }))}>{CONNECTIONS.unhide}</Button>
-        ) : (
-          <>
-            {needsLogin && (
-              <Button size="sm" variant="primary" iconEnd="external" aria-label={CONNECTIONS.connectLabel(a.name)} onClick={() => void connect()}>
-                {a.connection === 'expired' ? CONNECTIONS.reconnect : CONNECTIONS.connect}
-              </Button>
-            )}
-            {a.connection === 'connected' && a.auth === 'oauth' && !a.share_lost && (
-              <Button size="sm" variant="ghost" loading={busy} onClick={() => void run(() => disconnectApp(a.id))}>{CONNECTIONS.disconnect}</Button>
-            )}
-            {a.source === 'install' && (
-              <Button size="sm" variant="ghost" disabled={busy} onClick={() => void run(() => patchApp(a.id, { hidden: true }))}>{CONNECTIONS.hide}</Button>
-            )}
-            {a.share_lost && (
-              <Button size="sm" variant="ghost" loading={busy} onClick={() => void run(() => removeApp(a.id))}>{CONNECTIONS.remove}</Button>
-            )}
-          </>
-        )}
+      <span className="conn-card-foot">
+        <Badge size="sm" variant="outline" className="app-src">{SOURCE_LABEL[a.source]}</Badge>
+        <span className="app-acts">
+          {connecting ? (
+            <Button size="sm" variant="ghost" onClick={() => void cancelConnect()}>{CONNECTIONS.stop}</Button>
+          ) : a.hidden ? (
+            <Button size="sm" variant="ghost" loading={busy} onClick={() => void run(() => patchApp(a.id, { hidden: false }))}>{CONNECTIONS.unhide}</Button>
+          ) : needsLogin ? (
+            <Button size="sm" variant="primary" iconEnd="external" aria-label={CONNECTIONS.connectLabel(a.name)} onClick={() => void connect()}>
+              {a.connection === 'expired' ? CONNECTIONS.reconnect : CONNECTIONS.connect}
+            </Button>
+          ) : a.share_lost ? (
+            <Button size="sm" variant="ghost" loading={busy} onClick={() => void run(() => removeApp(a.id))}>{CONNECTIONS.remove}</Button>
+          ) : a.connection === 'connected' && a.auth === 'oauth' ? (
+            <Button size="sm" variant="ghost" loading={busy} onClick={() => void run(() => disconnectApp(a.id))}>{CONNECTIONS.disconnect}</Button>
+          ) : null}
+        </span>
       </span>
     </li>
   );

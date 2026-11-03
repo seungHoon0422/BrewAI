@@ -7,7 +7,7 @@ import { CHAT, FAILURE_TEXT, failureCopy, joinParts, modelNames } from '../copy'
 import { retry, retryWithoutReasoning } from '../hooks';
 import { Markdown } from '../markdown/render';
 import { isLive, type Answer, type Turn } from '../model';
-import { hasTeam, skippedThinking, thought, usedTools } from '../trace';
+import { hasTeam, thought, usedTools } from '../trace';
 import { AppCards } from './AppCards';
 import { openTeamPanel } from './TeamPanel';
 import { TraceView } from './TraceView';
@@ -17,7 +17,7 @@ export function AnswerView({ turn, latest, threadId, teamRun = null }: { turn: T
   const a = turn.answer;
   const live = isLive(a);
   const body = a.parts.length > 0 || a.status !== 'failed';
-  const worked = thought(a) || usedTools(a) || skippedThinking(a);
+  const worked = thought(a) || usedTools(a); // 생각을 안 한 답 = 상태 줄 없음 ('생각 없이 바로 답함' 없앰)
   // 상태 줄: 생각 · 도구가 있었거나, 이 창에서 방금 보낸 마지막 답이 흐르는 중 · 멈춤
   const trace = worked || (latest && !a.fromHistory && (live || a.status === 'stopped'));
   const texts = a.parts.filter((p) => p.kind === 'text');

@@ -133,9 +133,9 @@ test.describe('마크다운 (단위)', () => {
     const exa = { handle: 'exa', name: 'Exa 웹 검색', write: false };
     const pick = { kind: 'tool', id: 'p', name: 'use_app', label: '앱: Exa 웹 검색', argsText: '', args: { need: '검색' }, result: { app: 'exa', app_name: 'Exa 웹 검색', tools: [] }, status: 'done', ms: 2, at: 0, app: exa } as const;
     const tool = { kind: 'tool', id: 't', name: 'exa__web_search_exa', label: 'Exa 웹 검색: Web Search', argsText: '', args: {}, result: { result: 'x' }, status: 'done', ms: 5, at: 0, app: exa } as const;
-    // 시작 · 끝 신호만 온 빈 생각 + 생각 토큰 0 = 생각을 건너뜀
+    // 시작 · 끝 신호만 온 빈 생각 + 생각 토큰 0 = 생각을 건너뜀 = 줄 없음
     expect(doneSummary({ ...base, parts: [empty], usage: { input_tokens: 1, output_tokens: 1, requests: 1, tool_calls: 0, reasoning_tokens: 0 } }))
-      .toEqual(['생각 없이 바로 답함', '1.2초']);
+      .toEqual([]); // 표시 없음 ('생각 없이 바로 답함' 없앰)
     // 글 없이 토큰만 = 시간 없이 '생각함'
     // 앱 고르기는 세지 않고 · 앱 도구는 앱 이름으로 묶는다 ('앱: Exa 웹 검색 1회' · 'Exa 웹 검색: Web Search 2회' 대신)
     expect(doneSummary({ ...base, parts: [empty, pick, tool, { ...tool, id: 't2' }], usage: { input_tokens: 1, output_tokens: 1, requests: 3, tool_calls: 3, reasoning_tokens: 30 } }))
