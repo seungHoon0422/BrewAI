@@ -25,6 +25,9 @@ const pretty = (v: unknown): string => (v === undefined ? '' : typeof v === 'str
 const scalar = (v: unknown): v is string | number | boolean => typeof v === 'string' ? v.trim() !== '' : typeof v === 'number' || typeof v === 'boolean';
 const squash = (s: string) => s.replace(/\s+/g, ' ').trim();
 const clip = (s: string, n = EXCERPT) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+// 오류 결과 {error, message} → 화면 문구. message 는 모델용 지시라 쓰지 않는다 (앱이 돌려준 tool_error 만 그 글 그대로)
+export const errorText = (res: Record<string, unknown>): string =>
+  (res.error === 'tool_error' ? clip(squash(show(res.message))) : TOOL.errors[show(res.error)]) || TOOL.failed;
 
 // 인자 → 사람이 읽는 한 줄 (값만 · 핵심 인자가 앞). 글 · 숫자가 아닌 인자(목록 · 묶음)는 원문 토글에서
 export function argSummary(args: unknown): string {
@@ -144,7 +147,7 @@ export function toolView(p: ToolPart): ToolView {
   }
   if (p.status === 'running' || p.status === 'cancelled') return done();
   if (res && 'error' in res) {
-    rows.push({ k: K.error, v: show(res.message) || show(res.error), err: true });
+    rows.push({ k: K.error, v: errorText(res), err: true });
   } else if (p.name === 'use_skill' && res) {
     // 지침 본문은 모델만 본다 — 카드엔 줄 수만 (기록에서 연 답은 서버가 본문을 빼고 lines 를 준다)
     const lines = typeof res.lines === 'number' ? res.lines : typeof res.instructions === 'string' ? res.instructions.split('\n').length : null;
@@ -176,7 +179,7 @@ export function appNote(p: ToolPart, apps: Record<string, string> = {}): { text:
   if (p.status === 'running') return { text: name ? TOOL.appPicking(name) : TOOL.appPickingAny, tools: '' };
   if (p.status === 'waiting') return { text: TOOL.appWaiting(name || TOOL.appAny), tools: '' };
   if (p.status === 'cancelled') return { text: TOOL.appStopped, tools: '' };
-  if (res && 'error' in res) return { text: TOOL.appFailed(show(res.message) || show(res.error)), tools: '' };
+  if (res && 'error' in res) return { text: TOOL.appFailed(errorText(res)), tools: '' };
   const picked = Array.isArray(res?.tools) ? res.tools.filter((t): t is Record<string, unknown> => typeof t === 'object' && t !== null) : [];
   const tools = picked.map((t) => `${show(t.title) || show(t.name)}${t.write === true ? ` (${TOOL.write})` : ''}`).join(', ');
   return { text: TOOL.appNote(name || TOOL.appAny, picked.length), tools };

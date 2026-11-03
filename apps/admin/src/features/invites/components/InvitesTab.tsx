@@ -33,7 +33,9 @@ export default function InvitesTab() {
       cell: (i) => (i.spaces.length ? i.spaces.map((s) => s.name).join(', ') : <Muted>{C.noSpaces}</Muted>),
     },
     { key: 'uses', header: C.colUses, cell: (i) => <span className="ui-num">{C.uses(i.uses, i.max_uses)}</span> },
-    { key: 'expires', header: C.colExpires, hideBelow: 'md', cell: (i) => (i.status === 'active' ? left(i.expires_at) : <Muted>{ago(i.expires_at)}</Muted>) },
+    { key: 'expires', header: C.colExpires, hideBelow: 'md', cell: (i) => (i.status === 'active' ? left(i.expires_at)
+        // 지난 만료만 '3일 전' · 다 쓰거나 취소한 코드는 만료가 의미 없다 (아직 안 온 시각을 ago 에 넣으면 '방금')
+        : <Muted>{i.status === 'expired' ? ago(i.expires_at) : COMMON_COPY.none}</Muted>) },
     { key: 'by', header: C.colBy, hideBelow: 'lg', cell: (i) => i.created_by_name ?? <Muted>{COMMON_COPY.none}</Muted> },
     { key: 'state', header: C.colState, cell: (i) => <Badge dot size="sm" tone={STATUS_TONE[i.status]}>{STATUS_TEXT[i.status]}</Badge> },
     {

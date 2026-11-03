@@ -16,6 +16,7 @@ type ToolsMod = {
   parseList: (v: unknown) => Link[] | null;
   toolView: (p: Record<string, unknown>) => { rows: { k: string; v: string }[]; links: Link[]; more: number; note: string; raw: string };
   appNote: (p: Record<string, unknown>, apps?: Record<string, string>) => { text: string; tools: string };
+  errorText: (res: Record<string, unknown>) => string;
 };
 
 // 답 글 = 마크다운 (흐르는 중에도 날것 문법 없음) · 생각 블록 ↔ 도구 블록 · 최소한의 모델 메뉴.
@@ -179,6 +180,12 @@ test.describe('마크다운 (단위)', () => {
     const pick = part({ name: 'use_app', args: { app: 'exa', need: '웹 검색' }, result: { app: 'exa', app_name: 'Exa 웹 검색', tools: [{ name: 'a', title: 'Web Search' }, { name: 'b', title: 'Fetch Web Pages' }] } });
     expect(t.appNote(pick)).toEqual({ text: 'Exa 웹 검색 연결, 도구 2개', tools: 'Web Search, Fetch Web Pages' });
     expect(t.appNote({ ...pick, status: 'waiting', result: undefined, app: undefined }, { exa: 'Exa 웹 검색' }).text).toBe('Exa 웹 검색 연결을 기다려요');
+    // 오류 = 사람용 문구 (모델용 지시 message 는 안 보임) · 앱이 돌려준 tool_error 만 그 글 · 모르는 코드 = 일반 문구
+    const missed = { ...pick, result: { error: 'app_not_found', message: '맞는 앱을 못 찾았어요. apps 의 이름으로 다시 부르거나 사용자에게 묻는다.', apps: ['exa'] } };
+    expect(t.appNote(missed).text).toBe('앱 도구를 고르지 못했어요: 맞는 앱이 없어요');
+    expect(t.toolView(part({ args: {}, result: { error: 'app_timeout', message: '잠시 뒤 다시 시도한다.' } })).rows).toContainEqual({ k: '오류', v: '앱 서버가 너무 늦게 답했어요', err: true });
+    expect(t.errorText({ error: 'tool_error', message: 'Rate   limit\nexceeded' })).toBe('Rate limit exceeded');
+    expect(t.errorText({ error: 'weird' })).toBe('도구가 실패했어요');
   });
 
   test('펼침 속도: 밀릴수록 빨리 · 최소 속도 · 이모지를 가르지 않음', () => {
