@@ -20,8 +20,8 @@ export default defineConfig({
   use: { trace: 'retain-on-failure' },
   globalSetup: './global-setup.ts',
   projects: [
-    // 데스크톱 (Electron): 셸 · 대화 · 로그인 · 가입 · Google · 스페이스 · 프로젝트 · 계정 · 앱 연결(MCP)
-    { name: 'desktop', testMatch: /[\\/](desktop|chat(-[a-z]+)?|auth(-[a-z]+)?|mcp(-[a-z]+)+|spaces|projects|account)\.spec\.ts$/ },
+    // 데스크톱 (Electron): 셸 · 대화 (chat-team-fail 처럼 꼬리 여럿) · 로그인 · 가입 · Google · 스페이스 · 프로젝트 · 계정 · 앱 연결(MCP)
+    { name: 'desktop', testMatch: /[\\/](desktop|chat(-[a-z]+)*|auth(-[a-z]+)?|mcp(-[a-z]+)+|spaces|projects|account)\.spec\.ts$/ },
     // 관리자 콘솔: 한 번 로그인해 둔 쿠키를 쓴다 (로그인 · 로그아웃 자체를 보는 스펙은 빈 상태로 시작)
     { name: 'admin-login', testMatch: 'admin.setup.ts', use: { ...browser, baseURL: ADMIN_URL } },
     {

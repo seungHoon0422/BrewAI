@@ -13,3 +13,7 @@
 .chain li{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
 .chain .tm{color:var(--text-muted)}
 .chain .arr{color:var(--text-faint);display:inline-grid}
+/* 팀 (slice 06) = 팀원 단계 아래 그 팀원의 도구 줄 (왼쪽 선 들여쓰기 · 역할 이름 · 같은 단계 모양) */
+.chain-kids{display:flex;align-items:baseline;gap:var(--space-2);margin:var(--space-1) 0 0 var(--space-2);padding-left:var(--space-2-5);border-left:1px solid var(--border-subtle);font-size:var(--fs-xs)}
+.chain-kids .chain-who{flex:none;color:var(--text-muted)}
+.chain.kids{margin:0;font-size:var(--fs-xs)}

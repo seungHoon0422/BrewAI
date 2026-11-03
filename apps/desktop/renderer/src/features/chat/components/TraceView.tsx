@@ -4,22 +4,24 @@
 // 패널 = 나온 순서대로 생각 블록(조용한 글 · 왼쪽 선)과 도구 블록(카드: 이름 · 입력 · 결과 · 상태)이 확실히 다르게.
 // 앱 도구 고르기 = 한 줄 메모 · 생각 글이 안 온 생각(토큰만)은 블록을 그리지 않는다 (빈 생각 블록 없음).
 // 생각 글과 도구 카드는 줄을 눌러야 보인다 (기본 접힘 · 흐르는 중에도). 색 점으로 상태를 나누지 않는다 — 글 · 아이콘 · 움직임으로만.
+// 팀 (slice 06) = TeamGroup: 병렬 묶음 모양 · 팀원마다 막대 · 팀원 줄(역할 · 할 일 · 상태) 아래 그 팀원의 도구 줄 · '오른쪽에서 보기'.
 import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { Icon, Meta, type IconName } from '@brewai/ui';
+import { Icon, Meta, Spinner, type IconName } from '@brewai/ui';
 import type { CSSProperties } from 'react';
 import { seconds } from '../../../lib/format';
 import { reduceMotion, useNow, useThrottled } from '../../../lib/hooks';
 import { appLabels } from '../../connections/hooks';
 import { useSkillLabels, useToolLabels } from '../../skills/hooks';
-import { TOOL, TRACE } from '../copy';
+import { TEAM, TOOL, TRACE, teamReason } from '../copy';
 import { Markdown } from '../markdown/render';
-import { isLive, type Answer, type ReasoningPart, type ToolPart } from '../model';
-import { groupTiming, panelItems, shortDuration, thought, thoughtParts, tracePhrase, usedTools, type ToolGroup } from '../trace';
+import { isLive, type Answer, type MemberStep, type ReasoningPart, type TeamMember, type ToolPart } from '../model';
+import { groupTiming, isMemberPick, memberAppName, memberDone, memberFailed, panelItems, shortDuration, thought, thoughtParts, tracePhrase, usedTools, type ToolGroup } from '../trace';
 import { AppNote, ToolCard } from './ToolCard';
 
 const ANNOUNCE_MS = 2000;
 
-export function TraceView({ a }: { a: Answer }) {
+// onTeam = 오른쪽 진행 상황 열기 (팀이 있는 답 · 대화 화면이 준다)
+export function TraceView({ a, onTeam }: { a: Answer; onTeam?: () => void }) {
   const tools = useToolLabels();
   const skills = useSkillLabels();
   const live = isLive(a);
@@ -59,7 +61,7 @@ export function TraceView({ a }: { a: Answer }) {
       {/* .sr = e2e 훅 (trace > .sr[aria-live]) · 모양은 ui-sr */}
       <span className="sr ui-sr" aria-live="polite">{announced}</span>
       <div className="trace-panel ui-glass" id={panelId} role="region" aria-label={TRACE.region} hidden={!open} onKeyDown={onPanelKey}>
-        {open && <TracePanel a={a} now={now} />}
+        {open && <TracePanel a={a} now={now} onTeam={onTeam} />}
       </div>
     </div>
   );
@@ -110,7 +112,7 @@ function TraceText({ parts, text, live }: { parts: string[]; text: string; live:
   );
 }
 
-function TracePanel({ a, now }: { a: Answer; now: number }) {
+function TracePanel({ a, now, onTeam }: { a: Answer; now: number; onTeam?: () => void }) {
   const thinking = new Set<Answer['parts'][number]>(thoughtParts(a));
   const items = a.parts.filter((p) => p.kind === 'tool' || thinking.has(p));
   const live = isLive(a);
@@ -126,6 +128,7 @@ function TracePanel({ a, now }: { a: Answer; now: number }) {
             it.kind === 'think' ? <li key={it.part.id}><ThinkBlock p={it.part} now={now} /></li>
             : it.kind === 'note' ? <li key={it.part.id}><AppNote p={it.part} apps={apps} /></li>
             : it.kind === 'tool' ? <li key={it.part.id}><ToolCard p={it.part} /></li>
+            : it.kind === 'team' ? <li key={`t${it.group.batch}:${it.group.tools[0].id}`}><TeamGroup g={it.group} team={a.team ?? []} now={now} onTeam={onTeam} /></li>
             : <li key={`g${it.group.batch}:${it.group.tools[0].id}`}><ParallelGroup g={it.group} now={now} /></li>)}
         </ol>
       )}
@@ -164,6 +167,104 @@ function ParallelGroup({ g, now }: { g: ToolGroup; now: number }) {
         {g.tools.map((p) => <li key={p.id}><ToolCard p={p} took={timing?.done ? shortDuration(timing.run[p.id] ?? 0) : undefined} /></li>)}
       </ol>
     </section>
+  );
+}
+
+// 팀 묶음 = 병렬 묶음과 같은 모양: 머리 줄('팀원 2명이 나눠서' · 시간 · 오른쪽에서 보기) + 팀원마다 막대 + 팀원 줄 (역할 · 할 일 · 상태)
+// 그 아래 팀원이 쓴 도구 (앱 고르기 = 한 줄 메모 · 앱 도구 = 카드 머리 줄). 거절된 호출(한 명뿐 · 자리 없음) = 평범한 도구 카드
+function TeamGroup({ g, team, now, onTeam }: { g: ToolGroup; team: TeamMember[]; now: number; onTeam?: () => void }) {
+  const rows = g.tools.map((p) => ({ p, m: team.find((x) => x.callId === p.id && !x.code?.startsWith('team_')) }));
+  const members = rows.filter((r) => r.m);
+  const n = members.length;
+  if (!n) {
+    return <ol className="tp-par-list">{g.tools.map((p) => <li key={p.id}><ToolCard p={p} /></li>)}</ol>;
+  }
+  const timing = groupTiming({ batch: g.batch, tools: members.map((r) => r.p) }, now);
+  const running = members.filter((r) => r.m && !memberDone(r.m)).length;
+  const meta = running > 0 ? [TEAM.running(running)]
+    : timing?.done ? [TOOL.wall(shortDuration(timing.wall)), TOOL.serial(shortDuration(timing.sum))] : [];
+  return (
+    <section className="tp-par tp-team" data-kind="team" data-count={n} data-running={running > 0} role="group" aria-label={TEAM.group(n)}>
+      <h4 className="tp-par-h">
+        <Icon name="team" size="sm" />
+        <span className="tp-par-n">{TEAM.group(n)}</span>
+        <Meta className="tp-par-meta ui-num" items={meta} />
+        {onTeam && <button type="button" className="tp-team-open" onClick={onTeam}>{TEAM.openPanel}</button>}
+      </h4>
+      {timing && timing.lanes.length > 0 && (
+        <ol className="tp-lanes" aria-label={TOOL.lanes}>
+          {timing.lanes.map((l, i) => (
+            <li key={l.id} className="tp-lane" data-running={l.running} aria-label={members[i].m?.role ?? members[i].p.label}
+              style={{ '--to': l.to.toFixed(4) } as CSSProperties}>
+              <i className="run" aria-hidden="true" />
+            </li>
+          ))}
+        </ol>
+      )}
+      <ol className="tp-par-list">
+        {rows.map(({ p, m }) => (
+          <li key={p.id}>{m ? <MemberBlock m={m} now={now} /> : <ToolCard p={p} />}</li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+// 팀원 상태 = 글 + 아이콘 + 움직임 (색 점 없음)
+export const MEMBER_ICON: Partial<Record<TeamMember['status'], IconName>> = { waiting: 'clock', done: 'check', error: 'close', cancelled: 'stop', waiting_user: 'alert' };
+export function MemberState({ status, took, id }: { status: TeamMember['status'] | MemberStep['status']; took?: string; id?: string }) {
+  const icon = MEMBER_ICON[status as TeamMember['status']];
+  return (
+    <span className="tst" id={id}>
+      {status === 'running' ? <Spinner size="xs" /> : icon && <Icon name={icon} size="sm" />}
+      <span>{TEAM.state[status]}</span>
+      {took && <span className="tm ui-num">{took}</span>}
+    </span>
+  );
+}
+// 팀원이 걸린 시간: 도는 중 = 시작부터 지금까지 · 끝 = 끝 이벤트의 ms (1초 아래 = ms · 기록엔 없다 = 빈칸)
+export const memberTook = (m: TeamMember, now: number) =>
+  memberDone(m) ? (m.ms == null ? '' : shortDuration(m.ms)) : m.at ? seconds(now - m.at) : '';
+// 팀원 도구 줄 시간 = 1초 아래는 ms ('0.0초' 대신 · 묶음 시간과 같은 규칙)
+export const stepTook = (s: MemberStep, now: number) =>
+  s.status === 'running' ? (s.at ? seconds(now - s.at) : '') : s.durationMs == null ? '' : shortDuration(s.durationMs);
+
+function MemberBlock({ m, now }: { m: TeamMember; now: number }) {
+  return (
+    <div className="tp-tool tp-member" data-kind="member" data-agent={m.agent} data-state={m.status} role="group" aria-label={m.role}>
+      <div className="th">
+        <span className="ttile" aria-hidden="true"><Icon name="user" size="sm" /></span>
+        <b title={m.role}>{m.role}</b>
+        <span className="tp-member-task" title={m.task}>{m.task}</span>
+        <MemberState status={m.status} took={memberTook(m, now)} />
+      </div>
+      {memberFailed(m) && <p className="tp-member-why">{teamReason(m.code)}</p>}
+      {m.steps.length > 0 && (
+        <ol className="tp-member-steps" aria-label={TEAM.tools(m.role)}>
+          {m.steps.map((st) => (
+            <li key={st.id}>{isMemberPick(st) ? <MemberPick s={st} /> : <ToolCard p={stepPart(st)} took={stepTook(st, now) || undefined} />}</li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+}
+
+// 팀원 도구 줄 → 도구 카드 모양 (입력 · 결과는 팀원 대화 안이라 없다 = 머리 줄만)
+function stepPart(s: MemberStep): ToolPart {
+  const status = s.status === 'waiting' ? 'waiting' : s.status;
+  return {
+    kind: 'tool', id: s.id, name: s.name.replace(/^tool:/, ''), label: s.label, argsText: '', args: undefined, result: undefined, status,
+    ms: s.durationMs, at: s.at, ready: null, batch: 0, ...(s.app ? { app: { handle: s.app, name: memberAppName(s) || s.app, write: false } } : {}),
+  };
+}
+// 팀원의 앱 고르기 = 한 줄 메모 (이름표 '앱: <이름>')
+function MemberPick({ s }: { s: MemberStep }) {
+  return (
+    <p className="tp-note" data-kind="member-pick" data-step={s.name} data-state={s.status} data-app={s.app ?? undefined}>
+      {s.status === 'running' ? <Spinner size="xs" /> : <Icon name={s.status === 'error' ? 'close' : s.status === 'cancelled' ? 'stop' : 'plug'} size="sm" />}
+      <span className="tn">{s.label}</span>
+    </p>
   );
 }
 

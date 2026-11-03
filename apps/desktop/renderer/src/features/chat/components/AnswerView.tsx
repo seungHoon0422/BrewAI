@@ -7,11 +7,13 @@ import { CHAT, FAILURE_TEXT, detailText, joinParts } from '../copy';
 import { retry, retryWithoutReasoning } from '../hooks';
 import { Markdown } from '../markdown/render';
 import { isLive, type Answer, type Turn } from '../model';
-import { skippedThinking, thought, usedTools } from '../trace';
+import { hasTeam, skippedThinking, thought, usedTools } from '../trace';
 import { AppCards } from './AppCards';
+import { openTeamPanel } from './TeamPanel';
 import { TraceView } from './TraceView';
 
-export function AnswerView({ turn, latest, threadId }: { turn: Turn; latest: boolean; threadId: string }) {
+// teamRun = 이 대화에서 팀이 생긴 마지막 답 (오른쪽에서 보기 = 이 답을 패널에 · 그 뒤 새 팀이 생기면 새 팀으로)
+export function AnswerView({ turn, latest, threadId, teamRun = null }: { turn: Turn; latest: boolean; threadId: string; teamRun?: string | null }) {
   const a = turn.answer;
   const live = isLive(a);
   const body = a.parts.length > 0 || a.status !== 'failed';
@@ -23,7 +25,7 @@ export function AnswerView({ turn, latest, threadId }: { turn: Turn; latest: boo
     <>
       {body && (
         <div className="msg agent enter" aria-busy={live}>
-          {trace && <TraceView a={a} />}
+          {trace && <TraceView a={a} onTeam={hasTeam(a) ? () => openTeamPanel(threadId, { runId: a.runId, over: teamRun }) : undefined} />}
           {texts.map((p, i) => (
             <Markdown key={p.id} id={p.id} className="txt" text={p.text} live={live && i === texts.length - 1} />
           ))}

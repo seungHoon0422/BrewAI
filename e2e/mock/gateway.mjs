@@ -37,6 +37,12 @@
 //   · [fake:tool <이름> {json 인자}?] → 그 도구가
 //   요청 tools 에 있을 때만 (= use_app 이 공개한 뒤 · 다음 턴엔 바로) 부른다. 적은 순서대로 차례 하나씩 → 결과로 답
 //   예: '[fake:app tracker 이슈 검색] [fake:tool tracker__search_issues {"query":"버그"}]' · FAKE_GATEWAY_RECORD 로 요청 tools 를 검사
+// 에이전트 팀 (slice 06): [fake:team <역할>[><handle>][ slow][ 500], …] → 요청 tools 에 delegate 가 있으면 응답 하나에 delegate 호출 N개
+//   {role, task: '<역할> 맡기 [fake:app <handle> <역할>] [fake:read <handle>] [fake:slow] [fake:500]'} (handle · slow · 500 은 적은 것만)
+//   팀원 요청 (첫 system 이 '너는 BrewAI 팀원이다') = task 의 표식을 그대로 쓰고 '<역할> 결과: …' 로 답한다 (slow = 2글자씩 · 더 오래 돈다)
+//   [fake:read <handle>] → 공개된 <handle>__search_notes {query: 회의} (없으면 공개된 <handle>__ 도구 첫 번째 {})
+//   팀원 결과 {role, answer} → 총괄 답의 '<역할>: <answer 80자>' · 실패 결과 {role, error} → '<역할>: 하지 못했어요' (오류 글은 옮기지 않는다)
+//   FAKE_GATEWAY_RECORD 한 줄 = + kind main | member (스펙이 팀원 요청만 센다)
 // drop_params: 요청에 drop_params true 면 (LiteLLM 처럼) 모델이 지원 안 하는 reasoning_effort 를 400 대신 버린다
 // 등록 출처: GET /v1/model/info (LiteLLM 모양: data[{model_name, litellm_params, model_info:{id, db_model, 가격}}]) — db_model true = 관리 화면(DB)
 //   model_info 의 캐시 가격 (cache_read_input_token_cost · cache_creation_input_token_cost) = conductor 가 캐시 비용을 셈 (/model_group/info 에는 없다)
@@ -166,11 +172,11 @@ function readJson(req) {
   });
 }
 
-function record(req, body) {
+function record(req, body, kind) {
   if (!RECORD) return;
   const headers = { ...req.headers };
   if (headers.authorization) headers.authorization = headers.authorization.replace(/Bearer\s+(.{4}).*/, 'Bearer $1***');
-  fs.appendFileSync(RECORD, JSON.stringify({ method: req.method, url: req.url, headers, body }) + '\n');
+  fs.appendFileSync(RECORD, JSON.stringify({ method: req.method, url: req.url, headers, body, ...(kind ? { kind } : {}) }) + '\n');
 }
 
 // OpenAI 메시지 content 는 문자열 또는 [{type:'text', text}] 배열
@@ -186,6 +192,10 @@ const NOW_LINE = /^지금: \d{4}-\d{2}-\d{2} /;
 const userTexts = (messages) =>
   messages.filter((m) => m?.role === 'user').map((m) => textOf(m.content)).filter((t) => !NOW_LINE.test(t));
 const lastUserText = (messages) => userTexts(messages).at(-1) ?? '';
+// 팀원 요청 = 첫 system 이 팀원 지침 (conductor team.py MEMBER_INSTRUCTIONS) · 역할 = task 앞 '<역할> 맡기'
+const MEMBER_SYSTEM = '너는 BrewAI 팀원이다';
+const isMember = (messages) => textOf(messages.find((m) => m?.role === 'system')?.content).startsWith(MEMBER_SYSTEM);
+const memberRole = (task) => /^(.+?) 맡기/.exec(task.trim())?.[1] ?? '팀원';
 // system 메시지(들)의 마지막 글 줄 — conductor 는 프로젝트 지침을 시스템 프롬프트 맨 뒤에 붙인다
 const systemTail = (messages) =>
   messages.filter((m) => m?.role === 'system').map((m) => textOf(m.content)).join('\n').split('\n').map((l) => l.trim()).filter(Boolean).at(-1) ?? '';
@@ -253,6 +263,10 @@ function sentenceFromTool(message) {
   } catch {
     out = { raw: textOf(message.content) };
   }
+  // 팀원 결과 (conductor team.Member.result: {untrusted, source 'team:a1', role, status, answer | error})
+  if (typeof out?.source === 'string' && out.source.startsWith('team:') && typeof out.role === 'string') {
+    return out.error ? `${out.role}: 하지 못했어요` : `${out.role}: ${String(out.answer ?? '').slice(0, 80)}`;
+  }
   // 오류 = 코드만 (message 는 모델에게 주는 지시라 답에 옮기지 않는다 · 앱이 준 tool_error 만 그 글)
   if (out?.error) return `도구가 오류를 냈어요: ${out.error === 'tool_error' ? out.message ?? out.error : out.error}`;
   if (out?.app && Array.isArray(out?.tools)) return `${out.app_name ?? out.app}에서 쓸 도구 ${out.tools.length}개를 골랐어요.`; // use_app
@@ -314,6 +328,31 @@ function plannedRounds(body, question) {
     }
     one(m.index, m[1], args);
   }
+  // 팀: '[fake:team 가격 조사>memo, 사양 조사 slow]' → delegate 여럿을 한 응답에 (팀원 task = 표식 문장)
+  const team = question.match(/\[fake:team\s+([^\]]+)\]/);
+  if (team) {
+    const calls = team[1].split(',').map((item) => {
+      const m = /^(.+?)(?:>([a-z0-9_-]+))?((?:\s+(?:slow|500))*)\s*$/.exec(item.trim());
+      if (!m) return null;
+      const role = m[1].trim();
+      const flags = m[3].split(/\s+/).filter(Boolean);
+      const task = [
+        `${role} 맡기`,
+        m[2] ? `[fake:app ${m[2]} ${role}] [fake:read ${m[2]}]` : '',
+        flags.includes('slow') ? '[fake:slow]' : '',
+        flags.includes('500') ? '[fake:500]' : '',
+      ].filter(Boolean).join(' ');
+      return { name: 'delegate', args: { role, task } };
+    }).filter(Boolean);
+    found.push({ at: team.index, calls });
+  }
+  // 팀원이 앱 도구 하나 읽기 (use_app 이 공개한 뒤): search_notes 가 있으면 그것 (검색어 회의) · 없으면 첫 도구
+  const read = question.match(/\[fake:read\s+([a-z0-9_-]+)\]/);
+  if (read) {
+    const mine = [...offered].filter((n) => n.startsWith(`${read[1]}__`));
+    const pick = mine.find((n) => n.endsWith('__search_notes'));
+    if (pick || mine[0]) found.push({ at: read.index, calls: [{ name: pick ?? mine[0], args: pick ? { query: '회의' } : {} }] });
+  }
   const chain = question.match(/\[fake:chain(?:\s+([a-z0-9_]+))?\]/);
   if (chain) {
     const h = chain[1] ?? 'notes';
@@ -371,7 +410,9 @@ async function chatCompletions(req, res) {
   } catch {
     return error(res, 400, 'Invalid JSON body', 'invalid_request_error');
   }
-  record(req, body);
+  const messages = Array.isArray(body.messages) ? body.messages : [];
+  const member = isMember(messages);
+  record(req, body, member ? 'member' : 'main');
   const model = body.model;
   const info = findGroup(model);
   if (!info) {
@@ -386,7 +427,6 @@ async function chatCompletions(req, res) {
   if (info.mode !== 'chat') {
     return error(res, 400, `${model} is not a chat model`, 'invalid_request_error', 'model');
   }
-  const messages = Array.isArray(body.messages) ? body.messages : [];
   const question = lastUserText(messages);
   if (question.includes('[fake:500]')) return error(res, 500, 'fake upstream failure', 'internal_server_error');
   const failure = catalog.broken.get(model) ?? failureIn(question);
@@ -435,7 +475,9 @@ async function chatCompletions(req, res) {
   const reasoningTokens = thinking ? Array.from(THOUGHT).length : 0;
   const mdBig = question.includes('[fake:md-big]');
   const md = mdBig || question.includes('[fake:md]');
-  const reply = call ? '' : afterTool ? replyFromTools(messages) : mdBig ? MD_BIG_REPLY : md ? MD_REPLY : replyFor(model, messages);
+  const reply = call ? ''
+    : member ? `${memberRole(question)} 결과: ${afterTool ? replyFromTools(messages) : '맡은 일을 끝냈어요. 찾은 사실을 짧게 정리했어요.'}`
+    : afterTool ? replyFromTools(messages) : mdBig ? MD_BIG_REPLY : md ? MD_REPLY : replyFor(model, messages);
   // 차례 하나의 tool_calls (index 0, 1, …). id 는 대화 길이 + 순번 (첫 것은 예전 그대로 call_fake_<n>)
   const toolCalls = calls.map((c, i) => ({
     index: i, id: `call_fake_${messages.length}${i ? `_${i}` : ''}`, type: 'function', function: { name: c.name, arguments: JSON.stringify(c.args) },
@@ -488,7 +530,7 @@ async function chatCompletions(req, res) {
       chunk({ tool_calls: [{ index: tc.index, function: { arguments: part } }] });
     }
   }
-  const parts = chunks(reply, mdBig ? 120 : md ? 3 : 6);
+  const parts = chunks(reply, mdBig ? 120 : md ? 3 : member && question.includes('[fake:slow]') ? 2 : 6);
   for (const [i, part] of parts.entries()) {
     if (res.destroyed) return;
     if (i === 2 && question.includes('[fake:cut]')) return res.destroy(); // 중간 끊김

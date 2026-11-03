@@ -66,6 +66,8 @@ WRITE_VERBS = frozenset({
     "delete", "remove", "del", "destroy", "archive", "close", "merge", "move", "rename", "assign", "comment", "reply",
     "upload", "publish", "submit", "approve", "reject", "cancel", "revoke", "invite", "transfer", "run", "execute", "trigger",
 })
+# 팀원(slice 06)이 쓸 수 있는 이름 = 첫 낱말이 이 동사 (주석 없는 도구 · 짧은 허용 목록 = 실패하면 닫힘)
+READ_VERBS = frozenset({"describe", "fetch", "find", "get", "list", "lookup", "query", "read", "search"})
 CLIENT_INFO = types.Implementation(name="brewai-conductor", version="0.1")
 
 AuthReason = Literal["not_connected", "expired", "insufficient_scope"]
@@ -98,18 +100,22 @@ class Tool:
     name: str  # 서버의 원래 이름 (tools/call 에 그대로)
     description: str
     input_schema: dict[str, Any]
-    write: bool  # 쓰기 도구 (도구 카드 '쓰기' 표시 · slice 07 승인의 후보)
+    write: bool  # 쓰기 도구 (도구 카드 '쓰기' 표시 · slice 07 승인의 후보) — 이름 추측 = 표시용 힌트일 뿐
     title: str | None = None
     tokens_est: int = 0  # 모델에 실릴 때 대략 토큰 (이름 + 설명 + 스키마)
+    read_only: bool = False  # 확실한 읽기 도구 (is_read_only · 실패하면 닫힘) = 팀원이 쓸 수 있는 도구 (slice 06) · write 와 따로
 
     def to_json(self) -> dict[str, Any]:
         return {"name": self.name, "title": self.title, "description": self.description, "input_schema": self.input_schema,
-                "write": self.write, "tokens_est": self.tokens_est}
+                "write": self.write, "tokens_est": self.tokens_est, "read_only": self.read_only}
 
     @classmethod
     def from_json(cls, d: Mapping[str, Any]) -> Tool:
+        write = bool(d.get("write"))
+        # 예전 캐시 (read_only 칸 없음) = 주석이 없으니 이름만 본다 (읽기 동사 + 쓰기 표시 아님)
+        read_only = bool(d["read_only"]) if "read_only" in d else (not write and is_read_only(d["name"], None))
         return cls(name=d["name"], description=d.get("description") or "", input_schema=d.get("input_schema") or _EMPTY_SCHEMA,
-                   write=bool(d.get("write")), title=d.get("title"), tokens_est=int(d.get("tokens_est") or 0))
+                   write=write, title=d.get("title"), tokens_est=int(d.get("tokens_est") or 0), read_only=read_only)
 
 
 _EMPTY_SCHEMA: dict[str, Any] = {"type": "object", "properties": {}}
@@ -167,6 +173,18 @@ def is_write(name: str, annotations: Mapping[str, Any] | None) -> bool:
     return bool(w) and (w[0] in WRITE_VERBS or (len(w) > 1 and w[-1] in WRITE_VERBS and w[0] not in ("get", "list", "search", "find", "read", "fetch")))
 
 
+def is_read_only(name: str, annotations: Mapping[str, Any] | None) -> bool:
+    """팀원이 써도 되는 읽기 도구인가 — 실패하면 닫힘 (is_write 의 반대가 아니다: 모르는 이름 = 읽기 아님).
+    서버가 readOnlyHint=true 라 했거나 · 주석이 쓰기라 하지 않았고 이름 첫 낱말이 READ_VERBS (trash · forward · mark 같은 이름 = 아님)."""
+    ann = annotations or {}
+    if ann.get("readOnlyHint") is True:
+        return True
+    if ann.get("readOnlyHint") is False or ann.get("destructiveHint") is True:
+        return False
+    w = words(name)
+    return bool(w) and w[0] in READ_VERBS and not is_write(name, ann)
+
+
 def trim_tool(raw: Mapping[str, Any]) -> Tool | None:
     """tools/list 의 도구 하나(JSON 모양 · camelCase) → Tool. 이름이 없거나 이상하면 None (버림)."""
     name = raw.get("name")
@@ -180,7 +198,7 @@ def trim_tool(raw: Mapping[str, Any]) -> Tool | None:
     title = raw.get("title") or ann.get("title")
     desc = clean_text(raw.get("description") or "", DESC_MAX)
     tool = Tool(name=name, description=desc, input_schema=schema, write=is_write(name, ann),
-                title=clean_text(title, 80) if isinstance(title, str) and title.strip() else None)
+                title=clean_text(title, 80) if isinstance(title, str) and title.strip() else None, read_only=is_read_only(name, ann))
     return replace(tool, tokens_est=estimate_tokens({"name": name, "description": desc, "parameters": schema}))
 
 

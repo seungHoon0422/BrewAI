@@ -156,6 +156,7 @@ export async function launchDesktop(
       BREWAI_USER_DATA: userData,
       BREWAI_TOKEN_STORE: 'memory',
       BREWAI_E2E_REFRESH: refresh,
+      BREWAI_E2E_HIDDEN: process.env.BREWAI_E2E_SHOW === '1' ? '' : '1', // 창 안 보이게 (보며 고칠 땐 BREWAI_E2E_SHOW=1)
     },
   });
   const win = await app.firstWindow();

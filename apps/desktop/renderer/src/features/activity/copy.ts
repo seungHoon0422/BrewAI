@@ -16,6 +16,7 @@ export const ACTIVITY = {
   recentEmpty: '아직 실행 기록이 없어요',
   openChat: '대화 열기',
   steps: '단계',
+  memberSteps: (role: string) => `${role} 도구 사용`, // 팀원 도구 줄 (slice 06)
 } as const;
 
 export const RUN_STATUS: Record<RunStatus, { label: string; dot: DotState }> = {

@@ -2,8 +2,8 @@
 // 답 상태 → 글 조각 (문구는 copy.ts). 결정적 — 시간과 상태로만 고른다.
 // 끝난 줄 = 조각 여럿 ('3.2초 동안 생각함' · 'Exa 웹 검색 2회' · '1.4초'). 화면은 조각마다 칸을 나누고(가운뎃점 없음), text = 쉼표로 이은 한 줄.
 import { seconds } from '../../lib/format';
-import { READING_RESULT, TRACE, WAITING_PHRASE, joinParts, parallelPhrase, stepPhrase } from './copy';
-import { isLive, type Answer, type ReasoningPart, type ToolPart } from './model';
+import { READING_RESULT, TEAM, TRACE, WAITING_PHRASE, joinParts, parallelPhrase, stepPhrase } from './copy';
+import { isLive, type Answer, type MemberStep, type ReasoningPart, type TeamMember, type ToolPart } from './model';
 
 export type TracePhase = 'live' | 'done' | 'stopped';
 export type Trace = { step: string; phase: TracePhase; parts: string[]; text: string };
@@ -24,6 +24,23 @@ export const skippedThinking = (a: Answer) =>
 
 // 앱 도구 고르기(use_app) = 실제 일이 아니라 준비 단계 (패널엔 한 줄 메모 · 횟수엔 안 센다)
 export const isAppPick = (p: ToolPart) => p.name === 'use_app';
+
+// ── 에이전트 팀 (slice 06) ──
+// 팀원에게 맡기기(delegate) = 도구가 아니라 팀원 하나 (횟수엔 안 센다 · 팀원이 쓴 도구를 센다)
+export const isDelegate = (p: ToolPart) => p.name === 'delegate';
+const MEMBER_FINAL = new Set(['done', 'error', 'cancelled']);
+export const memberDone = (m: TeamMember) => MEMBER_FINAL.has(m.status);
+// 팀원이 스스로 실패했나 (서버 끝 이벤트 · 기록엔 code 가 있다) · code 없는 error = 실행 전체가 끊겨 화면이 닫은 것 (closeOpen) = 팀원 탓이 아니다
+export const memberFailed = (m: TeamMember) => m.status === 'error' && m.code != null;
+// 이 답의 팀원 (거절된 호출 = 팀원이 아니다: 한 명뿐 team_too_small · 자리 없음 team_full)
+export const teamOf = (a: Answer): TeamMember[] => (a.team ?? []).filter((m) => !m.code?.startsWith('team_'));
+// 팀이 생겼나 = 거절되지 않은 팀원이 하나라도 시작했다 (패널을 저절로 여는 때 · 머리 토글 · '오른쪽에서 보기').
+// 맡기는 중(delegate 인자 받는 중)은 아직 아니다 = 한 명뿐 · 자리 없음으로 거절되면 패널이 열렸다 닫히며 화면이 튄다 (상태 줄 teamPhrase 만 '팀을 꾸리는 중')
+export const hasTeam = (a: Answer) => teamOf(a).length > 0;
+// 팀원 도구 줄: 앱 고르기(app:) = 준비 · 앱 도구(tool:) = 횟수에 센다
+export const isMemberPick = (s: MemberStep) => s.name.startsWith('app:');
+// 팀원 도구 줄의 앱 이름 = 이름표 '<앱>: <도구>' 앞 (서버가 붙인 이름 · 없으면 handle)
+export const memberAppName = (s: MemberStep) => (s.label.includes(': ') ? s.label.slice(0, s.label.indexOf(': ')) : s.app ?? '');
 // 도구 쓴 횟수 조각: ['스킬 사용 1회'] · ['Exa 웹 검색 2회'] (앱 도구는 앱 이름으로 묶는다) · 세 종류 이상이면 ['도구 3회']
 // 앱 도구를 고르기만 하고 끝난 답(연결 기다림 등) = ['Exa 웹 검색 연결'] · 고르기가 실패 · 취소로만 끝남 = ['Exa 웹 검색 연결 못 함']
 const linked = (p: ToolPart) => {
@@ -31,8 +48,24 @@ const linked = (p: ToolPart) => {
   return p.status === 'waiting' || (p.status === 'done' && !(typeof r === 'object' && r !== null && 'error' in r));
 };
 export function toolTally(a: Answer, tools: Record<string, string> = {}): string[] {
-  const all = a.parts.filter(isTool);
+  const all = a.parts.filter((p): p is ToolPart => isTool(p) && !isDelegate(p));
   const used = all.filter((p) => !isAppPick(p));
+  // 팀원이 쓴 앱 도구도 센다 (앱 이름으로 묶는다 · 앱 고르기는 안 센다)
+  const memberUsed = teamOf(a).flatMap((m) => m.steps.filter((st) => !isMemberPick(st)));
+  if (memberUsed.length) {
+    const counts = new Map<string, number>();
+    for (const p of used) {
+      const label = p.app?.name || (tools[p.name] ?? p.label ?? p.name);
+      counts.set(label, (counts.get(label) ?? 0) + 1);
+    }
+    for (const st of memberUsed) {
+      const label = st.app ? memberAppName(st) || st.label : st.label;
+      counts.set(label, (counts.get(label) ?? 0) + 1);
+    }
+    const n = used.length + memberUsed.length;
+    if (counts.size > 2) return [TRACE.toolsMany(n)];
+    return [...counts].map(([label, k]) => TRACE.toolCount(label, k));
+  }
   if (!used.length) {
     if (!all.length) return [];
     const ok = all.filter(linked);
@@ -58,7 +91,8 @@ function thinkMs(a: Answer): number | null {
 
 // 끝난 답의 요약 조각. 아무것도 없으면 [] (트레이스 줄을 안 그린다)
 export function doneSummary(a: Answer, tools: Record<string, string> = {}): string[] {
-  const tally = toolTally(a, tools);
+  const n = teamOf(a).length;
+  const tally = [...(n ? [TEAM.chip(n)] : []), ...toolTally(a, tools)]; // 팀 = '팀원 2명' 이 맨 앞
   const took = a.fromHistory ? '' : seconds(a.durationMs);
   if (thought(a)) {
     // 생각 글이 없으면(토큰만) 시간 없이 '생각함'
@@ -79,6 +113,9 @@ export function tracePhrase(a: Answer, now: number, tools: Record<string, string
   }
   const elapsed = now - a.startedAt;
   const step = a.steps.findLast((s) => s.status === 'running');
+  // 팀: 맡기는 중 → 팀원 n명이 나눠서 하는 중 → 다 끝나고 총괄이 읽는 중 (답을 쓰기 시작하면 평소처럼)
+  const team = teamPhrase(a, step?.name ?? null);
+  if (team) return team;
   // 한 응답의 도구 여럿이 동시에 도는 중 = '도구 n개를 동시에 쓰는 중' (단계 훅은 마지막에 연 단계 그대로)
   const running = a.parts.filter((p) => isTool(p) && p.status === 'running').length;
   if (running > 1) return one(step?.name ?? 'tool:parallel', 'live', parallelPhrase(running));
@@ -100,11 +137,25 @@ export function tracePhrase(a: Answer, now: number, tools: Record<string, string
   return one(step.name, 'live', stepPhrase(step.name, elapsed - step.started_ms, named, skills));
 }
 
+function teamPhrase(a: Answer, running: string | null): Trace | null {
+  if (running === 'writing') return null;
+  const members = teamOf(a);
+  const delegates = a.parts.filter((p): p is ToolPart => isTool(p) && isDelegate(p));
+  const pending = delegates.some((p) => p.status === 'running' && !members.some((m) => m.callId === p.id));
+  const step = running ?? a.steps.at(-1)?.name ?? 'team';
+  if (members.some((m) => !memberDone(m))) return one(step, 'live', TEAM.working(members.length));
+  if (pending) return one(step, 'live', TEAM.forming);
+  // 이번 응답 묶음의 팀원이 다 끝났고 다음 단계 전 (또는 생각) = 총괄이 팀 결과를 읽는 중
+  if (members.length && (running == null || running.startsWith('agent:') || running === 'thinking')) return one(step, 'live', TEAM.gathering);
+  return null;
+}
+
 // 도구 묶음 (패널) — 같은 batch 가 이어진 도구들. 하나뿐이면 묶지 않는다
 export type ToolGroup = { batch: number; tools: ToolPart[] };
-// note = 앱 도구 고르기 (카드 대신 한 줄 메모 · 묶음에 안 넣는다)
+// note = 앱 도구 고르기 (카드 대신 한 줄 메모 · 묶음에 안 넣는다) · team = 한 응답의 팀원에게 맡기기 (하나여도 팀 묶음)
 export type PanelItem =
-  | { kind: 'think'; part: ReasoningPart } | { kind: 'tool'; part: ToolPart } | { kind: 'note'; part: ToolPart } | { kind: 'group'; group: ToolGroup };
+  | { kind: 'think'; part: ReasoningPart } | { kind: 'tool'; part: ToolPart } | { kind: 'note'; part: ToolPart } | { kind: 'group'; group: ToolGroup }
+  | { kind: 'team'; group: ToolGroup };
 
 export function panelItems(items: readonly (ReasoningPart | ToolPart)[]): PanelItem[] {
   const out: PanelItem[] = [];
@@ -118,6 +169,11 @@ export function panelItems(items: readonly (ReasoningPart | ToolPart)[]): PanelI
       continue;
     }
     const last = out.at(-1);
+    if (isDelegate(p)) {
+      if (last?.kind === 'team' && last.group.batch === p.batch) last.group.tools.push(p);
+      else out.push({ kind: 'team', group: { batch: p.batch, tools: [p] } });
+      continue;
+    }
     if (last?.kind === 'group' && last.group.batch === p.batch) last.group.tools.push(p);
     else if (last?.kind === 'tool' && last.part.batch === p.batch) out[out.length - 1] = { kind: 'group', group: { batch: p.batch, tools: [last.part, p] } };
     else out.push({ kind: 'tool', part: p });

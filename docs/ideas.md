@@ -28,3 +28,10 @@
 - MCP CIMD(공개 https `CONDUCTOR_PUBLIC_URL` 생긴 뒤) · scope step-up(403 insufficient_scope) · listChanged 구독 · 연결 끊기 때 RFC 7009 revoke
 - 관리자 MCP 서버를 조직 · 스페이스로 한정 = `mcp_server_shares` 줄만 추가 (지금은 install = 전체 공통)
 - stdio 로컬 MCP 서버(데스크톱 안 실행) · elicitation(MRTR input_required) 카드
+- 에이전트 팀: 팀원별 싼 모델 (가격 = usage_events 줄을 모델별로 나눠야 함 · ADR-0014)
+- 에이전트 팀: 팀원 하나만 멈추기 (지금은 실행 전체만 · 새 API 필요)
+- 에이전트 팀: 팀원 도구 BM25 미리 공개 = task 글로 앱 도구 상위 몇 개를 처음부터 실어 use_app 왕복 0
+- 에이전트 팀: 게이트(복합 신호) 조정은 금요일 trace 의 오탐 · 미탐에서만 (`team.py` 표 + 진리표)
+- 에이전트 팀: 팀원 대화 기록 저장 · 다시 보기 (지금은 요약 · steps · usage 만 · 08 Langfuse 뒤)
+- 에이전트 팀: 패널 · 상태 줄에 팀원별 비용 줄
+- 에이전트 팀: '나눠서 하기' 끄기 토글 (sticky delegate 로 팀 쓴 대화는 턴당 약 100토큰 더)

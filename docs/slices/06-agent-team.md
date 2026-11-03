@@ -2,37 +2,37 @@
 
 - 목표: 여러 갈래로 나뉘는 요청 하나에 총괄이 팀원 2~3명을 스스로 편성해 동시에 맡기고, 오른쪽 '진행 상황' 패널에 총괄 → 팀원 → 도구 트리와 상태가 실시간으로 보인다. 단순 대화(hello)의 요청 바이트 · 토큰은 오늘과 같다 (ADR-0014).
 - 연결된 exit criteria: **P4-1** · **P4-2** (P4-3 = slice 08 · 이번엔 OTel span 모양만 맞춘다)
-- 기간: 2026-11-03 시작 (계획 OK · 결정 3개 확정 2026-11-03). 순서 = 스파이크 → conductor 먼저, 화면은 그 이벤트로. 작업은 `develop` (HANDOFF).
+- 기간: 2026-11-03 시작 (계획 OK · 결정 3개 확정 2026-11-03) · 구현 2026-11-03 (자르기 없음 · 남은 것 = 금 데모 · 실측). 순서 = 스파이크 → conductor 먼저, 화면은 그 이벤트로. 작업은 `develop` (HANDOFF).
 
 ## 팀이 생기는 길 2단계
 | 단계 | 누가 | 어떻게 | 비용 |
 |---|---|---|---|
-| ① `delegate` 를 보여줄지 | 서버 (`team.py offer_team` · LLM 없음 · 실행당 1번) | 복합 신호(아래) 또는 그 대화가 이미 팀을 썼음(sticky) · 모델이 도구를 못 쓰면 · resume 실행이면 False | 안 보이면 0 · 보이면 약 70 |
+| ① `delegate` 를 보여줄지 | 서버 (`team.py offer_team` · LLM 없음 · 실행당 1번) | 복합 신호(아래) 또는 그 대화에 이미 보였음(sticky = 불렀거나 게이트가 켜진 질문이 기록에 있음 · `team_offered`) · 모델이 도구를 못 쓰면 False · resume = sticky 그대로 (멈춘 실행과 같은 도구 배열) | 안 보이면 0 · 보이면 98 (est) |
 | ② 실제로 팀을 꾸릴지 | 총괄 모델 | 한 응답에 `delegate {role, task}` 를 2~3번 = 팀원 2~3명 (역할 · 할 일은 모델이 정함 = 사람이 미리 정의하지 않음) | 팀원 요청 몫 |
 
-복합 신호 = 12자 이상이고 (나눠서 · 여럿이 · 각각 · 동시에 · 따로 · 팀으로) 하나, 또는 (비교 · vs · 대비 · 조사 · 정리표 · 비교표) + 항목 2개 이상(`,` `/` 와 · 과 · 랑 · 및 · 줄바꿈 목록 · `\d+(종|개|곳|가지|명)` N≥2). 규칙 = `team.py` 의 정렬된 상수표 · 진리표 테스트. 조정은 금요일 trace 실패에서만.
+복합 신호 = 12자 이상이고 (나눠서 · 여럿이 · 각각 · 동시에 · 따로 · 팀으로) 하나, 또는 (비교 · vs · 대비 · 조사 · 정리표 · 비교표) + 항목 2개 이상(`,` `/` 와 · 과 · 랑 · 및 · 줄바꿈 목록 · `\d+(종|개|곳|가지|명)` N≥2 · vs 도 항목 구분 = 'A vs B' 2개 · 단어 경계라 canvas · devs 는 안 걸림). 규칙 = `team.py` 의 정렬된 상수표 · 진리표 테스트. 조정은 금요일 trace 실패에서만.
 
 ## 토큰 전략
 | 무엇이 요청에 실리나 | 크기 |
 |---|---|
 | 지침 · 대화별 지침 | **안 바뀜** (system 2개 · `INSTRUCTIONS` 한 줄 그대로 · '팀 가능' 같은 안내 문구 없음) |
-| `delegate` 정의 (게이트 켜진 턴 · 그 뒤 그 대화) | 약 70 · 상한 `TEAM_TOOL_EXTRA=100` · 설명 '서로 독립인 일 2~3개를 팀원에게 동시에 맡긴다. 한 응답에 같이 부른다. 한 가지 일이면 부르지 않는다. role=짧은 이름, task=맡길 일' · 손으로 쓴 2필드 스키마 |
+| `delegate` 정의 (게이트 켜진 턴 · 그 뒤 그 대화) | 98 (est · 여유 2) · 상한 `TEAM_TOOL_EXTRA=100` · 설명 '서로 독립인 일 2~3개를 팀원에게 한 응답에 같이 맡긴다. 일이 하나면 안 부른다. role=짧은 이름' (계획 문구 = 111 이라 줄임) · 손으로 쓴 2필드 스키마 |
 | 도구 배열 순서 | `[use_skill, delegate, use_app, …공개된 MCP]` = delegate 는 고정 앞부분 · 공개 도구는 계속 맨 뒤 = 한 턴 안에서 앞 요청이 다음 요청의 앞부분 그대로 (맨 뒤에 붙이면 공개 순간 깨진다) |
 | 팀원 요청 | system 1개 `MEMBER_INSTRUCTIONS` 고정 한 줄 (팀원 · 실행끼리 캐시 공유) + user = task 만 (대화 기록 · now_line 없음) + 앱 있으면 `use_app` 과 ready 앱 목록 한 줄 · 추론 끔 · max_tokens 1500 |
 | 팀원 결과 → 총괄 | 팀원당 4KB 상한 · `{source:'team:a1', untrusted, role, status, answer, needs_app?}` (untrusted 가 맨 앞 = compact_result 뒤에도 남음) · 지난 턴 = 400B + '줄임' |
 | 캐시 | 총괄 = 지금과 같음 (delegate 가 처음 보이는 턴만 Claude 캐시 처음부터 · sticky 라 대화당 1번) · 팀원 a2 · a3 = a1 이 쓴 앞부분을 읽음 |
 
-`delegate` 를 안 보이는 턴(hello · 짧은 질문 · 지금 모든 테스트 경로)은 요청이 **오늘과 바이트까지 같다**. sticky = 팀을 쓴 대화는 이후 턴마다 약 70 더 (도구 배열 고정 = 캐시 + Anthropic 기록의 tool_use 에 정의가 있어야 함).
+`delegate` 를 안 보이는 턴(hello · 짧은 질문 · 지금 모든 테스트 경로)은 요청이 **오늘과 바이트까지 같다**. sticky = 팀을 쓴 대화는 이후 턴마다 약 100 더 (도구 배열 고정 = 캐시 + Anthropic 기록의 tool_use 에 정의가 있어야 함).
 
-| 경우 (상한 = `tests/test_tokens.py`) | 지금 실측 | 06 목표 |
-|---|---|---|
-| hello · 앱 0개 | 223 (est 225) | 그대로 · `HELLO_0_APPS=280` · 도구 `['use_skill']` |
-| hello · 앱 54개 | 425 (est 413) | 그대로 · `HELLO_54_APPS=520` · 도구 `['use_skill','use_app']` |
-| 큰 결과 둘 다음 턴의 hello | 1,089 (est 1,001) | 그대로 · `HELLO_AFTER_BIG_RESULTS=1250` |
-| 팀 턴 첫 요청 − 같은 질문 게이트 꺼짐 | — | ≤ `TEAM_TOOL_EXTRA=100` |
-| 팀원 첫 요청 (고정 task 40자) | — | 앱 0개 ≤ `MEMBER_FIRST_0=250` · 앱 54개 ≤ `MEMBER_FIRST_54=450` |
-| 팀원 2명 팀 턴 합계 (MCP 없음 · 모든 요청 합) | — | ≤ `TEAM_TURN_TOTAL=4500` |
-| 팀 턴 다음의 hello (sticky + 줄인 결과 2개) | — | ≤ `HELLO_AFTER_BIG_RESULTS=1250` |
+| 경우 (상한 = `tests/test_tokens.py`) | 지금 실측 | 06 목표 | 06 실측 (est) |
+|---|---|---|---|
+| hello · 앱 0개 | 223 (est 225) | 그대로 · `HELLO_0_APPS=280` · 도구 `['use_skill']` | 225 그대로 |
+| hello · 앱 54개 | 425 (est 413) | 그대로 · `HELLO_54_APPS=520` · 도구 `['use_skill','use_app']` | 413 그대로 |
+| 큰 결과 둘 다음 턴의 hello | 1,089 (est 1,001) | 그대로 · `HELLO_AFTER_BIG_RESULTS=1250` | 기존 assert 그대로 green |
+| 팀 턴 첫 요청 − 같은 질문 게이트 꺼짐 | — | ≤ `TEAM_TOOL_EXTRA=100` | 98 (팀 턴 첫 요청 = 341) |
+| 팀원 첫 요청 (고정 task 40자) | — | 앱 0개 ≤ `MEMBER_FIRST_0=250` · 앱 54개 ≤ `MEMBER_FIRST_54=450` | 137 · 330 (ready 18개) |
+| 팀원 2명 팀 턴 합계 (MCP 없음 · 모든 요청 합) | — | ≤ `TEAM_TURN_TOTAL=4500` | 1,194 (메모 앱 + 3KB 답 = 3,683) |
+| 팀 턴 다음의 hello (sticky + 줄인 결과 2개) | — | ≤ `HELLO_AFTER_BIG_RESULTS=1250` | 1,046 |
 
 **실측 (금 · 진짜 게이트웨이 Claude 1개 · OpenAI 1개)**: hello vs 팀 턴 입력 토큰 · cache_read 를 이 자리에 표로 남긴다.
 
@@ -45,7 +45,7 @@
 | 공개 장부 | 대화 12개 (`REVEAL_MAX`) | `AppSession.member_view(agent)` = 자기 `revealed_now` · `REVEAL_MEMBER_MAX=8` · 토큰 · tools/list 캐시만 공유 → 팀원 공개가 총괄 `_AppTools.revealed()`(agent.py:398)로 안 샌다 |
 | 연결 안 된 앱 | 지금처럼 CallDeferred + 카드 | 결과 `{error:'not_connected'}` + 팀원 결과 `needs_app:[handle]` → 총괄이 알리거나 직접 use_app (07 에서 카드로 올림) |
 | 요청 | `request_limit=8` 그대로 | 자기 `RunUsage()` (ctx.usage 안 씀 = 총괄 8 을 못 깎음) · `UsageLimits(request_limit=4, input_tokens_limit=40_000)` |
-| 시간 | 지금 | `MEMBER_TIMEOUT_S=90` (ToolDefinition.timeout) · MCP 도구 45초 그대로 |
+| 시간 | 지금 | `MEMBER_TIMEOUT_S=90` (`_TeamRun.run` 의 `asyncio.timeout` · ToolDefinition.timeout 은 기록만 = 커스텀 toolset 에선 안 지켜짐) · MCP 도구 45초 그대로 |
 | 동시 | 메인 gate 4 | delegate 는 메인 gate 밖 (4칸 교착 방지) · 팀원 도구 = 팀 공용 `member_gate=Semaphore(4)` 따로 |
 | 수 | — | 실행당 `MAX_MEMBERS=3` (4번째 = 오류 결과 `team_full`) · 한 응답에 1번뿐 = 오류 결과 `team_too_small` ('혼자 답하거나 2명 이상으로') · role ≤20자 · task ≤300자 |
 
@@ -83,7 +83,7 @@ span (opentelemetry-api 만 · SDK 없으면 no-op · 08 에서 Langfuse): 팀�
 | 팀원 대화 기록 | 저장 안 함 (요약 · steps · usage 만) · 전체는 08 Langfuse |
 | `usage_events` | 실행당 1줄 그대로 · `on_complete` 가 팀원 usage(input · output · requests · tool_calls · cache)를 더함 |
 
-권한: 팀원 = 그 사용자의 ready 앱 · 읽기 도구만 · 쓰기는 총괄만 (07 승인 카드가 붙을 자리). 서버가 기준 (프론트 도구 400 · resume 재검증 그대로). 새 audit 없음.
+권한: 팀원 = 그 사용자의 ready 앱 · 확실한 읽기 도구만 (`Tool.read_only` = readOnlyHint 또는 읽기 동사 이름 · 실패하면 닫힘 · 정책 approval · hidden 거름) · 쓰기는 총괄만 (07 승인 카드가 붙을 자리). 서버가 기준 (프론트 도구 400 · resume 재검증 그대로). 새 audit 없음.
 
 ## 코드 (ADR-0002: Pydantic AI · AG-UI import 는 agent.py 만)
 | 파일 | 바뀌는 것 |
@@ -117,16 +117,24 @@ pytest: `test_team.py`(offer_team 진리표 · sticky · resume · clean_role '�
 | 기본 (할 일 없음) | 새 의존성 · 마이그레이션 · 키 없음 · `./run.sh` 그대로 |
 | 금 데모 | 두 PC 에서 데모 질문 1번 + 진짜 게이트웨이로 Claude · OpenAI 모델 각 1번 (지금 로컬 Docker LiteLLM) |
 
+## 계획과 다른 점 (구현 뒤 · 2026-11-03)
+- 스파이크 (Pydantic AI 2.59): call_tool 안 `run_stream_events` · 한 응답 delegate 2개 동시 · 따로 `RunUsage` · `UsageLimitExceeded` 잡힘 · 바깥 취소가 팀원 HTTP 를 끊음(남는 태스크 0) · 기록 재생 모두 OK. 어긋난 것 하나 = `ToolDefinition.timeout` 은 FunctionToolset 만 지킴 → `asyncio.timeout(90)` + `member_timeout`.
+- delegate 설명 줄임 (위 토큰 표) · 잘못된 인자 = 그 줄 `error` · 거절된 delegate(`team_too_small` · `team_full`)도 번호(a1 …)는 받음, 3명 한도는 받아들인 팀원만.
+- 이벤트: delegate END 전에 온 팀원 이벤트는 END 뒤로 미룸 · RUN_FINISHED/ERROR 뒤 팀원 이벤트는 버림(steps 는 이미 저장) · pump 는 소비자가 다음을 달라 할 때만 읽음.
+- 팀원 도구 = `Tool.read_only`(readOnlyHint 또는 읽기 동사) + 정책 auto 만 · `_member_ok` 하나가 offerable · tools · call 을 막음 (옛 캐시 = 이름 판정 · 스키마 그대로).
+- 화면: 팀원 도구 줄은 이름 · 상태 · 시간만 (팀원 기록 저장 안 함) · 1100px 미만은 저절로 안 열림 (토글 덮개 · Esc · 포커스 되돌림) · 패널은 팀원이 실제로 생겨야 열림 · 요약 = 모두 끝 / 'n명 중 k명' / 모두 실패 / 중간에 끊김 · ActivityScreen 팀원 도구 들여쓰기.
+- 테스트: 바꾸기 전 골든(`tests/fixtures/pre-team-golden.json` · hello 0 · 54 앱 · MCP 3턴 · 병렬) 바이트 같음 · eval runner `conductor_team` 추가 · mock 표식 `[fake:read <handle>]` · `playwright.config.ts` testMatch `chat(-[a-z]+)*` (꼬리 둘 스펙) · chat-team-fail 은 테스트 사용자 '일반 멤버'.
+
 ## done
-- [ ] 새 의존성 0 (pydantic-ai-slim 2.59.0 · opentelemetry-api 이미 lock) · store 변경 0 (SCHEMA_VERSION 4)
-- [ ] ADR-0014 (20줄 이하: delegate agent-as-tool · LLM 없는 게이트 + sticky · 깊이 1 · 팀원 읽기 전용 · 따로 usage · 같은 모델 · 큐 하나 · steps + metadata 저장)
-- [ ] team.py · member_view · `_TeamTools` · 자식 줄 · pump/큐 · render_run · span
-- [ ] TeamPanel · TeamGroup · 상태 줄 문구 (UI 문구 '·' 0)
-- [ ] 스펙 3개 + 기존 E2E · pytest · eval(p4 3개 + p0 · p1 그대로) green · test_tokens 기존 assert 무수정
-- [ ] 두 PC 데모: 복합 질문 → 패널에 팀원 2명이 따로 움직임 → 답 → 다시 열어도 같은 트리 → 새 대화 hello 는 오늘과 같은 요청
-- [ ] roadmap P4-1 · P4-2 passes 는 E2E 뒤에만 (P4-3 false · 08) · HANDOFF 다음 = 07 승인 카드 · ideas.md 한 줄씩 (팀원별 싼 모델 · 팀원 하나 멈추기 · 팀원 도구 BM25 미리 공개 · 게이트 조정 · 팀 기록 · 비용 줄 · '나눠서 하기' 끄기)
+- [x] 새 의존성 0 (pydantic-ai-slim 2.59.0 · opentelemetry-api 이미 lock) · store 변경 0 (SCHEMA_VERSION 4)
+- [x] ADR-0014 (20줄 이하: delegate agent-as-tool · LLM 없는 게이트 + sticky · 깊이 1 · 팀원 읽기 전용 · 따로 usage · 같은 모델 · 큐 하나 · steps + metadata 저장)
+- [x] team.py · member_view · `_TeamTools` · 자식 줄 · pump/큐 · render_run · span
+- [x] TeamPanel · TeamGroup · 상태 줄 문구 (UI 문구 '·' 0)
+- [x] 스펙 3개 + 기존 E2E (211) · pytest (445) · eval 7 (p4 3개 + p0 · p1 그대로) green · test_tokens 기존 assert 무수정
+- [ ] 두 PC 데모: 복합 질문 → 패널에 팀원 2명이 따로 움직임 → 답 → 다시 열어도 같은 트리 → 새 대화 hello 는 오늘과 같은 요청 (+ 진짜 게이트웨이 실측 표)
+- [x] P4-1 · P4-2 = E2E 뒤 체크 (roadmap passes 는 phase 단위라 P4 false 그대로 · HANDOFF Phase '남은 것: P4-3') · HANDOFF 다음 = 07 승인 카드 · ideas.md 한 줄씩 (팀원별 싼 모델 · 팀원 하나 멈추기 · 팀원 도구 BM25 미리 공개 · 게이트 조정 · 팀 기록 · 비용 줄 · '나눠서 하기' 끄기)
 
 ## 결정 (2026-11-03 확정)
 1. 팀원 MCP 도구 = **읽기 전용 · 이미 연결된 앱만** (쓰기 · 로그인 카드는 07 · 목요일 자르기 ④ 면 글만)
 2. 멈추기 = **실행 전체만** (팀원 하나 멈추기 · 새 API 는 ideas.md)
-3. sticky delegate = **받아들임** (팀 쓴 대화만 턴당 약 70 · '나눠서 하기' 끄기 토글은 나중) · 패널 = **처음 팀이 생기면 저절로 열림 + 닫기 기억**
+3. sticky delegate = **받아들임** (팀 쓴 대화만 턴당 약 100 · '나눠서 하기' 끄기 토글은 나중) · 패널 = **처음 팀이 생기면 저절로 열림 + 닫기 기억**

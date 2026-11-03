@@ -1,0 +1,7 @@
+{
+  "kind": "constraint",
+  "task": "conductor_team",
+  "input": {"scenario": "hello", "ask": "hello", "plan": []},
+  "expected": {"answer": "끝", "steps": ["writing"], "first_request_tools": [], "member_requests": 0, "member_tools": []},
+  "note": "hello 는 게이트가 꺼진다 = 요청에 delegate 정의 0 (hello 토큰 그대로 · 바이트 비교는 tests/test_tokens.py 골든)."
+}

@@ -31,7 +31,8 @@ class ToolSpec:
 
 USE_SKILL = "use_skill"  # skills.py 가 만드는 툴 이름 (활동 단계는 tool:use_skill 대신 skill:<스킬 이름>)
 USE_APP = "use_app"  # MCP 앱 도구 꺼내기 (agent.py · connectors/session.py — 활동 단계는 tool:use_app 대신 app:<handle>)
-EXTRA_LABELS = {USE_SKILL: "스킬 사용", USE_APP: "앱 도구 고르기"}
+DELEGATE = "delegate"  # 팀원에게 맡기기 (team.py · agent.py — 활동 단계는 tool:delegate 대신 agent:<a1|a2|a3>)
+EXTRA_LABELS = {USE_SKILL: "스킬 사용", USE_APP: "앱 도구 고르기", DELEGATE: "팀원에게 맡기기"}
 # 예전 기록의 화면 이름 (내장 툴 5개 · search_tools 는 없어졌다 · 옛 대화를 다시 열 때만)
 LEGACY_LABELS = {
     "current_time": "현재 시각", "calculator": "계산기", "unit_convert": "단위 변환", "date_calc": "날짜 계산",
@@ -45,11 +46,15 @@ def tool_label(name: str) -> str:
 
 
 def step_label(step: str, skill_labels: dict[str, str] | None = None) -> str:
-    """thinking · writing · tool:<툴> · skill:<스킬> · app:<handle> → 화면 이름. skill_labels = 스킬 이름 → 한국어 이름
-    (+ 'app:<handle>' → 앱 이름 · 'tool:<handle>__<도구>' → '앱: 도구' — MCP 는 실행마다 connectors/session.py 가 채운다)."""
+    """thinking · writing · tool:<툴> · skill:<스킬> · app:<handle> · agent:<n> → 화면 이름. skill_labels = 스킬 이름 → 한국어 이름
+    (+ 'app:<handle>' → 앱 이름 · 'tool:<handle>__<도구>' → '앱: 도구' — MCP 는 실행마다 connectors/session.py 가 채운다
+    · 'agent:a1' → 팀원 역할 (agent.py 가 delegate 인자에서 채운다 · 없으면 '팀원 1'))."""
     labels = skill_labels or {}
     if step in labels and not step.startswith("skill:"):
         return f"앱: {labels[step]}" if step.startswith("app:") else labels[step]
+    if step.startswith("agent:"):
+        n = step.removeprefix("agent:").removeprefix("a")
+        return f"팀원 {n}" if n.isdigit() else "팀원"
     if step.startswith("app:"):
         return f"앱: {step.removeprefix('app:')}"
     if step.startswith("tool:"):

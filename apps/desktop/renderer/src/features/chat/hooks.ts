@@ -119,8 +119,11 @@ function historyAnswer(m: HistoryAssistant): Answer {
       args: p.args, result: p.result, status: p.status === 'running' ? 'done' : p.status, ms: null, at: 0, ready: null,
       batch: p.batch ?? -(i + 1), // 옛 기록(batch 없음) = 도구마다 따로
       ...(p.app ? { app: p.app } : {}),
+      ...(p.team ? { agent: p.team.agent, role: p.team.role, label: p.team.role || p.label } : {}),
     };
   });
+  // 팀원 = delegate 칸의 팀원 요약 (실시간 brewai.team_member · agent_step 과 같은 트리 · 시간은 없다)
+  const team = m.parts.flatMap((p) => (p.type === 'tool' && p.team ? [p.team] : []));
   // 지금도 앱 연결을 기다리는 호출 = 카드 (기록에서 연 답은 자동으로 브라우저를 열지 않는다)
   const cards: AppCard[] = m.pending.map((w) => ({
     kind: 'auth', callId: w.call_id, server: w.server, mode: w.mode, reason: w.reason, autoOpen: false, scope: w.scope, write: w.write, label: w.label,
@@ -130,6 +133,7 @@ function historyAnswer(m: HistoryAssistant): Answer {
     runId: m.run_id, status: 'done', failure: null, failureDetail: null, parts, steps: [],
     model: { id: m.model, label: m.model_label, provider: m.provider, provider_label: m.provider_label },
     reasoning: m.reasoning_level, startedAt: 0, durationMs: m.duration_ms, usage: m.usage, fromHistory: true, cards,
+    ...(team.length ? { team } : {}),
   };
 }
 

@@ -9,6 +9,7 @@ import { reloadThread } from '../hooks';
 import type { Conv } from '../model';
 import { arriveFromHome } from '../motion';
 import { AnswerView } from './AnswerView';
+import { lastTeamAnswer } from './TeamPanel';
 
 const STICK_PX = 48;
 const GLIDE_MS = 420; // 새 질문 뒤 부드럽게 내려가는 동안은 순간 이동으로 덮지 않는다
@@ -20,6 +21,7 @@ export function Messages({ conv }: { conv: Conv }) {
   const glideUntil = useRef(0);
   const seen = useRef<number | null>(null); // 처음 그린 턴 수 (처음 = 바로 아래로 · 그 뒤 늘면 부드럽게)
   const turns = conv.turns.length;
+  const teamRun = lastTeamAnswer(conv)?.runId ?? null; // 오른쪽 진행 상황이 기본으로 보이는 답
   const follow = (el: HTMLElement) => {
     if (performance.now() < glideUntil.current) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' }); // 미끄러지는 중 = 목표만 새로
     else el.scrollTop = el.scrollHeight;
@@ -64,7 +66,7 @@ export function Messages({ conv }: { conv: Conv }) {
         {conv.turns.map((t, i) => (
           <div key={t.id} className="turn">
             {!t.resumed && <div className="msg user enter"><div className="bubble">{t.ask}</div></div>}
-            <AnswerView turn={t} latest={i === conv.turns.length - 1} threadId={conv.id} />
+            <AnswerView turn={t} latest={i === conv.turns.length - 1} threadId={conv.id} teamRun={teamRun} />
           </div>
         ))}
         {conv.load === 'loading' && (

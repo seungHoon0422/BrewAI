@@ -264,3 +264,62 @@
 .app-card .ac-will{display:flex;flex-direction:column;gap:var(--space-0-5);margin-top:var(--space-1);padding:var(--space-2) var(--space-2-5);border-radius:var(--radius-md);background:var(--surface-chip)}
 .app-card .ac-will-k{font-size:var(--fs-xs);color:var(--text-muted)}
 .app-card .ac-args{font-family:var(--font-mono);font-size:var(--fs-xs);color:var(--text-2);overflow-wrap:anywhere;white-space:pre-wrap}
+
+/* 에이전트 팀 (slice 06) — 답 안 팀 묶음 (병렬 묶음 모양) · 오른쪽 진행 상황 (1100px 이상 = 2열 · 좁으면 토글로 덮개). 색 점 없음 — 글 · 아이콘 · 움직임 */
+.tp-team .tp-par-h{flex-wrap:wrap}
+.tp-team-open{margin-left:auto;flex:none;border:0;background:transparent;padding:0;color:var(--text-muted);font:inherit;font-weight:var(--fw-regular);cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+.tp-team-open:hover{color:var(--text-2)}
+.tp-member .th{flex-wrap:nowrap}
+.tp-member .tp-member-task{min-width:0;flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--text-muted);font-size:var(--fs-xs)}
+.tp-member[data-state="done"] .tst{color:var(--ok-text)}
+.tp-member[data-state="error"] .tst{color:var(--danger-text)}
+.tp-member-why{margin:var(--space-1) 0 0 30px;font-size:var(--fs-xs);color:var(--danger-text)}
+.tp-member-steps{list-style:none;margin:var(--space-1-5) 0 0 30px;padding:0;display:grid;gap:var(--space-1)}
+.tp-member-steps .tp-tool{padding:var(--space-1) var(--space-2);background:var(--surface-sunken)}
+.tp-member-steps .tp-tool dl{display:none}
+.tp-member-steps .tp-tool .ttile{width:18px;height:18px}
+
+.thread{position:relative}
+@media (min-width:1100px){
+  .thread.has-team{grid-template-columns:minmax(0,1fr) minmax(300px,340px)}
+}
+.team-panel{display:grid;grid-template-rows:auto auto minmax(0,1fr);min-width:0;min-height:0;border-left:1px solid var(--border-subtle);background:var(--surface);animation:ui-fade var(--dur-base) var(--ease-out)}
+/* 좁은 창 = 대화 위 덮개 (오른쪽 끝 · 그림자) */
+.team-panel[data-overlay]{position:absolute;top:0;right:0;bottom:0;width:min(360px,calc(100% - var(--space-6)));z-index:var(--z-sticky);box-shadow:var(--shadow-lg)}
+.team-head{display:flex;align-items:center;gap:var(--space-1);padding:var(--space-2) var(--space-2) var(--space-1-5) var(--space-4);min-height:45px}
+.team-head .ttl{flex:1;margin:0;font-size:inherit;font-weight:var(--fw-semibold);line-height:inherit}
+.team-sum{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-1) var(--space-2);margin:0;padding:0 var(--space-4) var(--space-2);color:var(--text-2);font-size:var(--fs-sm)}
+.team-sum .team-sum-meta{color:var(--danger-text);font-size:var(--fs-xs)}
+.team-tree{overflow:auto;min-height:0;padding:var(--space-1) var(--space-2-5) var(--space-3)}
+.tm-node{margin:1px 0}
+.tm-row{display:flex;align-items:center;gap:var(--space-2);width:100%;min-width:0;padding:var(--space-1-5);border:0;border-radius:var(--radius-md);background:transparent;color:inherit;font:inherit;font-size:var(--fs-sm);text-align:left}
+button.tm-row{cursor:pointer}
+button.tm-row:hover{background:var(--surface-hover)}
+button.tm-row:focus-visible{outline-offset:-2px}
+.tm-row b{font-weight:var(--fw-semibold);white-space:nowrap;color:var(--text)}
+.tm-row .tm-role{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--text-muted);font-size:var(--fs-xs)}
+.tm-ico{width:20px;height:20px;border-radius:var(--radius-sm);background:var(--surface-chip);color:var(--text-2);display:grid;place-items:center;flex:none}
+.tm-row .tst{margin-left:auto;display:inline-flex;align-items:center;gap:var(--space-1);color:var(--text-muted);font-size:var(--fs-xs);white-space:nowrap}
+.tm-row .tst .tm{margin-left:var(--space-0-5)}
+.tm-node[data-state="done"]>.tm-row .tst{color:var(--ok-text)}
+.tm-node[data-state="error"]>.tm-row .tst{color:var(--danger-text)}
+.tm-row .chev{color:var(--text-faint);flex:none}
+.tm-row[aria-expanded="true"] .chev{transform:rotate(180deg)}
+/* 총괄 → 팀원 → 도구 = 왼쪽 선 들여쓰기 */
+.tm-kids,.tm-tools{list-style:none;margin:0 0 0 var(--space-3);padding:0 0 0 var(--space-2-5);border-left:1px solid var(--border-subtle)}
+.tm-tools{margin-left:var(--space-4);padding-bottom:var(--space-1)}
+.tm-why{margin:0 0 var(--space-1) 34px;font-size:var(--fs-xs);color:var(--danger-text)}
+.tm-detail{display:grid;grid-template-columns:auto minmax(0,1fr);gap:var(--space-1) var(--space-3);margin:var(--space-0-5) 0 var(--space-2) 34px;padding:var(--space-2) var(--space-2-5);border-radius:var(--radius-md);background:var(--surface-sunken);font-size:var(--fs-xs)}
+.tm-detail[hidden]{display:none}
+.tm-detail div{display:contents}
+.tm-detail dt{color:var(--text-muted)}
+.tm-detail dd{margin:0;color:var(--text);overflow-wrap:anywhere;white-space:pre-wrap}
+.tm-chips{display:flex;flex-wrap:wrap;gap:var(--space-1)}
+.tm-tool{display:flex;align-items:center;gap:var(--space-2);padding:3px var(--space-1-5);font-size:var(--fs-xs);color:var(--text-2);min-width:0}
+.tm-tool .ti{display:grid;place-items:center;flex:none;color:var(--text-muted)}
+.tm-tool .tl{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.tm-tool .tst{margin-left:auto;display:inline-flex;align-items:center;gap:var(--space-1);color:var(--text-muted);white-space:nowrap}
+.tm-tool[data-state="error"] .tst{color:var(--danger-text)}
+@media (prefers-reduced-motion: reduce){
+  .team-panel{animation:none}
+}

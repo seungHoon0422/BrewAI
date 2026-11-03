@@ -124,7 +124,11 @@ export async function openTrace(win: Page) {
 }
 
 // ── mock 게이트웨이 요청 기록 (FAKE_GATEWAY_RECORD) ──
-export type Recorded = { url: string; body: { messages?: { role: string; content?: unknown; tool_calls?: { function: { name: string } }[] }[]; tools?: { function: { name: string } }[] } | null };
+// kind = main (총괄) | member (팀원 · slice 06 · 첫 system 이 팀원 지침)
+export type Recorded = {
+  url: string; kind?: 'main' | 'member';
+  body: { messages?: { role: string; content?: unknown; tool_calls?: { function: { name: string } }[] }[]; tools?: { function: { name: string } }[] } | null;
+};
 export function clearRecord() {
   fs.writeFileSync(GATEWAY_RECORD, '');
 }
@@ -136,3 +140,25 @@ export function recorded(marker: string): Recorded[] {
     .filter((r) => r.url.includes('/chat/completions') && JSON.stringify(r.body?.messages ?? []).includes(marker));
 }
 export const toolNames = (r: Recorded) => (r.body?.tools ?? []).map((t) => t.function.name);
+
+// 대화 요청 전부 (나온 순서) — kind 로 총괄 · 팀원을 나눈다
+export function chatRecords(): Recorded[] {
+  if (!fs.existsSync(GATEWAY_RECORD)) return [];
+  return fs.readFileSync(GATEWAY_RECORD, 'utf8').split('\n').filter(Boolean)
+    .map((l) => JSON.parse(l) as Recorded)
+    .filter((r) => r.url.includes('/chat/completions'));
+}
+
+// ── 에이전트 팀 (slice 06) — 오른쪽 진행 상황 · 답 안 팀 묶음 손잡이 ──
+export const team = (win: Page) => {
+  const panel = win.getByRole('complementary', { name: '진행 상황' });
+  return {
+    panel,
+    toggle: win.getByRole('button', { name: '진행 상황 열고 닫기' }),
+    close: panel.getByRole('button', { name: '진행 상황 닫기' }),
+    summary: panel.locator('.team-sum-t'),
+    lead: panel.locator('.tm-node[data-kind="lead"]'),
+    members: panel.locator('.tm-node[data-kind="member"]'),
+    member: (role: string) => panel.locator('.tm-node[data-kind="member"]').filter({ has: win.locator('.tm-row b', { hasText: new RegExp(`^${role}$`) }) }),
+  };
+};

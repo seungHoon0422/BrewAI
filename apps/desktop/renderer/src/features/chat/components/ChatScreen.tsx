@@ -3,7 +3,7 @@
 // 상태는 hooks.ts (앱 전체 store): 메뉴를 옮겨도 답은 계속 받고, 진행 상황 화면이 같은 실행을 본다.
 // App 이 대화가 바뀔 때마다 key 를 바꿔 이 화면을 새로 만든다 → 입력 중인 글이 비고 입력창에 포커스.
 import { useEffect, useRef, useState } from 'react';
-import { Icon, Mark } from '@brewai/ui';
+import { Icon, IconButton, Mark, cx } from '@brewai/ui';
 import { openChat, openCrumb } from '../../../app/navigate';
 import { isReady, useConnections } from '../../connections/hooks';
 import { ProjectHeader } from '../../projects/components/ProjectHeader';
@@ -13,11 +13,12 @@ import { useProject } from '../../projects/hooks';
 import { ScopeBreadcrumb } from '../../scope/components/ScopeBreadcrumb';
 import { focusProject, useCurrentSpace, useScopeState } from '../../scope/hooks';
 import { ShareButton } from '../../sharing/components/ShareButton';
-import { CHAT, SUGGESTIONS, TOOL_TRY, appStarters, type Starter } from '../copy';
+import { CHAT, SUGGESTIONS, TEAM, TOOL_TRY, appStarters, type Starter } from '../copy';
 import { send, stop, updateThread, useConvBusy, useCurrentConv } from '../hooks';
 import { leaveHome } from '../motion';
 import { Composer } from './Composer';
 import { Messages } from './Messages';
+import { TeamPanel, closeTeamPanel, openTeamPanel, useTeamPanel } from './TeamPanel';
 import { ThreadList } from './ThreadList';
 
 export function ChatScreen() {
@@ -32,6 +33,8 @@ export function ChatScreen() {
   const input = useRef<HTMLTextAreaElement>(null);
   const view = useRef<HTMLElement>(null);
   const loading = conv?.load === 'loading';
+  const panel = useTeamPanel(conv); // 오른쪽 진행 상황 (팀이 생긴 대화만)
+  const toggle = useRef<HTMLButtonElement>(null); // 패널을 닫으면 포커스가 돌아올 곳 (덮개가 덮던 머리 토글)
   const canSend = text.trim() !== '' && !busy && !loading;
 
   useEffect(() => input.current?.focus(), []);
@@ -111,8 +114,9 @@ export function ChatScreen() {
   // 서버에 있는 내 대화 + 공유 스페이스일 때만 (내 스페이스엔 멤버가 없다)
   const onServer = conv.load !== 'local' || conv.turns.some((t) => t.answer.status === 'done');
   const canShare = where.mine && onServer && space?.kind === 'shared' && where.space_id === space.id;
+  const togglePanel = () => (panel.open ? closeTeamPanel(conv.id) : openTeamPanel(conv.id));
   return (
-    <section className="view thread">
+    <section className={cx('view thread', panel.open && 'has-team')}>
       <div className="conv">
         <div className="conv-head">
           <ScopeBreadcrumb path={conv.path} onNavigate={openCrumb} className="conv-scope" />
@@ -124,6 +128,7 @@ export function ChatScreen() {
               <ShareButton shared={where.visibility === 'shared'}
                 onChange={(shared) => updateThread(conv.id, { visibility: shared ? 'shared' : 'private' })} />
             )}
+            {panel.team && <IconButton ref={toggle} icon="team" size="sm" label={TEAM.toggle} pressed={panel.open} onClick={togglePanel} />}
           </div>
         </div>
         <Messages conv={conv} />
@@ -133,6 +138,7 @@ export function ChatScreen() {
           </div>
         </div>
       </div>
+      {panel.open && <TeamPanel conv={conv} overlay={!panel.wide} onClose={() => toggle.current?.focus()} />}
     </section>
   );
 }

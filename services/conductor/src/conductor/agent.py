@@ -37,6 +37,16 @@ MCP 앱 (ADR-0013 · slice 05 · 판단은 connectors/session.py · 여기는 Py
   · OpenAI · Gemini = 앞부분이 같으면 저절로 캐시
   앞 요청 = 다음 요청의 앞부분: 한 턴의 도구 루프 안, 그리고 지난 턴 결과가 HISTORY_RESULT_BYTES 아래일 때까지 (넘으면 다음 턴에 줄임으로 바뀐다)
   · use_app 공개 = 도구 배열이 바뀐다 (Anthropic 은 도구 → system → 메시지 순이라 캐시가 처음부터)
+에이전트 팀 (slice 06 · 판단은 team.py · 여기는 Pydantic AI 접착만)
+  delegate 는 team.offer_team 이 켠 실행에만 (복합 신호 · 그 대화에 이미 보였음 = sticky · 이어서 하기 = 멈춘 실행 그대로) → 안 켜면 요청 바이트가 slice 05 그대로
+  도구 배열 = [use_skill, delegate, use_app, …공개된 MCP] (delegate 는 고정 앞부분 · 공개 도구는 계속 맨 뒤) · 지침은 안 바뀐다
+  delegate 하나 = 팀원 하나 = 팀원 Agent(name=member) 의 run_stream_events 한 번 (같은 모델 · 추론 끔 · 자기 RunUsage · 요청 4 ·
+    읽기 전용 ready 앱 도구 · 기록 · now_line 없음 · task 만). 총괄 gate 밖 · 팀원 도구는 팀 공용 member_gate
+  이벤트: STEP_STARTED agent:<a1> → TOOL_CALL_START/ARGS/END(delegate) → CUSTOM brewai.team_member(시작) → brewai.agent_step(팀원 도구 열림 ·
+    닫힘)* → brewai.team_member(끝) → TOOL_CALL_RESULT → STEP_FINISHED agent:<a1>. 팀원 이벤트는 늘 그 delegate 의 END 뒤 · RESULT 앞
+    (팀 실행만 _RunStream 이 FIFO 큐 하나를 읽는다 · pump 태스크가 AG-UI 이벤트를 넣고 팀원도 같은 큐에). 팀원 사이 순서는 정하지 않는다
+  기록: runs.steps = 평평한 목록 + 자식 줄 {parent, agent} · delegate ToolReturn.metadata = 팀원 요약 (render_run 이 도구 칸에) ·
+    사용량 = 총괄 + 팀원 합 (usage_events 한 줄 · run_summary.usage.members) · 팀원 대화 기록은 저장 안 함
 """
 
 from __future__ import annotations
@@ -46,8 +56,8 @@ import json
 import logging
 import re
 import time
-from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Sequence
-from contextlib import asynccontextmanager, suppress
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Iterator, Sequence
+from contextlib import asynccontextmanager, contextmanager, suppress
 from dataclasses import dataclass, field, replace
 from typing import Annotated, Any, Literal, NotRequired, Protocol, TypedDict
 
@@ -63,10 +73,12 @@ from ag_ui.core import (
 from openai import APIConnectionError, APIStatusError, AsyncOpenAI
 from pydantic import ValidationError
 from pydantic import Field, TypeAdapter
-from pydantic_ai import Agent, FunctionToolset, RunContext, Tool
+from pydantic_ai import Agent, AgentRunResultEvent, FunctionToolset, RunContext, Tool
 from pydantic_ai.exceptions import CallDeferred, ModelConnectionError, ModelHTTPError, UsageLimitExceeded
 from pydantic_ai.messages import (
     INTERRUPTED_TOOL_RETURN_CONTENT,
+    FunctionToolCallEvent,
+    FunctionToolResultEvent,
     ModelMessage,
     ModelMessagesTypeAdapter,
     ModelRequest,
@@ -92,19 +104,25 @@ from pydantic_ai.tools import DeferredToolRequests, DeferredToolResults, ToolDef
 from pydantic_ai.toolsets import AbstractToolset, ToolsetTool, WrapperToolset
 from pydantic_ai.toolsets.external import TOOL_SCHEMA_VALIDATOR
 from pydantic_ai.ui.ag_ui import AGUIAdapter, AGUIEventStream
-from pydantic_ai.usage import UsageLimits
+from pydantic_ai.usage import RunUsage, UsageLimits
 from starlette.requests import Request
 from starlette.responses import Response
 
 from . import diagnose as dx
+from . import team as tm
 from .connectors.client import split_public
-from .connectors.session import AppSession, AuthNeeded, Revealed
+from .connectors.session import AppSession, AuthNeeded, MemberApps, Revealed
 from .models import ModelChoice
 from .skills import NAME_RE as SKILL_NAME_RE
 from .skills import SkillRegistry
-from .tools import USE_APP, USE_SKILL, ToolSpec, now_line, step_label, tool_label
+from .tools import DELEGATE, USE_APP, USE_SKILL, ToolSpec, now_line, step_label, tool_label
 
 log = logging.getLogger("conductor.agent")
+
+try:  # 팀원 span (opentelemetry-api 만 · SDK 가 없으면 no-op · Langfuse 는 slice 08)
+    from opentelemetry import trace as _otel
+except ImportError:  # pragma: no cover - pydantic-ai 가 opentelemetry-api 를 끌어온다
+    _otel = None  # type: ignore[assignment]
 
 # 시스템 지침 = 날마다 같은 글 (날짜 · 시각은 사용자 메시지 앞 한 줄 = now_line) → 프롬프트 캐시의 고정 앞부분
 INSTRUCTIONS = "너는 BrewAI 에이전트다. 한국어로 짧고 정확하게 답한다. 서로 상관없는 도구 호출은 한 응답에 같이 부른다."
@@ -484,6 +502,199 @@ def open_calls(messages: Sequence[ModelMessage]) -> dict[str, ToolCallPart]:
     return calls
 
 
+# ── 에이전트 팀 (team.py 의 판단 → Pydantic AI 도구 · 팀원 실행 · 이벤트) ─────────────────────
+
+
+class _DelegateArgs(TypedDict):
+    role: Annotated[str, Field(max_length=200)]
+    task: Annotated[str, Field(max_length=4000)]
+
+
+_DELEGATE_ARGS = TypeAdapter(_DelegateArgs)
+# timeout = 기록용 (Pydantic AI 는 FunctionToolset 만 timeout 을 지킨다 · 팀원은 _TeamRun.run 의 asyncio.timeout → member_timeout 결과)
+_DELEGATE_DEF = ToolDefinition(name=DELEGATE, description=tm.DELEGATE_DESCRIPTION, parameters_json_schema=tm.DELEGATE_SCHEMA,
+                               timeout=tm.MEMBER_TIMEOUT_S)
+_FINAL = ("done", "error", "cancelled")
+
+
+@contextmanager
+def _member_span(attrs: dict[str, Any]) -> Iterator[Any]:
+    """팀원 하나 = span 하나 (session._span 은 지금 span 에 속성만 = 부모 span 을 못 만든다). 역할 · 할 일 · 결과 글은 안 남긴다."""
+    if _otel is None:
+        yield None
+        return
+    tracer = _otel.get_tracer("brewai.conductor")
+    with tracer.start_as_current_span("brewai.team.member", attributes=attrs, record_exception=False, set_status_on_exception=False) as span:
+        yield span
+
+
+@dataclass
+class _TeamRun:
+    """실행 하나의 팀: 명단(team.Roster) · 이벤트 큐 (_RunStream 이 읽는다) · 팀원 도구 gate (팀 공용 · 총괄 gate 와 따로) ·
+    팀원 실행에 필요한 것 (팀원 Agent · 같은 모델 · 설정 · 앱 · 활동 기록 · span 속성)."""
+
+    agent: Agent[None, str]
+    model: Model
+    model_label: str
+    settings: OpenAIChatModelSettings
+    activity: _Activity
+    apps: AppSession | None
+    user_id: str | None
+    thread_id: str
+    roster: tm.Roster = field(default_factory=tm.Roster)
+    # (kind, tag, value): main = (taken 신호, AG-UI 이벤트) · member = (delegate call id, CUSTOM 이벤트) · fail · end
+    queue: asyncio.Queue[tuple[str, Any, Any]] = field(default_factory=asyncio.Queue)
+    member_gate: asyncio.Semaphore = field(default_factory=lambda: asyncio.Semaphore(tm.MEMBER_PARALLEL))
+
+    def emit(self, parent: str, event: BaseEvent) -> None:
+        self.queue.put_nowait(("member", parent, event))
+
+    def step_status(self, call_id: str) -> str | None:
+        """delegate 단계를 닫을 상태 (결과가 왔을 때). 돌지 못한 호출(인자 검사 실패 = 재시도 안내) = error · delegate 가 아니면 None."""
+        m = self.roster.members.get(call_id)
+        if m is None:
+            return None
+        return m.status if m.status in _FINAL else "error"
+
+    @staticmethod
+    def _usage(m: tm.Member) -> dict[str, int]:
+        return {k: m.usage.get(k, 0) for k in ("requests", "input_tokens", "output_tokens", "tool_calls")}
+
+    def member_event(self, m: tm.Member, ms: int | None = None) -> CustomEvent:
+        """brewai.team_member (시작 1번 + 끝 1번 · 화면은 call_id 로 upsert)."""
+        value: dict[str, Any] = {"call_id": m.call_id, "agent": m.agent, "role": m.role, "task": tm.short(m.task, tm.TASK_EVENT_MAX),
+                                 "model_label": self.model_label, "tools": m.tools, "status": m.status}
+        if ms is not None:
+            value["ms"] = ms
+        if m.code:
+            value["code"] = m.code
+        if m.status in _FINAL:
+            value["usage"] = self._usage(m)
+        return CustomEvent(name="brewai.team_member", value=value)
+
+    def metadata(self, m: tm.Member) -> dict[str, Any]:
+        """delegate ToolReturn.metadata (모델에는 안 간다) → 기록 → render_run 이 도구 칸에 (다시 열어도 같은 트리)."""
+        steps = [dict(s) for s in self.activity.steps if s.get("parent") == m.call_id]
+        out = {"agent": m.agent, "role": m.role, "task": m.task, "model_label": self.model_label, "tools": m.tools, "steps": steps,
+               "usage": self._usage(m), "status": m.status}
+        return out | ({"code": m.code} if m.code else {})
+
+    def reject(self, m: tm.Member, code: str) -> ToolReturn:
+        m.status, m.code = "error", code
+        self.emit(m.call_id, self.member_event(m, 0))
+        return ToolReturn(tm.rejected(code), metadata=self.metadata(m))
+
+    def _tool_opened(self, m: tm.Member, part: ToolCallPart, view: MemberApps | None) -> None:
+        name = part.tool_name
+        app: str | None = None
+        if name == USE_APP:
+            try:
+                args = part.args_as_dict()
+            except ValueError:
+                args = {}
+            found = view.pick(args.get("app"), args.get("need")) if view is not None else None
+            step = f"app:{found.handle if found else 'unknown'}"
+            label = step_label(step, view.labels() if view is not None else {})
+            app = found.handle if found else None
+        else:
+            t = view.index.get(name) if view is not None else None
+            step, label = f"tool:{name}", (t.label if t else tool_label(name))
+            app = t.app.handle if t else None
+        row = self.activity.open_child(m.call_id, m.agent, f"{m.agent}:{part.tool_call_id}", step, label, app)
+        if row is not None:
+            self.emit(m.call_id, CustomEvent(name="brewai.agent_step", value=row))
+
+    def _tool_closed(self, m: tm.Member, part: ToolReturnPart | RetryPromptPart) -> None:
+        bad = isinstance(part, RetryPromptPart) or (isinstance(part.content, dict) and "error" in part.content)
+        row = self.activity.close_child(f"{m.agent}:{part.tool_call_id}", "error" if bad else "done")
+        if row is not None:
+            self.emit(m.call_id, CustomEvent(name="brewai.agent_step", value=row))
+
+    async def run(self, m: tm.Member) -> ToolReturn:
+        """팀원 하나를 끝까지 (task 만 · 기록 없음). 실패는 결과로 (총괄 실행은 계속) · 바깥 취소 = 팀원도 멈춘다 (HTTP 까지)."""
+        view = self.apps.member_view(m.agent) if self.apps is not None else None
+        m.tools = [{"name": USE_APP, "label": tool_label(USE_APP)}] if view is not None else []
+        m.status = "running"
+        started = time.monotonic()
+        self.emit(m.call_id, self.member_event(m))
+        usage = RunUsage()
+        toolsets = [bounded(_AppTools(_AppRun(view)), gate=self.member_gate)] if view is not None else None
+        limits = UsageLimits(request_limit=tm.MEMBER_REQUEST_LIMIT, input_tokens_limit=tm.MEMBER_INPUT_TOKENS_LIMIT)
+        attrs = {"user.id": self.user_id or "", "session.id": self.thread_id, "brewai.agent.id": m.agent, "gen_ai.agent.name": "member"}
+        with _member_span(attrs) as span:
+            try:
+                async with asyncio.timeout(tm.MEMBER_TIMEOUT_S):
+                    async with self.agent.run_stream_events(
+                        m.task or m.role, model=self.model, model_settings=self.settings, toolsets=toolsets, usage=usage,
+                        usage_limits=limits, instructions=(view.prompt() or None) if view is not None else None,
+                    ) as stream:
+                        async for ev in stream:
+                            if isinstance(ev, FunctionToolCallEvent):
+                                self._tool_opened(m, ev.part, view)
+                            elif isinstance(ev, FunctionToolResultEvent):
+                                self._tool_closed(m, ev.part)
+                            elif isinstance(ev, AgentRunResultEvent):
+                                m.answer = str(ev.result.output or "")
+                m.status = "done"
+            except asyncio.CancelledError:
+                m.status, m.code = "cancelled", None
+                raise
+            except TimeoutError:
+                m.status, m.code = "error", "member_timeout"
+            except UsageLimitExceeded:
+                m.status, m.code = "error", "member_limit"
+            except Exception as e:  # 팀원 실패는 그 팀원만 (제공자 원문 · 키는 안 싣는다 = diagnose 코드만)
+                m.status, m.code = "error", tm.error_code(diagnose(e).code)
+                log.warning("team member failed: agent=%s code=%s error=%s", m.agent, m.code, type(e).__name__)
+            finally:
+                u = usage
+                details = u.details or {}
+                m.usage = {
+                    "requests": u.requests, "input_tokens": u.input_tokens, "output_tokens": u.output_tokens, "tool_calls": u.tool_calls,
+                    "reasoning_tokens": u.output_reasoning_tokens or int(details.get("reasoning_tokens") or 0),
+                    "cache_read_tokens": u.cache_read_tokens or int(details.get("cache_read_input_tokens") or 0),
+                    "cache_write_tokens": u.cache_write_tokens or int(details.get("cache_creation_input_tokens") or 0),
+                }
+                if view is not None:
+                    m.needs_app = list(view.needs)
+                    m.tools = [*m.tools, *({"name": n, "label": view.tool_label(n) or n, "app": view.index[n].app.handle}
+                                          for n in view.revealed_now if n in view.index)]
+                for row in self.activity.close_children(m.agent, "cancelled" if m.status == "cancelled" else "error"):
+                    self.emit(m.call_id, CustomEvent(name="brewai.agent_step", value=row))
+                self.emit(m.call_id, self.member_event(m, int((time.monotonic() - started) * 1000)))
+                if span is not None:
+                    span.set_attribute("brewai.agent.status", m.status)
+                    span.set_attribute("gen_ai.usage.input_tokens", m.usage["input_tokens"])
+                    span.set_attribute("gen_ai.usage.output_tokens", m.usage["output_tokens"])
+        return ToolReturn(m.result(), metadata=self.metadata(m))
+
+
+class _TeamTools(AbstractToolset[None]):
+    """delegate 하나 (게이트가 켠 실행만 · 총괄 gate 밖). call_tool = 수 검사 → 팀원 실행 → 결과 · 오류 코드."""
+
+    def __init__(self, team: _TeamRun) -> None:
+        self.team = team
+
+    @property
+    def id(self) -> str:
+        return "brewai_team"
+
+    async def get_tools(self, ctx: RunContext[None]) -> dict[str, ToolsetTool[None]]:
+        return {DELEGATE: ToolsetTool(toolset=self, tool_def=_DELEGATE_DEF, max_retries=1, args_validator=_DELEGATE_ARGS.validator)}  # type: ignore[arg-type]
+
+    async def call_tool(self, name: str, tool_args: dict[str, Any], ctx: RunContext[None], tool: ToolsetTool[None]) -> Any:
+        team = self.team
+        m = team.roster.member(ctx.tool_call_id or "", tool_args.get("role"), tool_args.get("task"))
+        # 한 응답의 delegate 수 = 지금 실행 중인 모델 응답 (병렬 실행 때 ctx.messages 의 마지막 = 그 응답 · 스파이크 확인)
+        last = ctx.messages[-1] if ctx.messages else None
+        n = sum(1 for p in last.parts if isinstance(p, ToolCallPart) and p.tool_name == DELEGATE) if isinstance(last, ModelResponse) else 0
+        if n < tm.MIN_MEMBERS:
+            return team.reject(m, "team_too_small")
+        if not team.roster.admit(m):
+            return team.reject(m, "team_full")
+        return await team.run(m)
+
+
 def ready_history(blobs: Sequence[str], *, resume: bool) -> list[ModelMessage]:
     """모델에 줄 기록. 새 질문인데 마지막 응답에 결과 없는 툴 호출(연결을 기다리다 그만둔 것)이 있으면 닫는다
     (Pydantic AI 는 그대로면 새 질문을 거절한다). 이어서 하기 = 그대로 둔다 (deferred_tool_results 가 채운다).
@@ -559,7 +770,8 @@ def skill_card(result: Any) -> Any:
 def render_run(blob: str | None, *, pending: Sequence[str] = (), carry: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
     """저장된 실행 하나 → 화면용 답 (GET /api/threads/{id}). parts = 생각 · 툴 · 글 을 나온 순서대로.
     pending = 연결 대기로 멈춘 호출 id (그 툴 = status waiting). carry = 대화 전체에서 공유하는 툴 칸 (이어서 하기 실행의 결과가
-    앞 실행의 대기 카드를 채운다). MCP 도구 = + app · app_name · write (기록의 ToolReturn metadata)."""
+    앞 실행의 대기 카드를 채운다). MCP 도구 = + app · app_name · write (기록의 ToolReturn metadata).
+    delegate = + agent · role · task · model_label · tools · steps · usage · status · code (팀원 요약 · slice 06)."""
     parts: list[dict[str, Any]] = []
     tools: dict[str, dict[str, Any]] = carry if carry is not None else {}
     batch = 0  # 툴을 부른 모델 응답 번호 (같은 응답의 툴 = 같은 batch = 동시에 돌았다)
@@ -603,6 +815,11 @@ def render_run(blob: str | None, *, pending: Sequence[str] = (), carry: dict[str
                                 t["label"] = step_label(f"app:{p.metadata['app']}", {f"app:{p.metadata['app']}": p.metadata.get("app_name") or p.metadata["app"]})
                             elif p.metadata.get("label"):
                                 t["label"] = p.metadata["label"]
+                        elif t["name"] == DELEGATE and isinstance(p.metadata, dict) and isinstance(p.metadata.get("agent"), str):
+                            # 팀원 카드: 실시간 brewai.team_member · agent_step 과 같은 칸 (steps = 그 팀원의 도구 줄 · parent = 이 호출)
+                            keys = ("agent", "role", "task", "model_label", "tools", "steps", "usage", "status", "code")
+                            t.update({k: p.metadata[k] for k in keys if k in p.metadata})
+                            t["label"] = p.metadata.get("role") or t["label"]
                     elif isinstance(p, RetryPromptPart) and p.tool_call_id in tools:
                         tools[p.tool_call_id].update(status="error", result={"error": "retry", "message": p.model_response()})
     for call_id in pending:
@@ -634,6 +851,9 @@ class _Activity:
     usage: dict[str, Any] | None = None
     apps: _AppRun | None = None  # MCP 앱 (없으면 None)
     pending: list[dict[str, Any]] = field(default_factory=list)  # 연결 대기로 멈춘 호출 (on_complete 가 채운다)
+    # 팀원 도구 줄 (자식 줄 {parent, agent}) = opened 밖 (batch · 열린 툴 검사에 안 섞인다) · finish 가 닫는다
+    children: dict[str, int] = field(default_factory=dict)  # 열린 자식 줄 call id → steps 위치
+    child_count: dict[str, int] = field(default_factory=dict)  # 팀원 → 저장한 도구 줄 수 (MEMBER_STEPS_MAX 넘으면 delegate 줄의 more)
 
     def _ms(self) -> int:
         return int((time.monotonic() - self.started) * 1000)
@@ -691,11 +911,47 @@ class _Activity:
             out += self.close(key, status)
         return out
 
+    def open_child(self, parent: str, agent: str, call_id: str, name: str, label: str, app: str | None = None) -> dict[str, Any] | None:
+        """팀원 도구 줄을 연다 → brewai.agent_step 값 (넘치면 None · delegate 줄 more +1)."""
+        if self.closed:
+            return None
+        n = self.child_count.get(agent, 0)
+        if n >= tm.MEMBER_STEPS_MAX:
+            row = next((s for s in self.steps if s.get("call_id") == parent and "parent" not in s), None)
+            if row is not None:
+                row["more"] = row.get("more", 0) + 1
+            return None
+        self.child_count[agent] = n + 1
+        step: dict[str, Any] = {"name": name, "label": label, "status": "running", "started_ms": self._ms(), "duration_ms": None,
+                                "call_id": call_id, "parent": parent, "agent": agent, **({"app": app} if app else {})}
+        self.children[call_id] = len(self.steps)
+        self.steps.append(step)
+        self._record()
+        return dict(step)
+
+    def close_child(self, call_id: str, status: str, *, record: bool = True) -> dict[str, Any] | None:
+        i = self.children.pop(call_id, None)
+        if i is None:
+            return None
+        step = self.steps[i]
+        step.update(status=status, duration_ms=self._ms() - step["started_ms"])
+        if record and not self.closed:
+            self._record()
+        return dict(step)
+
+    def close_children(self, agent: str | None, status: str) -> list[dict[str, Any]]:
+        """한 팀원(agent) · 모두(None)의 열린 도구 줄을 닫는다 (팀원이 멈춤 · 실패 · 실행 끝)."""
+        ids = [c for c, i in self.children.items() if agent is None or self.steps[i].get("agent") == agent]
+        return [r for r in (self.close_child(c, status) for c in ids) if r is not None]
+
     def finish(self) -> None:
         if self.closed:
             return
         self.closed = True
-        self.close_all("cancelled" if self.status == "cancelled" else ("error" if self.status == "error" else "done"))
+        end = "cancelled" if self.status == "cancelled" else ("error" if self.status == "error" else "done")
+        for c in list(self.children):
+            self.close_child(c, end, record=False)
+        self.close_all(end)
         try:
             extra = {"pending": self.pending} if self.pending and self.status == "done" else {}
             self.sink.finish(
@@ -713,11 +969,14 @@ class _Activity:
 
 
 class _RunStream:
-    """AG-UI 이벤트 스트림 + 활동 단계. 클라이언트가 끊으면(CancelledError) · 스트림을 아예 못 열면(GC) 취소로 닫는다."""
+    """AG-UI 이벤트 스트림 + 활동 단계. 클라이언트가 끊으면(CancelledError) · 스트림을 아예 못 열면(GC) 취소로 닫는다.
+    팀 실행(team) = FIFO 큐 하나를 읽는다: pump 태스크가 AG-UI 이벤트를 넣고 팀원(_TeamRun.run)도 같은 큐에 넣는다 →
+    팀원 이벤트가 늘 그 delegate 의 TOOL_CALL_RESULT 보다 먼저 (팀원이 끝나야 결과가 나온다). 팀 없는 실행 = 큐 없이 그대로."""
 
-    def __init__(self, events: AsyncIterator[BaseEvent], activity: _Activity, meta: dict[str, Any], run_id: str, model: ModelChoice):
+    def __init__(self, events: AsyncIterator[BaseEvent], activity: _Activity, meta: dict[str, Any], run_id: str, model: ModelChoice,
+                 team: _TeamRun | None = None):
         self._activity = activity
-        self._gen = self._run(events, meta, run_id, model)
+        self._gen = self._run(events, meta, run_id, model, team)
 
     def __aiter__(self) -> _RunStream:
         return self
@@ -734,7 +993,49 @@ class _RunStream:
     def __del__(self) -> None:
         self._activity.finish()  # 시작도 못 한 제너레이터는 finally 가 돌지 않는다
 
-    async def _run(self, events: AsyncIterator[BaseEvent], meta: dict[str, Any], run_id: str, model: ModelChoice) -> AsyncIterator[BaseEvent]:
+    @staticmethod
+    async def _pumped(events: AsyncIterator[BaseEvent], team: _TeamRun) -> AsyncIterator[tuple[str, str | None, Any]]:
+        """팀 실행의 큐: ('main', None, AG-UI 이벤트) · ('member', delegate call id, CUSTOM 이벤트). pump 는 첫 읽기 때 만든다
+        (= parallel_execution_mode.__enter__ 뒤 · 컨텍스트 변수 상속) · events.aclose() 는 pump 의 finally (같은 태스크에서 닫힌다).
+        총괄 이벤트는 당겨 읽기 그대로 (backpressure): pump 는 하나 넣고 소비자가 다음을 달라고 할 때까지 기다린다 → 에이전트가 _run 보다
+        앞서 가지 않는다 (툴 시작 = 그 응답의 TOOL_CALL_START 를 _run 이 다 본 뒤 · 끊기면 끝난 실행보다 먼저 멈춘다). 팀원만 put_nowait."""
+        q = team.queue
+
+        async def pump() -> None:
+            try:
+                async for ev in events:
+                    taken = asyncio.Event()  # 소비자가 이 이벤트 다음을 달라고 했다 (= 이 이벤트를 다 처리했다)
+                    q.put_nowait(("main", taken, ev))
+                    await taken.wait()
+            except Exception as e:  # noqa: BLE001 - 소비자 쪽에서 다시 던진다
+                q.put_nowait(("fail", None, e))
+            finally:
+                close = getattr(events, "aclose", None)
+                if close is not None:
+                    with suppress(Exception):
+                        await close()
+                q.put_nowait(("end", None, None))
+
+        task = asyncio.create_task(pump())
+        try:
+            while True:
+                kind, tag, value = await q.get()
+                if kind == "end":
+                    return
+                if kind == "fail":
+                    raise value
+                if kind == "main":
+                    yield (kind, None, value)
+                    tag.set()  # 다음을 달라고 왔다 = pump 가 다음 이벤트를 읽어도 된다
+                else:
+                    yield (kind, tag, value)
+        finally:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+
+    async def _run(self, events: AsyncIterator[BaseEvent], meta: dict[str, Any], run_id: str, model: ModelChoice,
+                   team: _TeamRun | None = None) -> AsyncIterator[BaseEvent]:
         act = self._activity
         # TEXT_MESSAGE_START (와 바로 뒤 빈 END) 는 다음 이벤트까지 잡아 둔다: 글이면 '쓰기' 단계 뒤에, 툴 앞 빈 메시지면
         # 툴 단계 뒤에 내보낸다 → STEP_STARTED 가 언제나 그 단계의 첫 이벤트보다 먼저 온다
@@ -742,6 +1043,10 @@ class _RunStream:
         # use_skill · use_app: 스킬 · 앱 이름은 인자(TOOL_CALL_ARGS)에 있다 → TOOL_CALL_END 까지 잡아 두고 skill:<이름> · app:<handle> 단계를 연다
         skill: dict[str, Any] | None = None
         apps = act.apps
+        held_tools = (USE_SKILL, USE_APP, DELEGATE) if team is not None else (USE_SKILL, USE_APP)  # delegate = 역할이 인자에 있다
+        ended: set[str] = set()  # TOOL_CALL_END 까지 낸 delegate call id (그 팀원 이벤트는 이 뒤에)
+        early: dict[str, list[BaseEvent]] = {}  # END 전에 온 팀원 이벤트 (pump 와 팀원 태스크 사이 순서는 정해지지 않는다)
+        over = False  # RUN_FINISHED · RUN_ERROR 를 냈다 (그 뒤 팀원 이벤트는 버린다 = 마지막 이벤트 계약 · 기록은 steps 에 이미)
 
         def open_skill() -> list[BaseEvent]:
             nonlocal skill
@@ -754,11 +1059,18 @@ class _RunStream:
             if skill["tool"] == USE_APP:  # use_app 과 같은 판단 (app 을 비워도 서버가 고를 앱)
                 found = apps.apps.pick(args.get("app"), args.get("need")) if apps else None
                 step = f"app:{found.handle if found else 'unknown'}"
+            elif skill["tool"] == DELEGATE and team is not None:  # 팀원 번호 · 역할 = call_tool 과 같은 명단 (먼저 본 쪽이 정한다)
+                member = team.roster.member(skill["id"], args.get("role"), args.get("task"))
+                step = f"agent:{member.agent}"
+                act.labels[step] = member.role
             else:
                 name = args.get("name")
                 name = name.strip() if isinstance(name, str) else ""
                 step = f"skill:{name if SKILL_NAME_RE.match(name) else 'unknown'}"
             out = [*act.open(f"{step}#{skill['id']}", step, skill["id"]), *skill["events"]]
+            if skill["tool"] == DELEGATE:
+                ended.add(skill["id"])
+                out += early.pop(skill["id"], [])
             skill = None
             return out
 
@@ -775,8 +1087,21 @@ class _RunStream:
         # 병렬 툴 실행을 이 실행에 못 박는다 (컨텍스트 변수 · 툴 태스크가 물려받는다). 다른 컨텍스트에서 닫혀도(GC) 실패하지 않게
         mode = ToolManager.parallel_execution_mode(TOOL_EXECUTION)
         mode.__enter__()
+        source: AsyncIterator[Any] = events if team is None else self._pumped(events, team)
         try:
-            async for ev in events:
+            async for item in source:
+                if team is None:
+                    ev = item
+                else:
+                    kind, parent, ev = item
+                    if kind == "member":  # 팀원 이벤트 = 단계 · 기록은 팀원 쪽이 이미 했다 → 순서만 맞춰 낸다
+                        if over:
+                            continue
+                        if parent in ended:
+                            yield ev
+                        else:
+                            early.setdefault(parent or "", []).append(ev)
+                        continue
                 t = ev.type
                 if skill is not None:
                     same = getattr(ev, "tool_call_id", None) == skill["id"]
@@ -791,7 +1116,7 @@ class _RunStream:
                         continue
                     for e in open_skill():  # 끝 신호 전에 다른 이벤트 (오류 등) → 이름 없이 연다
                         yield e
-                if t == EventType.TOOL_CALL_START and ev.tool_call_name in (USE_SKILL, USE_APP):  # type: ignore[attr-defined]
+                if t == EventType.TOOL_CALL_START and ev.tool_call_name in held_tools:  # type: ignore[attr-defined]
                     skill = {"id": ev.tool_call_id, "tool": ev.tool_call_name, "args": "", "events": [*held, ev]}  # type: ignore[attr-defined]
                     held.clear()
                     continue
@@ -817,15 +1142,20 @@ class _RunStream:
                     pre = act.open(f"{name}#{ev.tool_call_id}", name, ev.tool_call_id, extra)  # type: ignore[attr-defined]
                 elif t == EventType.TOOL_CALL_RESULT:
                     closeout = _CLOSEOUT.get(getattr(ev, "content", None) or "")
-                    post = act.close_call(ev.tool_call_id, closeout or "done")  # type: ignore[attr-defined]
+                    member = team.step_status(ev.tool_call_id) if team is not None else None  # type: ignore[attr-defined]
+                    post = act.close_call(ev.tool_call_id, closeout or member or "done")  # type: ignore[attr-defined]
                 elif t == EventType.TEXT_MESSAGE_CONTENT and not act.is_open("writing"):
                     pre = act.open("writing", "writing")
                 elif t == EventType.RUN_FINISHED:
-                    pre = [*app_events(), *act.close_all("done")]
+                    pre = [*(e for evs in early.values() for e in evs), *app_events(), *act.close_all("done")]
+                    early.clear()
+                    over = True
                     act.status, act.code = "done", None
                     pre.append(CustomEvent(name="brewai.run_summary", value=act.summary(run_id, model)))
                 elif t == EventType.RUN_ERROR:
-                    pre = act.close_all("error")
+                    pre = [*(e for evs in early.values() for e in evs), *act.close_all("error")]
+                    early.clear()
+                    over = True
                     act.status, act.code = "error", getattr(ev, "code", None) or "model_error"
                     act.detail = getattr(ev, "detail", None)
                 if t == EventType.TOOL_CALL_RESULT or t == EventType.TOOL_CALL_END:
@@ -871,6 +1201,8 @@ class ChatRuntime:
         self.agent: Agent[None, str | DeferredToolRequests] = Agent(
             name="conductor", instructions=self.instructions, output_type=[str, DeferredToolRequests],
         )
+        # 팀원 = 하나의 Agent · 호출마다 run_stream_events (지침 = 고정 한 줄 · 도구 = 실행마다 그 팀원의 앱 · 글로만 답한다)
+        self.member: Agent[None, str] = Agent(name="member", instructions=tm.MEMBER_INSTRUCTIONS, output_type=str)
 
     async def __aenter__(self) -> ChatRuntime:  # 앱 수명 = provider HTTP 클라이언트 수명
         await self._provider.__aenter__()
@@ -1017,6 +1349,12 @@ class ChatRuntime:
     ) -> Response:
         scope = scope or RunScope()
         history = ready_history(blobs, resume=resumed is not None)
+        # 팀 게이트 (LLM 없음 · 실행당 1번): 복합 신호 · 그 대화에 이미 보였음(sticky = 불렀거나 게이트가 켜진 질문 · 도구 배열 고정 = 캐시) ·
+        # 도구 못 쓰는 모델 = 끔 · 이어서 하기 = sticky 그대로 (멈춘 실행과 같은 도구 배열 · 그 질문도 기록에 있다)
+        used = tm.team_used(p.tool_name for m in history if isinstance(m, ModelResponse) for p in m.parts if isinstance(p, ToolCallPart)) or \
+            tm.team_offered(p.content for m in history if isinstance(m, ModelRequest) for p in m.parts
+                            if isinstance(p, UserPromptPart) and isinstance(p.content, str))
+        team_on = tm.offer_team(req.prompt, used=used, tools=model.supports_tools, resume=resumed is not None)
         # 서버가 원본: 이번 질문(마지막 user 메시지)만 어댑터에 남긴다. 클라이언트가 보낸 앞 대화는 쓰지 않는다 · 이어서 하기 = 메시지 없음
         # 질문 앞에 날짜 · 시각 한 줄 (사용자 메시지 · 기록에 남아 다음 턴에도 같은 바이트 = 캐시 앞부분이 산다 · 시스템 지침은 그대로)
         last = adapter.run_input.messages[-1] if adapter.run_input.messages else None
@@ -1053,6 +1391,11 @@ class ChatRuntime:
             out = result.output
             if apps is not None and isinstance(out, DeferredToolRequests):  # 연결 대기로 멈춤 → runs.pending_json · run_summary.pending
                 activity.pending = [apps.pending[c.tool_call_id] for c in out.calls if c.tool_call_id in apps.pending]
+            if team is not None and team.roster.ran:  # 같은 모델 = 가격 한 줄 그대로 → 총괄 + 팀원 합 (usage_events 한 줄)
+                for mem in team.roster.ran:
+                    for k in ("input_tokens", "output_tokens", "requests", "tool_calls", "reasoning_tokens", "cache_read_tokens", "cache_write_tokens"):
+                        activity.usage[k] = (activity.usage[k] or 0) + mem.usage.get(k, 0)
+                activity.usage["members"] = team.roster.usage_rows()
 
         # BrewAI 가 정한 값(CUSTOM value · REST)은 snake_case. AG-UI 자체 필드만 camelCase
         meta = {
@@ -1072,15 +1415,27 @@ class ChatRuntime:
             "project_id": scope.project_id,
             "apps": scope.apps.handles if scope.apps is not None and model.supports_tools else [],
             "resume": req.resume,
+            "team": team_on,  # 이번 턴 delegate 보임
         }
-        llm = self._model_factory(model.id)
+        base = self._model_factory(model.id)
+        llm = base
         if effective != "off" and model.supports_tools and _signed_thinking(model):
             llm = _ThinkFirstOnly(llm)
         apps = activity.apps
+        team: _TeamRun | None = None
+        if team_on:  # 팀원 = 같은 모델 · 추론 끔 (_ThinkFirstOnly 없이) · openai_user · Claude 캐시 표시 · max_tokens
+            member_settings = OpenAIChatModelSettings(max_tokens=tm.MEMBER_MAX_TOKENS)
+            if scope.user_id:
+                member_settings["openai_user"] = scope.user_id
+            if wants_cache_markers(model):
+                member_settings["extra_body"] = {"cache_control_injection_points": CACHE_POINTS}
+            team = _TeamRun(agent=self.member, model=base, model_label=model.label, settings=member_settings, activity=activity,
+                            apps=apps.apps if apps else None, user_id=scope.user_id, thread_id=req.thread_id)
         toolsets: list[AbstractToolset[None]] | None = None
-        if model.supports_tools:  # 실행마다 동시 실행 상한 하나 (스킬 · 앱 도구가 같이 센다) · 도구 배열 = 고정 도구 → use_app → 공개 순
-            gate = asyncio.Semaphore(MAX_PARALLEL_TOOLS)
-            toolsets = [bounded(self._toolset, gate=gate), *([bounded(_AppTools(apps), gate=gate)] if apps else [])]
+        if model.supports_tools:  # 실행마다 동시 실행 상한 하나 (스킬 · 앱 도구가 같이 센다) · 도구 배열 = 고정 도구 → delegate → use_app → 공개 순
+            gate = asyncio.Semaphore(MAX_PARALLEL_TOOLS)  # delegate 는 gate 밖 (팀원이 칸을 잡고 기다리면 4칸 교착)
+            toolsets = [bounded(self._toolset, gate=gate), *([_TeamTools(team)] if team else []),
+                        *([bounded(_AppTools(apps), gate=gate)] if apps else [])]
         # 실행 지침 = 앱 목록 한 줄 (handle 순 고정 = 프롬프트 캐시) → 프로젝트 지침 (conductor 규칙 · 앱 목록 뒤에)
         block = apps.apps.prompt() if apps else ""
         instructions = "\n\n".join(x for x in (block, scope.instructions) if x) or None
@@ -1094,4 +1449,4 @@ class ChatRuntime:
             usage_limits=UsageLimits(request_limit=MAX_MODEL_REQUESTS),
             on_complete=on_complete,
         )
-        return single.streaming_response(_RunStream(events, activity, meta, req.run_id, model))  # type: ignore[arg-type]
+        return single.streaming_response(_RunStream(events, activity, meta, req.run_id, model, team))  # type: ignore[arg-type]

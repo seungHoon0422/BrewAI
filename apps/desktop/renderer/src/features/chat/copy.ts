@@ -84,6 +84,7 @@ export const appStepLabel = (name: string) => `앱: ${name}`;
 export function stepLabel(name: string, tools: Record<string, string>, skills: Record<string, string> = {}, apps: Record<string, string> = {}): string {
   if (name === 'thinking') return '생각';
   if (name === 'writing') return '답 쓰기';
+  if (name.startsWith('agent:')) return TEAM.memberN(name.slice(6)); // 팀원 단계 = 역할 이름 (brewai.team_member 가 바꾼다)
   if (name.startsWith('app:')) {
     const app = name.slice(4);
     return app === 'unknown' ? '앱' : appStepLabel(apps[app] ?? app);
@@ -119,6 +120,7 @@ export function stepPhrase(name: string | null, inStepMs: number, tools: Record<
     return skillPhrase(skills[skill] ?? skill);
   }
   if (name?.startsWith('app:')) return '쓸 앱 도구를 고르는 중';
+  if (name?.startsWith('agent:')) return TEAM.forming;
   if (name?.startsWith('tool:')) {
     const tool = name.slice(5);
     return `${tools[tool] ?? tool} 쓰는 중`;
@@ -219,6 +221,57 @@ export const TOOL = {
   serial: (t: string) => `하나씩이면 ${t}`,
   lanes: '도구마다 실행한 시간', // 시간 막대 (화면 읽기 이름 · 모두 같은 때 시작)
 } as const;
+
+// 에이전트 팀 (slice 06) — 상태 줄 · 답 안 팀 묶음(TraceView TeamGroup) · 오른쪽 진행 상황(TeamPanel). '관리자' 없음 · 가운뎃점 없음
+export const TEAM = {
+  delegate: '팀원에게 맡기기', // delegate 도구 (역할이 오기 전 이름)
+  memberN: (n: string) => `팀원 ${n.replace(/^a/, '')}`, // 역할이 오기 전 단계 이름 (agent:a1 → 팀원 1)
+  // 상태 줄 (흐르는 중 → 끝 요약 조각)
+  forming: '팀을 꾸리는 중',
+  working: (n: number) => `팀원 ${count(n)}명이 나눠서 하는 중`,
+  gathering: '팀 결과를 모으는 중',
+  chip: (n: number) => `팀원 ${count(n)}명`,
+  // 답 안 묶음 (ParallelGroup 모양)
+  group: (n: number) => `팀원 ${count(n)}명이 나눠서`,
+  running: (n: number) => `${count(n)}명 작업 중`,
+  openPanel: '오른쪽에서 보기',
+  // 오른쪽 진행 상황
+  panel: '진행 상황',
+  toggle: '진행 상황 열고 닫기', // 대화 머리 토글 (e2e 계약)
+  close: '진행 상황 닫기',
+  splitting: '일을 나누는 중',
+  together: (n: number) => `${count(n)}명이 함께 일하는 중`,
+  finished: (n: number) => `${count(n)}명이 함께 끝냈어요`, // 모두 완료일 때만
+  partly: (n: number, done: number) => `${count(n)}명 중 ${count(done)}명이 끝냈어요`, // 일부 실패 (+ Meta 'k명 실패')
+  allFailed: (n: number) => `${count(n)}명 모두 하지 못했어요`,
+  cut: '팀 작업이 중간에 끊겼어요', // 실행 전체가 실패 (총괄 쪽 연결 · 게이트웨이) = 팀원 탓으로 쓰지 않는다
+  stopped: '함께 하던 일을 멈췄어요',
+  failedN: (n: number) => `${count(n)}명 실패`,
+  tree: '팀 구성',
+  lead: '총괄',
+  leadRole: '일 나누고 확인',
+  tools: (role: string) => `${role} 도구 사용`,
+  details: (role: string) => `${role} 자세히`,
+  state: { waiting: '대기', running: '작업 중', done: '완료', error: '실패', cancelled: '멈춤', waiting_user: '내 확인 필요' },
+  // 팀원 펼침
+  task: '맡은 일',
+  model: '모델',
+  given: '받은 도구',
+  noTools: '도구 없음',
+  usage: '사용량',
+  requests: (n: number) => `요청 ${count(n)}회`,
+  tokens: (i: number, o: number) => `토큰 입력 ${count(i)}, 출력 ${count(o)}`,
+  // 실패 이유 (짧게 · 제공자 원문 없음 · 모르는 code = 모델이 응답하지 못함)
+  reasons: {
+    member_timeout: '시간이 너무 걸려 멈췄어요',
+    member_limit: '요청 한도에 닿았어요',
+    member_model_error: '모델이 응답하지 못했어요',
+  } as Record<string, string>,
+  reasonFallback: '모델이 응답하지 못했어요',
+} as const;
+// 실패 이유 한 줄 (서버 code 는 reasons 에 있는 키만 · 'constructor' 같은 기본 속성에 걸리지 않게)
+export const teamReason = (code: string | null) =>
+  code && Object.prototype.hasOwnProperty.call(TEAM.reasons, code) ? TEAM.reasons[code] : TEAM.reasonFallback;
 
 // 대화 화면 (홈 · 대화 · 입력창 · 실패)
 export const CHAT = {

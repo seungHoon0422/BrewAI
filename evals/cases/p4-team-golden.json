@@ -1,0 +1,17 @@
+{
+  "kind": "golden",
+  "task": "conductor_team",
+  "input": {
+    "scenario": "golden",
+    "ask": "노트북 3종 비교표 여럿이 나눠서 조사해 줘",
+    "plan": [[["delegate", {"role": "가격 조사", "task": "가격 찾기"}], ["delegate", {"role": "사양 조사", "task": "사양 찾기"}]]]
+  },
+  "expected": {
+    "answer": "끝",
+    "steps": ["agent:a1", "agent:a2", "writing"],
+    "first_request_tools": ["delegate"],
+    "member_requests": 2,
+    "member_tools": []
+  },
+  "note": "골든 (slice 06 P4-1): 복합 질문 → 게이트가 delegate 를 보인다 → 한 응답에 delegate 2번 = 팀원 2명 (agent:a1 · agent:a2) → 답. 팀원 요청엔 delegate · use_skill 이 없다 (깊이 1 · 앱 없음 = 도구 0)."
+}

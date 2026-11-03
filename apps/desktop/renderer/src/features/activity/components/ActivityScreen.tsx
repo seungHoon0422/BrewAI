@@ -1,5 +1,5 @@
 // 진행 상황 — 지금 하는 일(이 창의 진행 중인 실행 · 단계가 실시간으로) + 최근 실행 (GET /api/runs).
-// 팀(총괄 → 담당 → 도구) 그래프는 서브에이전트가 생기는 P4 에서. 지금은 실행 하나 = 단계 줄 (생각 → 도구 → 답 쓰기).
+// 실행 하나 = 단계 줄 (생각 → 도구 → 답 쓰기). 팀 (slice 06) = 팀원 단계 아래 그 팀원의 도구 줄을 들여 쓴다 (자식 줄 = parent).
 import { Button, Callout, Icon, LinkButton, Meta, Spinner, StatusDot, providerLabel } from '@brewai/ui';
 import { href } from '../../../app/menu';
 import { openChat } from '../../../app/navigate';
@@ -76,7 +76,7 @@ function LiveRunRow({ l }: { l: LiveRun }) {
           <span className="doing">{tracePhrase(a, now, tools, skills).text}</span>,
           <span aria-hidden="true">{seconds(now - a.startedAt)}</span>,
         ]} />
-        <Steps steps={a.steps} live now={now - a.startedAt} tools={tools} skills={skills} />
+        <Steps steps={[...a.steps.filter((s) => !s.parent), ...liveChildren(a)]} live now={now - a.startedAt} tools={tools} skills={skills} />
       </div>
       {a.model && <ModelTag model={a.model} reasoning={a.reasoning} />}
     </li>
@@ -105,13 +105,21 @@ function RunItem({ r }: { r: RunRow }) {
   );
 }
 
+// 도는 실행의 팀원 도구 줄 = 대화 store 의 팀원 칸 (run_summary 전에는 단계 목록에 없다) → 단계와 같은 모양
+function liveChildren(a: LiveRun['answer']): Step[] {
+  return (a.team ?? []).flatMap((m) => m.steps.map((st) => ({
+    name: st.name, label: st.label, status: st.status, started_ms: st.startedMs, duration_ms: st.durationMs, call_id: st.id, parent: m.callId, agent: m.agent,
+  })));
+}
+
 function Steps({ steps, live, now = 0, tools = {}, skills = {} }: {
   steps: Step[]; live?: boolean; now?: number; tools?: Record<string, string>; skills?: Record<string, string>;
 }) {
-  if (!steps.length) return null;
-  return (
-    <ol className="chain" aria-label={ACTIVITY.steps}>
-      {steps.map((s, i) => (
+  const top = steps.filter((s) => !s.parent);
+  if (!top.length) return null;
+  const line = (list: Step[], label: string, kids = false) => (
+    <ol className={kids ? 'chain kids' : 'chain'} aria-label={label}>
+      {list.map((s, i) => (
         <li key={`${s.name}-${i}`} data-state={STEP_DOT[s.status]}>
           {i > 0 && <span className="arr" aria-hidden="true"><Icon name="chevron-right" size="xs" /></span>}
           <StatusDot state={STEP_DOT[s.status]} size="sm" />
@@ -120,6 +128,19 @@ function Steps({ steps, live, now = 0, tools = {}, skills = {} }: {
         </li>
       ))}
     </ol>
+  );
+  // 팀원 단계(agent:) 마다 그 팀원의 도구 줄 (parent = 그 단계의 call id)
+  const members = top.filter((s) => s.name.startsWith('agent:') && s.call_id && steps.some((k) => k.parent === s.call_id));
+  return (
+    <>
+      {line(top, ACTIVITY.steps)}
+      {members.map((s) => (
+        <div key={s.call_id} className="chain-kids" data-agent={s.name.slice(6)}>
+          <span className="chain-who">{s.label}</span>
+          {line(steps.filter((k) => k.parent === s.call_id), ACTIVITY.memberSteps(s.label), true)}
+        </div>
+      ))}
+    </>
   );
 }
 

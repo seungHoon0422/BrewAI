@@ -5,11 +5,16 @@ import type { ScopePath } from '@brewai/ui';
 import { toScopePath } from '../scope/api';
 export { toVia, type Via } from '../connections/api';
 import { UNTITLED } from './copy';
+import type { MemberStatus, MemberStep, MemberTool, MemberUsage, TeamMember } from './model';
 
 export type StepStatus = 'running' | 'done' | 'error' | 'cancelled' | 'waiting';
 // name = thinking | tool:<이름> | skill:<스킬> | app:<앱> | writing · started_ms = 실행 시작부터 · waiting = 앱 연결을 기다리며 멈춘 툴 단계
 // call_id · batch = 툴 단계만 (같은 batch = 한 모델 응답에서 같이 불려 동시에 돌았다)
-export type Step = { name: string; label: string; status: StepStatus; started_ms: number; duration_ms: number | null; call_id?: string; batch?: number };
+// agent:<a1> = 팀원 단계 (slice 06) · parent · agent = 팀원 도구 줄 (자식 줄 · parent = 그 delegate 호출 id) · app = 앱 handle
+export type Step = {
+  name: string; label: string; status: StepStatus; started_ms: number; duration_ms: number | null; call_id?: string; batch?: number;
+  parent?: string; agent?: string; app?: string;
+};
 // reasoning_tokens = 생각 토큰 (글이 안 와도 >0 이면 생각은 했다 · display omitted · redacted)
 export type Usage = { input_tokens: number | null; output_tokens: number | null; requests: number; tool_calls: number; reasoning_tokens: number | null } | null;
 
@@ -33,13 +38,13 @@ export type ThreadSummary = ThreadScope & {
   path: ScopePath;
 };
 
-// MCP 도구 · use_app 카드 = + app (handle) · app_name · write (쓰기 도구)
+// MCP 도구 · use_app 카드 = + app (handle) · app_name · write (쓰기 도구) · delegate = + team (팀원 요약 · slice 06)
 export type HistoryPart =
   | { type: 'reasoning'; text: string }
   | { type: 'text'; text: string }
   | {
     type: 'tool'; id: string; name: string; label: string; args: unknown; result: unknown; status: 'done' | 'error' | 'running' | 'waiting'; batch: number | null;
-    app: { handle: string; name: string; write: boolean } | null;
+    app: { handle: string; name: string; write: boolean } | null; team: TeamMember | null;
   };
 
 // 앱 연결을 기다리며 멈춘 호출 (run_summary.pending · 기록의 assistant.pending · brewai.app_auth 와 같은 서버 정보)
@@ -119,7 +124,40 @@ export function toSteps(v: unknown): Step[] {
     duration_ms: num(s.duration_ms),
     ...(typeof s.call_id === 'string' ? { call_id: s.call_id } : {}),
     ...(num(s.batch) != null ? { batch: num(s.batch)! } : {}),
+    ...(typeof s.parent === 'string' ? { parent: s.parent } : {}),
+    ...(typeof s.agent === 'string' ? { agent: s.agent } : {}),
+    ...(typeof s.app === 'string' && s.app ? { app: s.app } : {}),
   }));
+}
+
+// ── 에이전트 팀 (slice 06) — brewai.team_member · brewai.agent_step · 기록의 delegate 칸이 같은 모양 (값은 snake_case) ──
+const MEMBER_STATUS = ['waiting', 'running', 'done', 'error', 'cancelled', 'waiting_user'] as const;
+const STEP_STATUS = ['running', 'done', 'error', 'cancelled', 'waiting'] as const;
+export const memberStatus = (v: unknown): MemberStatus => MEMBER_STATUS.find((x) => x === v) ?? 'running';
+export function toMemberUsage(v: unknown): MemberUsage | null {
+  if (!isObj(v)) return null;
+  return { requests: num(v.requests) ?? 0, input_tokens: num(v.input_tokens) ?? 0, output_tokens: num(v.output_tokens) ?? 0, tool_calls: num(v.tool_calls) ?? 0 };
+}
+const toMemberTool = (v: Record<string, unknown>): MemberTool => ({ name: str(v.name), label: str(v.label, str(v.name)), app: strOrNull(v.app) || null });
+// at = 이 창에서 받은 때 (기록 = 0)
+export function toMemberStep(v: Record<string, unknown>, at = 0): MemberStep {
+  return {
+    id: str(v.call_id), name: str(v.name), label: str(v.label, str(v.name)), app: strOrNull(v.app) || null,
+    status: STEP_STATUS.find((x) => x === v.status) ?? 'done', startedMs: num(v.started_ms) ?? 0, durationMs: num(v.duration_ms), at,
+  };
+}
+// 팀원 한 칸 (prev = 앞서 받은 같은 팀원 · 도구 줄 · 시작 시각은 그대로 두고 나머지를 새 값으로). 모르는 칸은 앞 값
+export function toMember(v: Record<string, unknown>, prev: TeamMember | undefined, at = 0): TeamMember {
+  const status = memberStatus(v.status);
+  const tools = Array.isArray(v.tools) ? list(v.tools).map(toMemberTool).filter((t) => t.name) : prev?.tools ?? [];
+  return {
+    callId: str(v.call_id, prev?.callId ?? ''), agent: str(v.agent, prev?.agent ?? ''), role: str(v.role, prev?.role ?? ''),
+    task: str(v.task, prev?.task ?? ''), modelLabel: str(v.model_label, prev?.modelLabel ?? ''), tools, status,
+    ms: num(v.ms) ?? prev?.ms ?? null, code: strOrNull(v.code) ?? (status === 'error' ? prev?.code ?? null : null),
+    usage: toMemberUsage(v.usage) ?? prev?.usage ?? null,
+    steps: Array.isArray(v.steps) ? list(v.steps).map((x) => toMemberStep(x)) : prev?.steps ?? [],
+    at: prev?.at || (status === 'waiting' ? 0 : at),
+  };
 }
 
 export function toUsage(v: unknown): Usage {
@@ -165,7 +203,12 @@ function toPart(p: Record<string, unknown>): HistoryPart | null {
   if (p.type === 'tool') {
     const status = p.status === 'error' ? 'error' : p.status === 'running' ? 'running' : p.status === 'waiting' ? 'waiting' : 'done';
     const app = typeof p.app === 'string' && p.app ? { handle: p.app, name: str(p.app_name, p.app), write: bool(p.write) } : null;
-    return { type: 'tool', id: str(p.id), name: str(p.name), label: str(p.label, str(p.name)), args: p.args ?? null, result: p.result ?? null, status, batch: num(p.batch), app };
+    // 팀원 카드 = delegate 칸 + 팀원 요약 (agent · role · task · model_label · tools · steps · usage · status · code) = 실시간과 같은 트리
+    const team = p.name === 'delegate' && typeof p.agent === 'string' ? toMember({ ...p, call_id: p.id }, undefined) : null;
+    return {
+      type: 'tool', id: str(p.id), name: str(p.name), label: str(p.label, str(p.name)), args: p.args ?? null, result: p.result ?? null, status,
+      batch: num(p.batch), app, team,
+    };
   }
   return null;
 }

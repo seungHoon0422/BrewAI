@@ -121,10 +121,15 @@ function inApp(raw) {
 // IPC 는 우리 화면(app:// · 개발 중 Vite)에서 온 것만 받는다
 const fromApp = (event) => inApp(event.senderFrame?.url ?? '');
 
+// E2E 창 숨김 (BREWAI_E2E_HIDDEN · 배포본 아님): 투명 + 포커스 안 뺏음 + Dock 아이콘 없음.
+// show:false 로 숨기면 Chromium 이 화면을 hidden 으로 보고 requestAnimationFrame 을 멈춰서, '보이지만 투명' 으로 둔다
+const HIDDEN = process.env.BREWAI_E2E_HIDDEN === '1' && !app.isPackaged;
+if (HIDDEN && isMac) app.dock?.hide();
+
 // 로그인이 끝나면 (Google = 브라우저에서 돌아옴) 창을 앞으로
 function focus() {
   const win = BrowserWindow.getAllWindows()[0];
-  if (!win) return;
+  if (!win || HIDDEN) return;
   if (win.isMinimized()) win.restore();
   win.show();
   win.focus();
@@ -162,6 +167,7 @@ function createWindow() {
     minWidth: 960,
     minHeight: 600,
     show: false,
+    ...(HIDDEN ? { skipTaskbar: true } : {}),
     backgroundColor: frame().color,
     titleBarStyle: 'hidden',
     ...(isMac ? { trafficLightPosition: { x: 16, y: 13 } } : { titleBarOverlay: frame() }),
@@ -170,7 +176,12 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.cjs'),
     },
   });
-  win.once('ready-to-show', () => win.show());
+  win.once('ready-to-show', () => {
+    if (!HIDDEN) return win.show();
+    win.setOpacity(0);
+    win.setIgnoreMouseEvents(true); // 진짜 마우스는 통과 · Playwright 입력(CDP)은 그대로
+    win.showInactive();
+  });
   win.webContents.on('will-navigate', (event) => {
     if (!inApp(event.url)) event.preventDefault();
   });

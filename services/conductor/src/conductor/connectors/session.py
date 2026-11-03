@@ -15,6 +15,11 @@ use_app = LLM 없이: 앱 찾기 (app = handle · 이름 · 도메인 · 비었�
           · pinned = 대화 기록이 그 이름을 어느 서버에 묶었나 → 지금 그 handle 이 다른 서버면 unknown_tool (use_app 을 다시 = 새 서버를 보고 고른다)
           · 결과 = {source, untrusted, result…} (앱이 돌려준 글은 남이 쓴 데이터 · 지시가 아니다)
 span 속성 (켜져 있으면 · 토큰 값은 절대 안 남김): brewai.mcp.server · brewai.mcp.revealed · brewai.mcp.tool_tokens_est · gen_ai.tool.name · mcp.method.name
+          · 팀원이 부르면 + brewai.agent.id (slice 06)
+팀원 (slice 06 · member_view) = 갈라진 공개 장부 MemberApps: ready 앱만 · 확실한 읽기 도구만 (Tool.read_only = readOnlyHint 또는
+          읽기 동사 이름 · 실패하면 닫힘 · 관리자 정책 approval · hidden 도 거름) = 목록에서도 호출에서도 · 자기 revealed_now
+          (REVEAL_MEMBER_MAX) · 연결이 필요하면 멈추지 않고 error('not_connected') + needs (총괄이 알리거나 직접 use_app)
+          · 토큰 · tools/list 캐시 · 정책만 총괄과 공유 → 팀원 공개가 총괄 도구 배열(agent._AppTools.revealed)로 새지 않는다
 """
 
 from __future__ import annotations
@@ -38,6 +43,7 @@ log = logging.getLogger("conductor.mcp.session")
 
 REVEAL_K = 4  # use_app 한 번에 공개하는 도구 수
 REVEAL_MAX = 12  # 대화 하나에서 공개되는 MCP 도구 상한
+REVEAL_MEMBER_MAX = 8  # 팀원 하나가 공개하는 MCP 도구 상한 (팀원 실행 = 기록 없음 · 이번 실행만)
 AUTO_OPEN_PER_HOUR = 3
 AUTO_OPEN_WINDOW_S = 3600
 AuthMode = Literal["ask", "auto", "manual"]
@@ -141,12 +147,13 @@ class Revealed:
     new: list[str]
     capped: bool = False
     asked: str | None = None  # 모델이 댄 앱 이름이 목록에 없어 검색으로 다른 앱을 골랐다
+    cap: int = REVEAL_MAX  # 공개 상한 (팀원 = REVEAL_MEMBER_MAX)
 
     def result(self) -> dict[str, Any]:
         """모델이 받는 값 (짧게: 이름 · 제목 · 쓰기 여부 — 설명 · 스키마는 공개된 도구 정의에 이미 있다)."""
         note = "바로 부른다. write 는 데이터를 바꾸니 사용자가 원할 때만."
         if self.capped:
-            note += f" 이 대화의 앱 도구 {REVEAL_MAX}개를 다 써서 일부는 못 꺼냈다."
+            note += f" 이 대화의 앱 도구 {self.cap}개를 다 써서 일부는 못 꺼냈다."
         if not self.tools:
             note = "맞는 도구가 없다. need 를 바꿔 다시 부르거나 사용자에게 묻는다."
         elif self.asked:
@@ -239,6 +246,23 @@ class AppSession:
     index: dict[str, McpTool] = field(default_factory=dict)  # 공개 이름 → 도구 (tools() 가 채운다)
     revealed_now: list[str] = field(default_factory=list)  # 이 실행에서 공개한 이름 (공개 순서 · 기록 스냅숏에 아직 없는 병렬 use_app 몫 · 상한 계산)
     _policies: dict[str, dict[str, dict[str, Any]]] = field(default_factory=dict)
+    agent: str | None = None  # 팀원 id (a1 …) · None = 총괄
+    reveal_max: int = REVEAL_MAX
+
+    def _mark(self, **attrs: Any) -> None:
+        """지금 span 에 속성 (_span) + 팀원이면 brewai.agent.id."""
+        _span(**attrs, **({"brewai.agent.id": self.agent} if self.agent else {}))
+
+    def member_view(self, agent: str) -> MemberApps | None:
+        """팀원 하나의 앱 (갈라진 공개 장부 · ready 앱만 · 쓰기 거름). 바로 쓸 앱이 없으면 None (= 팀원 도구 0 · 글만)."""
+        ready = [a for a in self.apps if a.ready]
+        if not ready:
+            return None
+        return MemberApps(self.svc, self.user_id, ready, _policies=self._policies, agent=agent, reveal_max=REVEAL_MEMBER_MAX, main=self)
+
+    def offerable(self, tools: list[Tool], server_id: str) -> list[Tool]:
+        """use_app 이 고를 수 있는 도구 (총괄 = 전부 · 팀원 = 확실한 읽기 도구만 · MemberApps)."""
+        return tools
 
     # ── 목록 ──
     @property
@@ -355,7 +379,7 @@ class AppSession:
             asked = clean_text(app, 60) if a is not None and str(app or "").strip() else None  # 댄 이름과 다른 앱을 골랐다
         if a is None:
             return error("app_not_found", apps=self.handles)
-        _span(**{"brewai.mcp.server": a.server_id, "gen_ai.tool.name": USE_APP})
+        self._mark(**{"brewai.mcp.server": a.server_id, "gen_ai.tool.name": USE_APP})
         if not self._allowed(a):
             return error("app_unavailable", app=a.handle)
         try:
@@ -375,6 +399,7 @@ class AppSession:
             return error(f"app_{e.code}", app=a.handle)
         except OAuthError:
             return error("auth_failed", app=a.handle)
+        tools = self.offerable(tools, a.server_id)
         pol = self.policy_of(a.server_id)
         ranked = rank_tools(
             tools, need_text, k=REVEAL_K, aliases={t: p.get("aliases", []) for t, p in pol.items()},
@@ -385,7 +410,7 @@ class AppSession:
         self.index.update({t.public: t for t in picked})
         # 여기부터 await 없음 = 한 응답의 병렬 use_app 끼리 장부(revealed_now)를 차례로 본다
         already = {n for n in (*revealed, *self.revealed_now) if split_public(n)}
-        room = REVEAL_MAX - len(already)
+        room = self.reveal_max - len(already)
         new: list[str] = []
         capped = False
         shown: list[McpTool] = []
@@ -400,8 +425,8 @@ class AppSession:
                 capped = True
         self.revealed_now.extend(new)
         self.svc.catalog.touch(self.user_id, a.server_id, a.source)
-        _span(**{"brewai.mcp.revealed": [t.public for t in shown], "brewai.mcp.tool_tokens_est": sum(t.tool.tokens_est for t in shown)})
-        return Revealed(a, shown, new, capped, asked)
+        self._mark(**{"brewai.mcp.revealed": [t.public for t in shown], "brewai.mcp.tool_tokens_est": sum(t.tool.tokens_est for t in shown)})
+        return Revealed(a, shown, new, capped, asked, cap=self.reveal_max)
 
     async def _list(self, a: App, token: str | None) -> list[Tool]:
         """tools/list — 401 이면 refresh 한 번 뒤 다시 (토큰을 들고 갔을 때만)."""
@@ -433,7 +458,7 @@ class AppSession:
             log.info("mcp tool name rebound: %s pinned=%s now=%s", public, want, t.app.server_id)
             return error("unknown_tool"), None
         a = t.app
-        _span(**{"brewai.mcp.server": a.server_id, "gen_ai.tool.name": public, "mcp.method.name": "tools/call"})
+        self._mark(**{"brewai.mcp.server": a.server_id, "gen_ai.tool.name": public, "mcp.method.name": "tools/call"})
         if not self._allowed(a):
             return error("app_unavailable", app=a.handle), t.meta
         if self.policy_of(a.server_id).get(t.tool.name, {}).get("mode") == "hidden":
@@ -475,3 +500,53 @@ class AppSession:
             except NeedsAuth:
                 self.svc.oauth.mark_expired(self.user_id, a.resource)
                 raise
+
+
+@dataclass
+class MemberApps(AppSession):
+    """팀원 하나의 앱 (AppSession.member_view · slice 06). 판단은 총괄과 같은 코드 · 다른 점만 여기:
+    확실한 읽기 도구만 (목록 · use_app 고르기 · 호출 셋 다 = _member_ok 하나) · 자동 로그인 알림 없음 ·
+    연결이 필요하면 멈추지 않고 not_connected + needs."""
+
+    main: AppSession | None = None
+    needs: list[str] = field(default_factory=list)  # 연결이 필요한 앱 handle (팀원 결과 needs_app)
+
+    def _member_ok(self, tool: Tool, server_id: str) -> bool:
+        """팀원이 써도 되나 (실패하면 닫힘): read_only (write = 이름 추측 표시라 안 본다) · 관리자 정책 auto 만 (approval = 사람 확인 · hidden)."""
+        mode = self.policy_of(server_id).get(tool.name, {}).get("mode", "auto")
+        return tool.read_only and not tool.write and mode == "auto"
+
+    def offerable(self, tools: list[Tool], server_id: str) -> list[Tool]:
+        return [t for t in tools if self._member_ok(t, server_id)]
+
+    def tools(self) -> list[McpTool]:
+        out = [t for t in super().tools() if self._member_ok(t.tool, t.app.server_id)]
+        self.index = {t.public: t for t in out}
+        return out
+
+    def auth_needed(self, app: App, reason: str, scope: str | None = None) -> AuthNeeded:
+        """팀원은 로그인 화면을 열지 않는다 (시간당 3번 몫도 안 쓴다 · 카드는 07)."""
+        r = reason if reason in ("not_connected", "expired", "insufficient_scope") else "not_connected"
+        return AuthNeeded(app, r, "manual", False, scope)  # type: ignore[arg-type]
+
+    def _need(self, app: App) -> dict[str, Any]:
+        if app.handle not in self.needs:
+            self.needs.append(app.handle)
+        return error("not_connected", app=app.handle)
+
+    async def use_app(self, app: Any, need: Any, *, revealed: Collection[str] = ()) -> Outcome:
+        later = self.main.find(app) if self.main is not None and self.find(app) is None else None
+        if later is not None and later not in self.apps:  # 내 목록엔 있지만 아직 연결 전 (ready 아님)
+            return self._need(later)
+        got = await super().use_app(app, need, revealed=revealed)
+        return self._need(got.app) if isinstance(got, AuthNeeded) else got
+
+    async def call(self, public: str, args: Mapping[str, Any] | None, *, pinned: Mapping[str, str] | None = None,
+                   ) -> tuple[dict[str, Any] | AuthNeeded, dict[str, Any] | None]:
+        if public not in self.index:
+            self.tools()
+        t = self.index.get(public)
+        if t is None or not self._member_ok(t.tool, t.app.server_id):  # 읽기 아님 · 정책 · 공개 안 된 이름 = 부르지 않는다
+            return error("unknown_tool"), None
+        res, meta = await super().call(public, args, pinned=pinned)
+        return (self._need(res.app), meta) if isinstance(res, AuthNeeded) else (res, meta)
