@@ -349,3 +349,14 @@ def test_old_per_provider_order_is_migrated_once_to_the_global_order(h) -> None:
     registry.patch("claude-opus-5", {"order": 1})
     ModelRegistry(store, catalog)  # 다시 켜도 다시 섞지 않는다
     assert [r.gateway_id for r in registry.rows()][:2] == ["claude-opus-5", "brewai-mock"]
+
+
+def test_responses_mode_model_is_a_chat_model(make_api, h) -> None:
+    """Azure 사용자 지정 배포 = model_info.mode responses (LiteLLM 이 /chat/completions 를 Responses API 로 바꿔 보낸다) → 후보 · 노출 · 대화 가능."""
+    api = make_api(lambda _: FunctionModel(stream_function=_ok), _gateway(h, h.group("gpt-6-luna", ["azure"], mode="responses")),
+                   bootstrap_models=("brewai-mock",))
+    rows = {r["id"]: r for r in api.client.get("/api/admin/models").json()}
+    assert rows["gpt-6-luna"]["state"] == "candidate" and rows["text-embed"]["state"] == "hidden"
+    assert api.client.patch("/api/admin/models/gpt-6-luna", json={"exposed": True}).status_code == 200
+    assert "gpt-6-luna" in ids(api.client.get("/api/models").json())
+    assert any(e.get("type") == "RUN_FINISHED" for e in api.chat("안녕", model="gpt-6-luna"))

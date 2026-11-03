@@ -18,7 +18,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from .gateway import GatewayCatalogPort, GatewayModel
+from .gateway import CHAT_MODES, GatewayCatalogPort, GatewayModel
 from .providers import PROVIDER_ORDER, pretty_name, provider_label, provider_of, providers_of
 from .store import Store, now_iso
 
@@ -57,7 +57,7 @@ class ExposureRow:
 
     @property
     def is_chat(self) -> bool:
-        return self.info.get("mode") in (None, "chat")
+        return self.info.get("mode") in CHAT_MODES
 
     @property
     def state(self) -> State:

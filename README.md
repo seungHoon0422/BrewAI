@@ -57,4 +57,5 @@
 | `apps/web/index.html` | 랜딩 (브라우저로 열기) |
 
 스택은 `npm run stack:down` 으로 끈다 (`docker compose` 를 직접 쓸 땐 `docker compose -p brewai -f infra/compose.yaml --env-file .env --profile trace …`). 포트가 이미 쓰이면 `.env` 의 `LITELLM_PORT` · `LANGFUSE_PORT` · `LANGFUSE_MEDIA_PORT` 로 바꾼다 (`LITELLM_PORT` 를 바꾸면 `LLM_GATEWAY_URL` 도).
+**Azure 사용자 지정 배포 (예: GPT-6 Luna)**: LiteLLM 관리 화면 › 모델 › Model Info 에 `"mode": "responses"` (LiteLLM 이 /chat/completions 를 Responses API 로 바꿔 보낸다 · 배포 이름이 `gpt-5.4*` 가 아니면 자동으로 안 바뀐다) + `"supports_function_calling": true` (없으면 conductor 가 도구 · 앱 · 스킬을 안 보낸다). API Base = `https://<리소스>.openai.azure.com/` 까지만.
 venv 게이트웨이·conductor 는 Ctrl+C 로 끈다. 래퍼만 `kill -9` 하면 uv·python 이 남아 포트를 잡는다 → `lsof -i :4000` / `:8787` 로 찾아 끈다.

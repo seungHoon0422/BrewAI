@@ -12,6 +12,11 @@ from typing import Any, Protocol
 import httpx2
 
 
+# 대화 모델로 보는 LiteLLM mode. null = 가격표에 없는 모델 · responses = /chat/completions 를 LiteLLM 이 Responses API 로 바꿔 보내는 모델
+# (Azure 사용자 지정 배포는 model_info.mode = responses 로 켠다 · docs.litellm.ai/docs/reasoning_content)
+CHAT_MODES: tuple[str | None, ...] = (None, "chat", "responses")
+
+
 @dataclass(frozen=True)
 class GatewayModel:
     id: str  # LiteLLM model_group = 채팅 요청의 model 값
@@ -33,7 +38,7 @@ class GatewayModel:
 
     @property
     def is_chat(self) -> bool:
-        return self.mode in (None, "chat")  # LiteLLM 은 가격표에 없는 모델의 mode 를 null 로 준다
+        return self.mode in CHAT_MODES
 
     def row(self) -> dict[str, Any]:
         return asdict(self) | {"providers": list(self.providers)}
