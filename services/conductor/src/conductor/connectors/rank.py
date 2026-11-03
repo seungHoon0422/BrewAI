@@ -31,7 +31,9 @@ _ASCII = re.compile(r"[A-Za-z0-9]+")
 KO_EN: dict[str, tuple[str, ...]] = {
     "이슈": ("issue", "ticket"), "티켓": ("ticket", "issue"), "버그": ("bug", "issue"), "작업": ("task", "issue"), "할일": ("task", "todo"),
     "검색": ("search", "find", "query"), "찾": ("search", "find"), "조회": ("get", "list", "search"), "목록": ("list",),
-    "보여": ("list", "get"), "읽": ("read", "get"), "가져": ("get", "fetch"), "알려": ("get", "list"),
+    "보여": ("list", "get"), "읽": ("read", "fetch"), "가져": ("get", "fetch"), "알려": ("get", "list"),
+    "내용": ("fetch", "read", "content"), "본문": ("fetch", "content", "read"), "열어": ("fetch", "open", "get"), "확인": ("fetch", "read"),
+    "최근": ("recent", "updated", "sort"), "정리": ("fetch", "summary"),
     "만들": ("create",), "생성": ("create",), "추가": ("add", "create"), "작성": ("create", "write"), "등록": ("create", "add"), "올려": ("create", "upload", "post"),
     "수정": ("update", "edit"), "고쳐": ("update", "edit"), "바꿔": ("update", "set"), "변경": ("update", "set"), "업데이트": ("update",),
     "삭제": ("delete", "remove"), "지워": ("delete", "remove"), "닫": ("close",), "보관": ("archive",),

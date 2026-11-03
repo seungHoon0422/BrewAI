@@ -42,6 +42,7 @@ from .vault import Vault
 log = logging.getLogger("conductor.mcp.session")
 
 REVEAL_K = 4  # use_app 한 번에 공개하는 도구 수
+MORE_HINT_MIN = 10  # 도구가 이만큼 넘는 앱 = use_app 결과에 '더 있다' 안내
 REVEAL_MAX = 12  # 대화 하나에서 공개되는 MCP 도구 상한
 REVEAL_MEMBER_MAX = 8  # 팀원 하나가 공개하는 MCP 도구 상한 (팀원 실행 = 기록 없음 · 이번 실행만)
 AUTO_OPEN_PER_HOUR = 3
@@ -148,12 +149,16 @@ class Revealed:
     capped: bool = False
     asked: str | None = None  # 모델이 댄 앱 이름이 목록에 없어 검색으로 다른 앱을 골랐다
     cap: int = REVEAL_MAX  # 공개 상한 (팀원 = REVEAL_MEMBER_MAX)
+    total: int = 0  # 이 앱의 도구 수 (숨김 빼고) · 많으면 '다시 부르면 더 꺼낸다' 안내
 
     def result(self) -> dict[str, Any]:
         """모델이 받는 값 (짧게: 이름 · 제목 · 쓰기 여부 — 설명 · 스키마는 공개된 도구 정의에 이미 있다)."""
         note = "바로 부른다. write 는 데이터를 바꾸니 사용자가 원할 때만."
         if self.capped:
             note += f" 이 대화의 앱 도구 {self.cap}개를 다 써서 일부는 못 꺼냈다."
+        elif self.total >= MORE_HINT_MIN and len(self.tools) < self.total:
+            # 큰 앱 (노션 72개 등): 4개만 보고 '그 기능은 없다' 고 답하지 않게 (작은 앱은 문구 그대로 = 기존 요청 바이트 같음)
+            note += f" 이 앱 도구 {self.total}개 중 일부다. 다른 일(읽기, 검색 등)은 need 를 바꿔 다시 부른다."
         if not self.tools:
             note = "맞는 도구가 없다. need 를 바꿔 다시 부르거나 사용자에게 묻는다."
         elif self.asked:
@@ -426,7 +431,8 @@ class AppSession:
         self.revealed_now.extend(new)
         self.svc.catalog.touch(self.user_id, a.server_id, a.source)
         self._mark(**{"brewai.mcp.revealed": [t.public for t in shown], "brewai.mcp.tool_tokens_est": sum(t.tool.tokens_est for t in shown)})
-        return Revealed(a, shown, new, capped, asked, cap=self.reveal_max)
+        total = sum(1 for t in tools if pol.get(t.name, {}).get("mode") != "hidden")
+        return Revealed(a, shown, new, capped, asked, cap=self.reveal_max, total=total)
 
     async def _list(self, a: App, token: str | None) -> list[Tool]:
         """tools/list — 401 이면 refresh 한 번 뒤 다시 (토큰을 들고 갔을 때만)."""

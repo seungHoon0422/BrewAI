@@ -165,6 +165,9 @@ def test_sanitize_keeps_useful_provider_words() -> None:
         (400, "invalid_request_error", "Invalid model name passed in model=gone. Call `/v1/models` to view available models for your key.", "provider_rejected", "gateway_model_missing"),
         (400, "invalid_request_error", "litellm.UnsupportedParamsError: anthropic does not support parameters: ['reasoning_effort']", "provider_rejected", "reasoning_unsupported"),
         (400, "invalid_request_error", "litellm.BadRequestError: AnthropicException - messages: text content blocks must be non-empty", "provider_rejected", "provider_bad_request"),
+        # /v1/responses (responses 모델) = 칸 이름이 reasoning.summary · reasoning.effort (reasoning_effort 가 아니다)
+        (400, "invalid_request_error", "litellm.BadRequestError: AzureException BadRequestError - Unsupported parameter: 'reasoning.summary' is not supported with this model.", "provider_rejected", "reasoning_unsupported"),
+        (400, "invalid_request_error", "litellm.BadRequestError: AzureException BadRequestError - Unsupported value: 'reasoning.effort' does not support 'high' with this model.", "provider_rejected", "reasoning_unsupported"),
         # 잠시 뒤 다시
         (429, "rate_limit_error", "litellm.RateLimitError: AnthropicException - rate limited", "model_error", "provider_rate_limited"),
         (500, None, "fake upstream failure", "model_error", "provider_unavailable"),

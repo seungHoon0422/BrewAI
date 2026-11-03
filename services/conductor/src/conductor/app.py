@@ -638,7 +638,7 @@ def create_app(
         if not row.is_chat:
             raise ModelPatchError(409, "not_chat_model")
         started = time.monotonic()
-        result = await runtime.probe(gateway_id)  # 숨긴 모델·후보도 시험할 수 있다 (노출 전에 확인)
+        result = await runtime.probe(gateway_id, responses=row.responses_api)  # 숨긴 모델·후보도 시험할 수 있다 (노출 전에 확인)
         duration_ms = int((time.monotonic() - started) * 1000)  # 응답 시간 = 게이트웨이 왕복만 (기록 쓰기 전)
         code = None if result is None else (result.detail or result.code)
         at = store.record_model_result(gateway_id, error_code=code, source="probe")

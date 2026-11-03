@@ -11,6 +11,8 @@ LiteLLM 1.106.2 (infra/litellm/.venv 의 소스로 확인한 모양):
   provider 모델 없음   404 · "litellm.NotFoundError: AnthropicException - …not_found_error…model: …"
   게이트웨이에 모델 없음 400 · "Invalid model name passed in model=…"
   생각 파라미터 거절   400 · "litellm.UnsupportedParamsError: … reasoning_effort" 또는 provider 의 thinking 오류
+                       /v1/responses = "Unsupported parameter: 'reasoning.summary' …" · "Unsupported value: 'reasoning.effort' …" (error.param = reasoning.…)
+  Responses 200 실패    status failed + error {code, message} · incomplete (max_output_tokens 말고 다른 까닭) → classify_response
 provider 오류는 type 이 OpenAI 식(authentication_error · permission_error · invalid_request_error …)이고 프록시 자체 오류는
 ProxyErrorTypes(auth_error · token_not_found_in_db · no_db_connection …) 라서 type 으로 둘을 가른다.
 
@@ -63,7 +65,11 @@ _MISSING_KEY = re.compile(
 )
 _NOT_FOUND = re.compile(r"not_found_error|model_not_found|does not exist|NotFoundError|unknown model|model not found", re.I)
 _GATEWAY_MODEL = re.compile(r"Invalid model name passed", re.I)
-_REASONING = re.compile(r"UnsupportedParams|reasoning_effort|thinking|budget_tokens|output_config", re.I)
+_REASONING = re.compile(
+    r"UnsupportedParams|reasoning_effort|thinking|budget_tokens|output_config|reasoning\.(?:effort|summary|context|mode)"
+    r"|\breasoning\b[^.]*\bnot supported",
+    re.I,
+)
 
 # 키처럼 보이는 것: Bearer 값 · 이름이 키/토큰/비밀인 값 (JSON "api_key": "…" 포함) · 알려진 키 모양 (sk- · AKIA · AIza · ya29. · JWT …)
 # · 긴 16진수(해시) · 긴 난수 토큰. 가린 뒤에 자른다 (잘린 키 조각이 남지 않게)
@@ -99,6 +105,15 @@ def _message_of(body: Any) -> str:
             return msg if isinstance(msg, str) else json.dumps(inner, ensure_ascii=False)[:2000]
         return str(inner)
     return "" if body is None else str(body)
+
+
+def _param_of(body: Any) -> str:
+    """OpenAI 식 오류의 param (Responses 400 = 'reasoning.summary' 처럼 거절한 칸 이름)."""
+    if isinstance(body, dict):
+        inner = body.get("error", body)
+        if isinstance(inner, dict) and isinstance(inner.get("param"), str):
+            return inner["param"]
+    return ""
 
 
 def _type_of(body: Any) -> str | None:
@@ -149,13 +164,30 @@ def classify_http(status: int, error_type: str | None, body: Any) -> Diagnosis:
     if status == 404 or (status == 400 and _NOT_FOUND.search(message)):
         return d(PROVIDER_REJECTED, "provider_model_not_found")
     if status in (400, 422):
-        return d(PROVIDER_REJECTED, "reasoning_unsupported" if _REASONING.search(message) else "provider_bad_request")
+        reasoning = _REASONING.search(message) or _param_of(body).startswith("reasoning")
+        return d(PROVIDER_REJECTED, "reasoning_unsupported" if reasoning else "provider_bad_request")
     # ④ 잠시 뒤 다시
     if status == 429:
         return d(MODEL_ERROR, "provider_rate_limited")
     if status >= 500:
         return d(MODEL_ERROR, "provider_unavailable")
     return d(MODEL_ERROR, None)
+
+
+# Responses 200 본문 error.code → 같은 오류가 HTTP 로 왔을 때의 status (OpenAI 문서 · Pydantic AI _response_error 와 같은 갈래)
+_RESPONSE_STATUS = {"rate_limit_exceeded": 429, "server_error": 500, "vector_store_timeout": 500}
+
+
+def classify_response(status: str | None, code: str | None, message: str | None, incomplete: str | None) -> Diagnosis | None:
+    """/v1/responses 가 HTTP 200 으로 준 응답 하나 (연결 시험). 성공 = None.
+    failed = error.code 를 HTTP status 로 바꿔 classify_http (모르는 code = 400 = 요청 거절) · status 칸 = 200 (실제 HTTP) · type 칸 = code.
+    incomplete: max_output_tokens (짧은 한도 · 생각 모델) = 성공 · 다른 까닭 (content_filter …) = model_error."""
+    if status == "failed" or (code and status != "incomplete"):
+        d = classify_http(_RESPONSE_STATUS.get(code or "", 400 if code else 500), None, {"error": {"message": message or "", "code": code}})
+        return Diagnosis(code=d.code, detail=d.detail, status=200, error_type=code, provider_message=d.provider_message)
+    if status == "incomplete" and incomplete not in (None, "max_output_tokens"):
+        return Diagnosis(code=MODEL_ERROR, detail=None, status=200, error_type=f"incomplete:{incomplete}")
+    return None
 
 
 def unreachable() -> Diagnosis:

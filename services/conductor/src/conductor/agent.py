@@ -16,6 +16,9 @@ POST /api/chat 본문 = AG-UI RunAgentInput, 응답 = AG-UI SSE. 이벤트 순�
   Pydantic AI 가 ThinkingPart → REASONING_* 로 낸다. 생각 끄기·display omitted·redacted 면 글 없이 서명만 → 이벤트 없음.
   brewai.run_summary.usage.reasoning_tokens (추가) = 생각 토큰 (글이 없어도 >0 이면 '생각은 했지만 내용은 안 보냄').
 모델 = LiteLLM 프록시의 OpenAI 호환 /v1/chat/completions (LiteLLMProvider, api_base = LLM_GATEWAY_URL + /v1).
+  게이트웨이 mode = responses 인 모델 (Azure 사용자 지정 배포 azure/responses/…) = 같은 provider 의 /v1/responses (OpenAIResponsesModel).
+  LiteLLM 의 chat→Responses 다리를 안 탄다: 1.106.2 다리는 스트림 툴 인자를 두 번 이어 붙인다 ('{…}{…}' → json_invalid → model_error).
+  설정 = response_settings (id 안 보냄 = 기록 전체 · 생각 요약) · 사용량 · 생각(요약 → ThinkingPart → REASONING_*)은 Pydantic AI 가 같은 모양으로
 멀티턴 = 서버가 원본: 클라이언트가 보낸 messages 중 마지막 user 메시지만 쓰고, 앞 대화는 저장된 기록(message_history)으로.
 범위 = forwardedProps.spaceId · projectId (새 대화만 · 판정은 app.py prepare). 프로젝트 지침은 시스템 프롬프트 '뒤'에 붙는다
 (conductor 규칙을 덮지 못하게) · LiteLLM 요청 `user` = users.id (ADR-0011).
@@ -95,8 +98,9 @@ from pydantic_ai.messages import (
     repair_messages,
 )
 from pydantic_ai.models import Model, ModelRequestParameters, StreamedResponse
-from pydantic_ai.models.openai import OpenAIChatModel, OpenAIChatModelSettings
+from pydantic_ai.models.openai import OpenAIChatModel, OpenAIChatModelSettings, OpenAIResponsesModel, OpenAIResponsesModelSettings
 from pydantic_ai.models.wrapper import WrapperModel
+from pydantic_ai.profiles.openai import OpenAIModelProfile
 from pydantic_ai.providers.litellm import LiteLLMProvider
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.tool_manager import ParallelExecutionMode, ToolManager
@@ -295,6 +299,20 @@ def wants_cache_markers(model: ModelChoice) -> bool:
     return _signed_thinking(model)
 
 
+def response_settings(model: ModelChoice, settings: OpenAIChatModelSettings | None) -> OpenAIChatModelSettings | None:
+    """responses 모델 (/v1/responses) 의 설정. chat 모델은 그대로 (hello 바이트 그대로 · tests/fixtures/pre-team-golden.json).
+    같은 키가 Responses 칸으로 간다 (Pydantic AI 2.59 OpenAIResponsesModel._responses_create): max_tokens → max_output_tokens ·
+    openai_user → user · openai_reasoning_effort → reasoning.effort · extra_body(drop_params · cache_control_injection_points) 그대로.
+    openai_send_reasoning_ids=False = 기록의 rs_ · fc_ · msg_ id 를 안 싣는다 → 지난 응답을 늘 글 그대로 다시 보낸다 (previous_response_id 안 씀 ·
+    openai_store 는 안 건드린다 = provider 기본 · 저장돼 있어도 기대지 않는다). id 는 그 응답을 만든 배포에 저장된 항목이라 LiteLLM 모델 그룹이 다른 배포로
+    보내거나 저장이 꺼져 있으면 400 (Item not found) 이고, chat 모델이 만든 기록(id 없음)과 섞여도 같은 모양이 된다.
+    (profile 기본값도 이름에 달렸다: 'gpt-5.1' 같은 이름은 True · 'GPT-6.1 Terra' 는 False → 여기서 못 박는다)
+    id 를 안 보내면 Pydantic AI 는 생각(ThinkingPart)을 '<think>…</think>' assistant 글로 다시 보낸다 → _NoThinkingReplay 가 뺀다."""
+    if not model.responses_api:
+        return settings
+    return OpenAIResponsesModelSettings(**(settings or {}), openai_send_reasoning_ids=False)  # type: ignore[typeddict-item]
+
+
 def _in_tool_loop(messages: Sequence[ModelMessage]) -> bool:
     """이번 질문(마지막 사용자 메시지) 뒤에 모델이 이미 툴을 불렀나 = 툴 결과를 들고 다시 부르는 요청."""
     for m in reversed(messages):
@@ -332,6 +350,52 @@ class _ThinkFirstOnly(WrapperModel):
     ) -> AsyncGenerator[StreamedResponse]:
         settings = self._for_request(messages, model_settings)
         async with self.wrapped.request_stream(messages, settings, model_request_parameters, run_context) as stream:
+            yield stream
+
+
+# responses 모델 profile 덮어쓰기 (LiteLLM 별칭 이름과 상관없이 같은 요청 모양):
+# encrypted 끔 = include ['reasoning.encrypted_content'] 를 안 달라 한다 (id 를 안 보내니 다시 보낼 곳이 없다 · 받아도 버린다) ·
+# reasoning context 끔 = 생각 끔이어도 'gpt-5.5' 같은 이름이면 reasoning: {context: 'all_turns'} 를 싣던 것 (Pydantic AI _translate_thinking) 을 막는다
+_RESPONSES_PROFILE = OpenAIModelProfile(
+    openai_supports_encrypted_reasoning_content=False, openai_responses_supports_reasoning_context=False
+)
+
+
+def _without_thinking(messages: Sequence[ModelMessage]) -> list[ModelMessage]:
+    """모델 응답의 생각(ThinkingPart)을 뺀다. 생각만 있던 응답은 통째로 뺀다 (load_history 와 같은 규칙)."""
+    out: list[ModelMessage] = []
+    for m in messages:
+        if isinstance(m, ModelResponse):
+            parts = [p for p in m.parts if not isinstance(p, ThinkingPart)]
+            if not parts:
+                continue
+            if len(parts) != len(m.parts):
+                m = replace(m, parts=parts)
+        out.append(m)
+    return out
+
+
+class _NoThinkingReplay(WrapperModel):
+    """responses 모델 (/v1/responses): 이번 실행 안에서도 앞 응답의 생각을 다시 보내지 않는다.
+    id 를 안 보내는 설정(response_settings)에선 Pydantic AI 2.59 _map_messages 가 ThinkingPart 를 reasoning 항목 대신
+    {'role': 'assistant', 'content': '<think>\\n…\\n</think>'} 글로 싣는다 → 툴 루프 두 번째 요청부터 모델이 자기 생각을 태그째 보고
+    답 글에 흉내 낼 수 있고 (Responses output_text 는 태그를 안 가른다 → 화면에 그대로) 토큰만 쓴다.
+    지난 턴은 load_history 가 이미 뺀다 · 이건 같은 실행 안의 툴 루프용. 총괄 · 팀원 둘 다 (model_for)."""
+
+    async def request(
+        self, messages: list[ModelMessage], model_settings: ModelSettings | None, model_request_parameters: ModelRequestParameters
+    ) -> ModelResponse:
+        return await self.wrapped.request(_without_thinking(messages), model_settings, model_request_parameters)
+
+    @asynccontextmanager
+    async def request_stream(
+        self,
+        messages: list[ModelMessage],
+        model_settings: ModelSettings | None,
+        model_request_parameters: ModelRequestParameters,
+        run_context: Any = None,
+    ) -> AsyncGenerator[StreamedResponse]:
+        async with self.wrapped.request_stream(_without_thinking(messages), model_settings, model_request_parameters, run_context) as stream:
             yield stream
 
 
@@ -750,13 +814,7 @@ def load_history(blobs: Sequence[str]) -> list[ModelMessage]:
         except ValidationError:
             log.warning("skipping unreadable stored run messages")  # 업그레이드로 모양이 바뀐 옛 기록
             continue
-        for m in messages:
-            if isinstance(m, ModelResponse):
-                parts = [p for p in m.parts if not isinstance(p, ThinkingPart)]
-                if not parts:
-                    continue
-                m = replace(m, parts=parts)
-            out.append(m)
+        out.extend(_without_thinking(messages))
     return out
 
 
@@ -1190,7 +1248,7 @@ class ChatRuntime:
             base_url=f"{gateway_url.rstrip('/')}/v1", api_key=gateway_key, max_retries=0, timeout=120.0
         )
         self._provider = LiteLLMProvider(openai_client=self._client)
-        self._model_factory = model_factory or (lambda model_id: OpenAIChatModel(model_id, provider=self._provider))
+        self._model_factory = model_factory  # 테스트 = 모델 id → FunctionModel · TestModel (없으면 model_for 가 API 를 고른다)
         self.skills = skills or SkillRegistry()
         skill_tool = self.skills.tool()
         self.tools = (*tools, *([skill_tool] if skill_tool else []))
@@ -1212,10 +1270,24 @@ class ChatRuntime:
         await self._provider.__aexit__(None, None, None)
         await self._client.close()
 
+    def model_for(self, model: ModelChoice) -> Model:
+        """게이트웨이 mode = responses → OpenAIResponsesModel (/v1/responses) · 나머지 → OpenAIChatModel (/v1/chat/completions).
+        같은 provider (같은 base_url · 키 · 재시도 0 클라이언트). 총괄 · 팀원이 같은 모델 객체를 쓴다 (_stream).
+        responses = profile 고정 (_RESPONSES_PROFILE) + 실행 안 생각 다시 안 보냄 (_NoThinkingReplay)."""
+        if self._model_factory is not None:
+            return self._model_factory(model.id)
+        if model.responses_api:
+            return _NoThinkingReplay(OpenAIResponsesModel(model.id, provider=self._provider, profile=_RESPONSES_PROFILE))
+        return OpenAIChatModel(model.id, provider=self._provider)
+
     @staticmethod
     def model_settings(model: ModelChoice, reasoning: Reasoning) -> OpenAIChatModelSettings | None:
         """생각 수준 → LiteLLM `reasoning_effort` (LiteLLM 이 Anthropic thinking budget 등으로 바꾼다).
-        게이트웨이가 생각을 지원한다고 한 모델에만 보낸다 (안 그러면 LiteLLM 이 UnsupportedParams 400)."""
+        게이트웨이가 생각을 지원한다고 한 모델에만 보낸다 (안 그러면 LiteLLM 이 UnsupportedParams 400).
+        responses 모델: 끔 = 안 보낸다 (reasoning 칸 없음 = 모델 기본 · Pydantic AI _translate_thinking 이 OMIT). 'none' 은 안 보낸다 —
+        Azure 의 'set reasoning_effort to none' 은 /v1/chat/completions 에서 툴을 쓰려는 우회일 뿐이고 /v1/responses 는 툴 + 생각을 받는다.
+        'none' 을 못 받는 생각 모델도 있다 (o 계열 · gpt-5 · profile openai_supports_reasoning_effort_none). 그래서 끔이어도 모델이 기본으로
+        생각할 수 있다 → reasoning_tokens > 0 · 글 없음 (요약을 안 달라 했다) = 화면은 '생각은 했지만 내용은 안 보냄'."""
         if reasoning == "off" or not model.supports_reasoning:
             return None
         # drop_params: 게이트웨이 값(supports_reasoning)과 LiteLLM 모델 표(provider 변환)가 어긋나도 400 대신 그 파라미터만 버린다
@@ -1223,18 +1295,32 @@ class ChatRuntime:
         settings = OpenAIChatModelSettings(openai_reasoning_effort=REASONING_EFFORT[reasoning], extra_body={"drop_params": True})
         if model.provider in ("anthropic", "bedrock", "google") and model.max_output_tokens:
             settings["max_tokens"] = min(model.max_output_tokens, THINKING_MAX_TOKENS)
+        if model.responses_api:  # Responses 는 요약을 달라고 해야 생각 글을 보낸다 (reasoning.summary · 없으면 글 없는 reasoning 항목만)
+            settings = OpenAIResponsesModelSettings(**settings, openai_reasoning_summary="auto")  # type: ignore[typeddict-item]
         return settings
 
-    async def probe(self, model_id: str) -> dx.Diagnosis | None:
-        """관리자 '연결 시험': 짧은 호출 한 번 (max_tokens 16 · 생각 없음 · 툴 없음). 성공 = None, 실패 = Diagnosis."""
+    async def probe(self, model_id: str, *, responses: bool = False) -> dx.Diagnosis | None:
+        """관리자 '연결 시험': 짧은 호출 한 번 (max_tokens 16 · 생각 없음 · 툴 없음). 성공 = None, 실패 = Diagnosis.
+        responses = 대화와 같은 길 (/v1/responses · max_output_tokens 16 = Responses 최솟값 · 생각 모델은 incomplete 로 끝나도 성공).
+        Responses 는 HTTP 200 본문으로도 실패를 준다 (status failed + error · incomplete 의 다른 까닭) → 그것도 실패로 본다."""
         try:
-            await self._client.chat.completions.create(
-                model=model_id,
-                messages=[{"role": "user", "content": "ping"}],
-                max_tokens=PROBE_MAX_TOKENS,
-                extra_body={"drop_params": True},
-                timeout=30.0,
-            )
+            if responses:
+                r = await self._client.responses.create(
+                    model=model_id, input="ping", max_output_tokens=PROBE_MAX_TOKENS, extra_body={"drop_params": True}, timeout=30.0,
+                )
+                failed = dx.classify_response(r.status, r.error.code if r.error else None, r.error.message if r.error else None,
+                                              r.incomplete_details.reason if r.incomplete_details else None)
+                if failed is not None:
+                    log.warning("model probe failed: model=%s %s", model_id, failed.log_fields())
+                    return failed
+            else:
+                await self._client.chat.completions.create(
+                    model=model_id,
+                    messages=[{"role": "user", "content": "ping"}],
+                    max_tokens=PROBE_MAX_TOKENS,
+                    extra_body={"drop_params": True},
+                    timeout=30.0,
+                )
         except APIStatusError as e:
             d = dx.classify_http(e.status_code, getattr(e, "type", None), e.body)
             log.warning("model probe failed: model=%s %s", model_id, d.log_fields())
@@ -1367,9 +1453,11 @@ class ChatRuntime:
         if wants_cache_markers(model):  # Claude = 명시 캐시 (LiteLLM 이 system · 마지막 메시지에 cache_control 을 붙인다)
             extra = {**(settings or {}).get("extra_body", {}), "cache_control_injection_points": CACHE_POINTS}  # type: ignore[union-attr]
             settings = OpenAIChatModelSettings(**{**(settings or {}), "extra_body": extra})  # type: ignore[typeddict-item]
+        settings = response_settings(model, settings)
         log.info(
-            "chat run thread=%s run=%s model=%s reasoning=%s turns=%d user=%s space=%s",
-            req.thread_id, req.run_id, model.id, effective, len(blobs), scope.user_id, scope.space_id,
+            "chat run thread=%s run=%s model=%s api=%s reasoning=%s turns=%d user=%s space=%s",
+            req.thread_id, req.run_id, model.id, "responses" if model.responses_api else "chat", effective, len(blobs), scope.user_id,
+            scope.space_id,
         )
 
         def on_complete(result: Any) -> None:
@@ -1417,7 +1505,7 @@ class ChatRuntime:
             "resume": req.resume,
             "team": team_on,  # 이번 턴 delegate 보임
         }
-        base = self._model_factory(model.id)
+        base = self.model_for(model)
         llm = base
         if effective != "off" and model.supports_tools and _signed_thinking(model):
             llm = _ThinkFirstOnly(llm)
@@ -1429,6 +1517,7 @@ class ChatRuntime:
                 member_settings["openai_user"] = scope.user_id
             if wants_cache_markers(model):
                 member_settings["extra_body"] = {"cache_control_injection_points": CACHE_POINTS}
+            member_settings = response_settings(model, member_settings) or member_settings
             team = _TeamRun(agent=self.member, model=base, model_label=model.label, settings=member_settings, activity=activity,
                             apps=apps.apps if apps else None, user_id=scope.user_id, thread_id=req.thread_id)
         toolsets: list[AbstractToolset[None]] | None = None

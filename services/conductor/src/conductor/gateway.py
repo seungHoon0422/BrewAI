@@ -15,6 +15,9 @@ import httpx2
 # 대화 모델로 보는 LiteLLM mode. null = 가격표에 없는 모델 · responses = /chat/completions 를 LiteLLM 이 Responses API 로 바꿔 보내는 모델
 # (Azure 사용자 지정 배포는 model_info.mode = responses 로 켠다 · docs.litellm.ai/docs/reasoning_content)
 CHAT_MODES: tuple[str | None, ...] = (None, "chat", "responses")
+# 이 mode 의 모델은 conductor 가 LiteLLM `/v1/responses` 로 바로 부른다 (agent.py · chat→Responses 다리를 안 탄다:
+# LiteLLM 1.106.2 다리는 스트림 툴 인자를 두 번 이어 붙여 '{…}{…}' 로 보낸다 → Pydantic AI json_invalid → model_error)
+RESPONSES_MODE = "responses"
 
 
 @dataclass(frozen=True)

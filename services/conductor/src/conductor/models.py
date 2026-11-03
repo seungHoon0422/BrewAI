@@ -18,7 +18,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from .gateway import CHAT_MODES, GatewayCatalogPort, GatewayModel
+from .gateway import CHAT_MODES, RESPONSES_MODE, GatewayCatalogPort, GatewayModel
 from .providers import PROVIDER_ORDER, pretty_name, provider_label, provider_of, providers_of
 from .store import Store, now_iso
 
@@ -60,6 +60,11 @@ class ExposureRow:
         return self.info.get("mode") in CHAT_MODES
 
     @property
+    def responses_api(self) -> bool:
+        """LiteLLM mode = responses → 대화 · 연결 시험을 `/v1/responses` 로 (agent.py)."""
+        return self.info.get("mode") == RESPONSES_MODE
+
+    @property
     def state(self) -> State:
         if self.status == "missing":
             return "missing"
@@ -83,6 +88,8 @@ class ModelChoice:
     supports_reasoning: bool
     supports_tools: bool
     max_output_tokens: int | None
+    # True = LiteLLM `/v1/responses` 로 부른다 (게이트웨이 mode = responses · Azure 사용자 지정 배포). False = `/v1/chat/completions`
+    responses_api: bool = False
 
 
 @dataclass(frozen=True)
@@ -242,6 +249,7 @@ class ModelRegistry:
             supports_reasoning=bool(r.info.get("supports_reasoning")),
             supports_tools=bool(r.info.get("supports_function_calling")),
             max_output_tokens=r.info.get("max_output_tokens"),
+            responses_api=r.responses_api,
         )
 
     def resolve(self, requested: str | None) -> ModelChoice | None:

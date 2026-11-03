@@ -520,3 +520,31 @@ async def test_mcp_client_refuses_private_targets() -> None:
     with pytest.raises(mc.McpError) as e:
         await client.list_tools("http://127.0.0.1:9/mcp")
     assert (e.value.code, e.value.detail) == ("blocked", "scheme")
+
+
+def test_notion_like_app_reveals_a_read_tool_for_content_requests() -> None:
+    """실제 사례 (노션 72개): '목록 조회 및 내용 확인' 에 목록 도구 4개만 나와 모델이 '본문을 읽는 도구가 없다' 고 답했다 → 내용 · 본문 = fetch."""
+    raw = [
+        ("notion-search", "Search Notion pages and databases, or look up a user by name.", False),
+        ("notion-fetch", "Retrieves details about a Notion entity (page, database) by URL or ID.", False),
+        ("notion-list-private-pages", "List private pages of the user.", False),
+        ("notion-list-shared-pages", "List pages shared with the user.", False),
+        ("notion-get-users", "Get users and bots in workspace.", False),
+        ("notion-search-agents", "Search workspace agents.", False),
+        ("notion-create-pages", "Create pages.", True), ("notion-update-page", "Update a page.", True),
+    ]
+    tools = [mc.Tool(name=n, description=d, input_schema={"type": "object", "properties": {}}, write=w) for n, d, w in raw]
+    top = [t.name for t in rank.rank_tools(tools, "내 노션 페이지 목록 조회 및 내용 확인", k=4)]
+    assert "notion-fetch" in top
+    assert rank.rank_tools(tools, "그 페이지 본문 읽어줘", k=1)[0].name == "notion-fetch"
+
+
+def test_big_app_result_says_more_tools_exist_small_app_unchanged() -> None:
+    from conductor.connectors.session import McpTool, Revealed
+
+    app = SimpleNamespace(handle="x", name="X")  # result() 는 handle · name 만 본다
+    one = [McpTool("x__list_issues", app, _tools()[0])]  # type: ignore[arg-type]
+    base = "바로 부른다. write 는 데이터를 바꾸니 사용자가 원할 때만."
+    assert Revealed(app, one, ["x__list_issues"], total=9).result()["note"] == base  # 작은 앱 = 문구 그대로 (기존 요청 바이트)
+    assert Revealed(app, one, ["x__list_issues"], total=72).result()["note"].startswith(base + " 이 앱 도구 72개 중 일부다.")  # type: ignore[arg-type]
+    assert Revealed(app, [], [], total=72).result()["note"].startswith("맞는 도구가 없다")  # type: ignore[arg-type]
