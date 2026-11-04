@@ -165,6 +165,7 @@
 .trace-panel[hidden]{display:none}
 /* 긴 글자(토큰 · id · 주소)가 칸을 패널 밖으로 밀지 않게: 그리드 칸 = 최소 0 · 안쪽도 0 부터 (min-width:auto = 내용 폭이라 넘쳤다) */
 .trace-panel>*,.tp-list>*,.tp-par>*,.tp-member,.tp-member-steps>*,.tp-tool{min-width:0;max-width:100%}
+.trace-panel{overflow-x:clip} /* 마지막 안전망: 어떤 줄도 패널 밖으로 그려지지 않게 */
 .tp-tool .th{min-width:0}
 .tp-tool .th b{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tp-list{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:minmax(0,1fr);gap:var(--space-2-5)}
@@ -238,7 +239,8 @@
 .tp-par-h{display:flex;align-items:center;gap:var(--space-1-5);margin:0;font-size:var(--fs-xs);font-weight:var(--fw-semibold);color:var(--text-2);min-width:0}
 .tp-par-h .ui-icon{color:var(--text-muted);flex:none}
 .tp-par-meta{margin-left:var(--space-1);font-weight:var(--fw-regular);color:var(--text-muted)}
-.tp-par-list{list-style:none;margin:0;padding:0;display:grid;gap:var(--space-1-5)}
+.tp-par-list{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:minmax(0,1fr);gap:var(--space-1-5)} /* 열 = 남은 폭 (없으면 긴 task 한 줄이 열을 넓혀 패널 밖으로) */
+.tp-par-list>li{min-width:0}
 .tp-lanes{list-style:none;margin:0 0 var(--space-0-5);padding:0;display:grid;grid-template-columns:minmax(0,1fr);gap:3px;overflow:hidden}
 .tp-lane{position:relative;height:4px;border-radius:var(--radius-pill);background:var(--surface-chip)}
 /* 막대 = 실행 시간만 (모델이 인자를 쓰는 시간은 그리지 않는다) · 전체 폭 = 묶음이 걸린 시간 */

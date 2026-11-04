@@ -74,7 +74,7 @@ def test_roster_numbers_limits_and_rejects() -> None:
     assert [r.admit(x) for x in more] == [True, True, False]  # 7번째 = team_full
     assert [m.agent for m in r.ran] == ["a1", "a2", "a3", "a4", "a5", "a6"]
     assert tm.rejected("team_full")["error"] == "team_full" and "2명 이상" in tm.rejected("team_too_small")["message"]
-    assert (tm.MAX_MEMBERS, tm.MAX_MEMBERS_RUN, tm.MIN_MEMBERS, tm.MEMBER_REQUEST_LIMIT, tm.MEMBER_TIMEOUT_S) == (3, 6, 2, 4, 90.0)
+    assert (tm.MAX_MEMBERS, tm.MAX_MEMBERS_RUN, tm.MIN_MEMBERS, tm.MEMBER_REQUEST_LIMIT, tm.MEMBER_TIMEOUT_S) == (3, 6, 2, 6, 90.0)
 
 
 def test_member_result_is_untrusted_first_and_capped() -> None:

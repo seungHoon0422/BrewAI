@@ -197,3 +197,22 @@ test('새 대화 hello = 패널 · 토글 없음 · 첫 요청 tools 에 delegat
   expect(toolNames(recs[0])).not.toContain('delegate');
   expect(toolNames(recs[0])[0]).toBe('use_skill');
 });
+
+test('팀원의 긴 일 설명(task)이 와도 상태 줄 패널 밖으로 넘치지 않는다 (실사용 2026-11-04 · 여행 경비 조사)', async () => {
+  await win.getByRole('button', { name: '새 대화' }).click();
+  await expectHeading(win, HOME_H1);
+  const long = '서울 3박 4일 1인 여행 경비를 항목별(항공 제외 현지 기준: 숙박 3박, 식비, 교통, 관광/입장료, 기타)로 조사해 원화(KRW) 기준 저/중/고 예산 범위로 정리하고 출처를 붙인다'.repeat(2);
+  const task = (city: string) => JSON.stringify({ role: `${city} 경비 조사`, task: long.replace('서울', city).slice(0, 290) });
+  await win.getByRole('textbox', { name: '요청 입력' }).fill(`여럿이 나눠서 조사해 줘 [fake:parallel delegate ${task('서울')}, delegate ${task('도쿄')}, delegate ${task('방콕')}]`);
+  await win.getByRole('button', { name: '보내기', exact: true }).click();
+  await idle(win);
+  const panel = await openTrace(win);
+  await expect(panel.locator('[data-kind="member"]')).toHaveCount(3);
+  const fit = await panel.evaluate((el) => {
+    const box = el.getBoundingClientRect();
+    const rights = [...el.querySelectorAll('[data-kind="member"], .tp-member-task, .tp-par-list > li')].map((c) => c.getBoundingClientRect().right);
+    return { inside: rights.every((r) => r <= box.right + 1), noScroll: el.scrollWidth <= el.clientWidth + 1 };
+  });
+  expect(fit).toEqual({ inside: true, noScroll: true });
+  await win.screenshot({ path: shot('desktop-team-long-task'), animations: 'disabled' });
+});

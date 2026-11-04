@@ -789,6 +789,25 @@ class _TeamRun:
         if row is not None:
             self.emit(m.call_id, CustomEvent(name="brewai.agent_step", value=row))
 
+    async def _wrap_up(self, m: tm.Member, found: list[str], usage: RunUsage) -> str:
+        """한도에 닿은 팀원 = 받은 자료로 보고 한 번 (도구 없음 · 요청 1). 자료가 없거나 이것도 실패 = '' (member_limit)."""
+        if not found:
+            return ""
+        material = "\n\n".join(found)[: tm.WRAP_UP_CHARS]
+        prompt = f"{m.task or m.role}\n\n{tm.WRAP_UP_PROMPT}\n<자료 untrusted>\n{material}\n</자료>"
+        answer = ""
+        try:
+            async with asyncio.timeout(tm.MEMBER_TIMEOUT_S):
+                async with self.agent.run_stream_events(prompt, model=self.model, model_settings=self.settings, usage=usage,
+                                                        usage_limits=UsageLimits(request_limit=usage.requests + 1)) as stream:
+                    async for ev in stream:
+                        if isinstance(ev, AgentRunResultEvent):
+                            answer = str(ev.result.output or "")
+        except Exception as e:  # noqa: BLE001 - 마무리 실패 = 원래 오류(member_limit) 그대로
+            log.warning("team member wrap-up failed: agent=%s error=%s", m.agent, type(e).__name__)
+            return ""
+        return answer
+
     async def run(self, m: tm.Member) -> ToolReturn:
         """팀원 하나를 끝까지 (task 만 · 기록 없음). 실패는 결과로 (총괄 실행은 계속) · 바깥 취소 = 팀원도 멈춘다 (HTTP 까지)."""
         view = self.apps.member_view(m.agent) if self.apps is not None else None
@@ -797,6 +816,7 @@ class _TeamRun:
         started = time.monotonic()
         self.emit(m.call_id, self.member_event(m))
         usage = RunUsage()
+        found: list[str] = []  # 받은 도구 결과 (한도에 닿으면 마무리 자료)
         toolsets = [bounded(_AppTools(_AppRun(view)), gate=self.member_gate)] if view is not None else None
         limits = UsageLimits(request_limit=tm.MEMBER_REQUEST_LIMIT, input_tokens_limit=tm.MEMBER_INPUT_TOKENS_LIMIT)
         attrs = {"user.id": self.user_id or "", "session.id": self.thread_id, "brewai.agent.id": m.agent, "gen_ai.agent.name": "member"}
@@ -812,6 +832,8 @@ class _TeamRun:
                                 self._tool_opened(m, ev.part, view)
                             elif isinstance(ev, FunctionToolResultEvent):
                                 self._tool_closed(m, ev.part)
+                                if isinstance(ev.part, ToolReturnPart):
+                                    found.append(ev.part.content if isinstance(ev.part.content, str) else json.dumps(ev.part.content, ensure_ascii=False, default=str))
                             elif isinstance(ev, AgentRunResultEvent):
                                 m.answer = str(ev.result.output or "")
                 m.status = "done"
@@ -820,8 +842,10 @@ class _TeamRun:
                 raise
             except TimeoutError:
                 m.status, m.code = "error", "member_timeout"
-            except UsageLimitExceeded:
-                m.status, m.code = "error", "member_limit"
+            except UsageLimitExceeded:  # 버리지 않고 받은 자료로 마무리 (도구 없는 한 번 · 기록 없이 = 도구 정의가 없어도 되는 요청)
+                m.answer = await self._wrap_up(m, found, usage)
+                m.status, m.code = ("done", None) if m.answer else ("error", "member_limit")
+                m.partial = bool(m.answer)
             except Exception as e:  # 팀원 실패는 그 팀원만 (제공자 원문 · 키는 안 싣는다 = diagnose 코드만)
                 m.status, m.code = "error", tm.error_code(diagnose(e).code)
                 log.warning("team member failed: agent=%s code=%s error=%s message=%r", m.agent, m.code, type(e).__name__,

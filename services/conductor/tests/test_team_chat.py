@@ -259,9 +259,15 @@ def test_lone_delegate_and_fourth_member_get_error_results(make_api, fake_mcp) -
     assert [r["agent"] for r in summary(events)["usage"]["members"]] == ["a2", "a3", "a4"]
 
 
-def test_member_limit_and_failure_stay_inside_that_member(make_api, fake_mcp) -> None:
+def test_member_limit_wraps_up_with_what_it_found_and_failure_stays_inside(make_api, fake_mcp) -> None:
+    """요청 한도 = 버리지 않고 받은 자료로 도구 없이 한 번 더 (보고 · 총괄 결과에 note) · 다른 팀원 실패는 그 팀원만."""
+    wrap: list[dict[str, Any]] = []
+
     def member(task: str, messages: Any, info: AgentInfo, n: int) -> Any:
-        if task == "가격 찾기":  # 끝없이 도구 = 요청 한도 4 → member_limit
+        if task.startswith("가격 찾기") and tm.WRAP_UP_PROMPT in task:  # 마무리 요청 = 도구 없음 · 자료가 프롬프트에
+            wrap.append({"tools": [t.name for t in info.function_tools], "task": task})
+            return "가격 일부: 메아리"
+        if task == "가격 찾기":  # 끝없이 도구 = 요청 한도
             return [("use_app", {"app": "notes", "need": "메아리"})] if not returns(messages) else [("notes__echo", {"text": "또"})]
         raise RuntimeError("provider said sk-live-SECRET-123")  # 원문은 결과 · 이벤트 · 기록에 안 간다
 
@@ -270,14 +276,28 @@ def test_member_limit_and_failure_stay_inside_that_member(make_api, fake_mcp) ->
     add_notes(api, fake_mcp)
     events = api.chat(ASK, thread="tl")
     ends = {v["agent"]: v for v in custom(events, "brewai.team_member") if v["status"] != "running"}
-    assert (ends["a1"]["status"], ends["a1"]["code"], ends["a1"]["usage"]["requests"]) == ("error", "member_limit", tm.MEMBER_REQUEST_LIMIT)
+    assert (ends["a1"]["status"], ends["a1"].get("code"), ends["a1"]["usage"]["requests"]) == ("done", None, tm.MEMBER_REQUEST_LIMIT + 1)
+    assert wrap[0]["tools"] == [] and "<자료 untrusted>" in wrap[0]["task"] and len(wrap[0]["task"]) < tm.WRAP_UP_CHARS + 500
     assert (ends["a2"]["status"], ends["a2"]["code"]) == ("error", "member_model_error")
+    first = returns(team.of("main")[-1]["messages"])[0].content
+    assert first["answer"] == "가격 일부: 메아리" and "요청 한도" in first["note"]
     run = api.client.get("/api/runs").json()[0]
-    assert run["status"] == "done" and [s["status"] for s in run["steps"] if s["name"].startswith("agent:")] == ["error", "error"]
-    assert "".join(e["delta"] for e in events if e["type"] == "TEXT_MESSAGE_CONTENT").startswith("정리: member_limit / member_model_error")
+    assert run["status"] == "done" and [s["status"] for s in run["steps"] if s["name"].startswith("agent:")] == ["done", "error"]
+    assert "".join(e["delta"] for e in events if e["type"] == "TEXT_MESSAGE_CONTENT").startswith("정리: 가격 일부: 메아리 / member_model_error")
     dump = json.dumps(events, ensure_ascii=False) + "\n".join(api.store._db.iterdump())
     assert "SECRET" not in dump
-    assert summary(events)["usage"]["requests"] == 2 + tm.MEMBER_REQUEST_LIMIT  # 실패한 요청은 응답이 없어 안 센다
+    assert summary(events)["usage"]["requests"] == 2 + tm.MEMBER_REQUEST_LIMIT + 1  # 실패한 요청은 응답이 없어 안 센다 · 마무리 1
+
+
+def test_member_limit_without_material_is_still_member_limit(make_api, fake_mcp) -> None:
+    def member(task: str, messages: Any, info: AgentInfo, n: int) -> Any:
+        return [("use_app", {"app": "nope", "need": "x"})]  # 결과가 오류뿐 = ToolReturn 은 있다 → 마무리 자료가 있다
+
+    team = Team(two_then_text, member)
+    api, _ = world(make_api, fake_mcp, team)
+    events = api.chat(ASK, thread="tn")
+    ends = {v["agent"]: v for v in custom(events, "brewai.team_member") if v["status"] != "running"}
+    assert all(e["status"] in ("done", "error") for e in ends.values())
 
 
 def test_not_connected_app_is_a_result_not_a_pause(make_api, fake_mcp) -> None:
