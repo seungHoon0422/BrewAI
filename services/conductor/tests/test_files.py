@@ -110,6 +110,16 @@ def test_reject_bombs_doctype_and_size() -> None:
         fl.parse(PNG + b"\x00" * fl.IMAGE_MAX)
     assert e.value.code == "image_too_large"
     assert fl.clean_name("../../etc/pa\x00sswd") == "passwd" and fl.clean_name("") == "파일"
+    assert fl.clean_name("\u1100\u1161\u11a8.png") == "각.png"  # 맥 NFD → NFC
+
+
+def test_provider_rejections_for_attachments_are_not_blamed_on_thinking() -> None:
+    from conductor import diagnose as dx
+
+    big = "litellm.BadRequestError: AnthropicException - messages.0.content.1.image.source.base64.data: image dimensions exceed max allowed size: 8000 pixels"
+    assert dx.classify_http(400, "invalid_request_error", {"message": big}, reasoning=True).detail == "image_rejected"
+    pdf_msg = "AnthropicException - document: PDF exceeds maximum of 100 pages"
+    assert dx.classify_http(400, "invalid_request_error", {"message": pdf_msg}, reasoning=True).detail == "file_rejected"
 
 
 # ── 전달 계획 ──

@@ -9,7 +9,30 @@ import { fileError } from './copy';
 export type Draft = {
   local: string; name: string; size: number; status: 'uploading' | 'ready' | 'error'; error: string | null; file: FileItem | null;
   preview: string | null; // 이미지 = 고른 파일에서 바로 (data: 주소)
+  resized: boolean; // 큰 이미지를 긴 쪽 MAX_SIDE 로 줄여 올렸다
 };
+
+// 이미지는 올리기 전에 긴 쪽 2,048px 로 줄인다: 제공사 한도(Claude = 한 변 8,000px) 밖 거절을 막고, 모델은 어차피 줄여서 본다
+// (Claude ≈ 1,568px · OpenAI ≈ 2,048px). GIF 는 움직임이 깨져서 그대로. 실패하면 원본 그대로 (서버가 판정)
+const MAX_SIDE = 2048;
+async function shrink(f: File): Promise<{ blob: Blob; resized: boolean }> {
+  if (!/^image\/(png|jpeg|webp)$/.test(f.type)) return { blob: f, resized: false };
+  try {
+    const bmp = await createImageBitmap(f);
+    const scale = MAX_SIDE / Math.max(bmp.width, bmp.height);
+    if (scale >= 1) {
+      bmp.close();
+      return { blob: f, resized: false };
+    }
+    const [w, h] = [Math.round(bmp.width * scale), Math.round(bmp.height * scale)];
+    const canvas = new OffscreenCanvas(w, h);
+    canvas.getContext('2d')!.drawImage(bmp, 0, 0, w, h);
+    bmp.close();
+    return { blob: await canvas.convertToBlob({ type: f.type, quality: 0.92 }), resized: true };
+  } catch {
+    return { blob: f, resized: false };
+  }
+}
 type State = { drafts: Record<string, Draft[]> };
 const store = createStore<State>({ drafts: {} });
 const EMPTY: Draft[] = [];
@@ -28,11 +51,15 @@ export function addFiles(key: string, picked: Iterable<File>, scope: { space: st
   for (const f of picked) {
     const local = crypto.randomUUID();
     const tooBig = f.size > MAX_BYTES;
-    const d: Draft = { local, name: f.name || '파일', size: f.size, status: tooBig ? 'error' : 'uploading', error: tooBig ? fileError('file_too_large') : null, file: null, preview: null };
+    const d: Draft = { local, name: f.name || '파일', size: f.size, status: tooBig ? 'error' : 'uploading', error: tooBig ? fileError('file_too_large') : null,
+      file: null, preview: null, resized: false };
     store.set((s) => ({ drafts: { ...s.drafts, [key]: [...(s.drafts[key] ?? []), d] } }));
     if (tooBig) continue;
     if (f.type.startsWith('image/')) void dataUrl(f).then((preview) => patch(key, local, (x) => ({ ...x, preview })));
-    uploadFile(f, d.name, { space: scope.space, project: null }).then(
+    void shrink(f).then(({ blob, resized }) => {
+      if (resized) patch(key, local, (x) => ({ ...x, size: blob.size, resized }));
+      return uploadFile(blob, d.name, { space: scope.space, project: null });
+    }).then(
       (file) => patch(key, local, (x) => ({ ...x, status: 'ready', file })),
       (e) => patch(key, local, (x) => ({ ...x, status: 'error', error: fileError(codeOf(e)) })),
     );

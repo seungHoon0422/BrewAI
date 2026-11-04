@@ -151,7 +151,9 @@ test.describe('conductor 켜짐', () => {
     const { failureCopy, modelNames } = (await import(COPY_MODULE)) as CopyMod;
     expect(failureCopy('reasoning_unsupported', 'off')).toEqual({ text: '모델 설정 문제로 거절됐어요', hint: '관리자에게 알려 주세요', reasoningOff: false });
     expect(failureCopy('reasoning_unsupported', 'low')).toEqual({ text: '이 모델이 생각 깊이 설정을 받지 않아요', hint: '생각 깊이를 끄기로 바꾸고 다시 시도해 주세요', reasoningOff: true });
-    expect(failureCopy('provider_bad_request', 'off')?.reasoningOff).toBe(false);
+    expect(failureCopy('provider_bad_request', 'off')?.reasoningOff).toBeFalsy(); // 생각 탓이 아닌 거절 = 생각 끄고 다시 없음
+    expect(failureCopy('provider_bad_request', 'low')?.reasoningOff).toBeFalsy();
+    expect(failureCopy('image_rejected', 'low')?.text).toBe('이미지가 너무 커서 모델이 받지 않았어요');
     expect(failureCopy('provider_key_missing', 'off')?.text).toBe('이 모델의 API 키가 설정돼 있지 않아요'); // 생각과 상관없는 것 = 그대로
     expect(failureCopy('constructor', 'off')).toBeUndefined();
     expect(modelNames('GPT-6 Luna', 'GPT-6 Luna')).toEqual(['GPT-6 Luna']);

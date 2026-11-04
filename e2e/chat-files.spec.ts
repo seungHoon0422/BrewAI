@@ -1,3 +1,4 @@
+import zlib from 'node:zlib';
 import { test, expect, type ElectronApplication, type Page } from '@playwright/test';
 import { launchDesktop, userApi, type Client } from './auth';
 import { separatorsOnScreen } from './copy-rule';
@@ -10,6 +11,14 @@ import { ask, chat, idle } from './mcp';
 // 모델: fake-chat-small = 이미지 O · PDF 원본 X (글로) · fake-chat-large = 이미지 O · PDF 원본 O (e2e/mock/gateway.mjs)
 const HOME_H1 = '무엇을 맡길까요?';
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+// 아주 넓은 PNG (3000×8 · 한 색) = 올릴 때 긴 쪽 2,048px 로 줄어드는지
+function widePng(w: number, h: number): Buffer {
+  const crc = (b: Buffer) => { let c = ~0; for (const x of b) { c ^= x; for (let k = 0; k < 8; k++) c = c & 1 ? (c >>> 1) ^ 0xedb88320 : c >>> 1; } return ~c >>> 0; };
+  const chunk = (t: string, d: Buffer) => { const len = Buffer.alloc(4); len.writeUInt32BE(d.length); const td = Buffer.concat([Buffer.from(t), d]); const c = Buffer.alloc(4); c.writeUInt32BE(crc(td)); return Buffer.concat([len, td, c]); };
+  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 2;
+  const rows = Buffer.concat(Array.from({ length: h }, () => Buffer.concat([Buffer.from([0]), Buffer.alloc(w * 3, 200)])));
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(rows)), chunk('IEND', Buffer.alloc(0))]);
+}
 const MD = Buffer.from('# 회의 메모\n\n- 금요일 배포\n- 담당: 민수\n');
 
 function pdf(pages: string[]): Buffer {
@@ -33,7 +42,7 @@ function pdf(pages: string[]): Buffer {
   return Buffer.from(out, 'latin1');
 }
 
-const NAMES = new Set(['화면.png', '보고서.pdf', '회의.md', '메모2.txt']);
+const NAMES = new Set(['화면.png', '보고서.pdf', '회의.md', '메모2.txt', '넓은.png']);
 const PROJECT = `파일 프로젝트 ${Date.now().toString(36)}`;
 const chips = (win: Page) => win.locator('.composer .fc-list').getByRole('listitem');
 const chip = (win: Page, name: string) => chips(win).filter({ hasText: name });
@@ -63,7 +72,7 @@ test.afterAll(async () => {
   for (const id of made) await api.del(`/api/files/${id}`).catch(() => {});
 });
 
-test('+ 버튼으로 이미지 · PDF · 글 → 칩 3개 · 전달 배지 (이 모델: 이미지 원본 · PDF 는 글로) · 예상 토큰', async () => {
+test('+ 버튼으로 이미지 · PDF · 글 → 칩 3개 · 전달 배지 (이 모델: 이미지 그대로 · PDF 는 글만 뽑아서) · 토큰 수 없음', async () => {
   await win.getByRole('button', { name: '새 대화' }).click();
   await pickModel(win, 'fake-chat-small');
   await expect(win.getByRole('button', { name: '파일 첨부' })).toBeEnabled();
@@ -74,20 +83,21 @@ test('+ 버튼으로 이미지 · PDF · 글 → 칩 3개 · 전달 배지 (이 
   ]);
   await expect(chips(win)).toHaveCount(3);
   await expect(chips(win).filter({ hasText: '올리는 중' })).toHaveCount(0, { timeout: 15_000 });
-  await expect(badge(win, '화면.png')).toHaveText('원본으로');
-  await expect(badge(win, '보고서.pdf')).toHaveText('글로');
+  await expect(badge(win, '화면.png')).toHaveText('이미지 그대로');
+  await expect(badge(win, '보고서.pdf')).toHaveText('글만 뽑아서');
   await expect(badge(win, '보고서.pdf')).toHaveAttribute('title', '이 모델은 PDF 원본을 못 받아 글로 보내요');
-  await expect(badge(win, '회의.md')).toHaveText('글로');
+  await expect(badge(win, '회의.md')).toHaveText('글만 뽑아서');
   await expect(chip(win, '화면.png').locator('img')).toHaveAttribute('src', /^data:image\/png;base64,/); // 썸네일 = data: 주소만 (CSP)
-  await expect(win.locator('.composer .fc-sum')).toHaveText(/^첨부 3개, 약 [\d,]+토큰$/);
+  await expect(win.locator('.composer .fc-sum')).toHaveText('첨부 3개'); // 토큰 수는 보이지 않는다
+  await expect(win.locator('.composer .fc-wrap')).not.toContainText('토큰');
   expect(await separatorsOnScreen(win)).toEqual([]);
   await win.screenshot({ path: shot('desktop-files-chips'), animations: 'disabled' });
 });
 
-test('모델을 바꾸면 배지가 바로 바뀐다: PDF 원본을 받는 모델 = 보고서.pdf 원본으로', async () => {
+test('모델을 바꾸면 배지가 바로 바뀐다: PDF 원본을 받는 모델 = 보고서.pdf PDF 그대로', async () => {
   await pickModel(win, 'fake-chat-large');
-  await expect(badge(win, '보고서.pdf')).toHaveText('원본으로');
-  await expect(badge(win, '화면.png')).toHaveText('원본으로');
+  await expect(badge(win, '보고서.pdf')).toHaveText('PDF 그대로');
+  await expect(badge(win, '화면.png')).toHaveText('이미지 그대로');
   await win.screenshot({ path: shot('desktop-files-chips-pdf-model'), animations: 'disabled' });
 });
 
@@ -119,9 +129,16 @@ test('다음 턴엔 원본을 다시 보내지 않는다 (이름 한 줄) · 끌
   await win.screenshot({ path: shot('desktop-files-drop'), animations: 'disabled' });
   await box.dispatchEvent('drop', { dataTransfer: dt });
   await expect(chip(win, '메모2.txt')).toHaveCount(1);
-  await expect(badge(win, '메모2.txt')).toHaveText('글로', { timeout: 15_000 });
+  await expect(badge(win, '메모2.txt')).toHaveText('글만 뽑아서', { timeout: 15_000 });
   await chip(win, '메모2.txt').getByRole('button', { name: '메모2.txt 빼기' }).click();
   await expect(chips(win)).toHaveCount(0);
+  // 큰 이미지 = 올리기 전에 긴 쪽 2,048px 로 (제공사 한도 밖 거절 막기 · Claude 는 한 변 8,000px 까지)
+  await win.locator('[data-testid="attach-input"]').setInputFiles([{ name: '넓은.png', mimeType: 'image/png', buffer: widePng(3000, 8) }]);
+  await expect(badge(win, '넓은.png')).toHaveText('이미지 그대로', { timeout: 15_000 });
+  const up = (await api.get<{ id: string; name: string }[]>('/api/files')).find((f) => f.name === '넓은.png')!;
+  const png = Buffer.from(await (await api.raw('GET', `/api/files/${up.id}/content`)).arrayBuffer());
+  expect(png.readUInt32BE(16)).toBe(2048);
+  await chip(win, '넓은.png').getByRole('button', { name: '넓은.png 빼기' }).click();
 });
 
 test("스페이스 '파일' 메뉴: 카드 3장 · 어디에 붙었나 · 대화 칩 · 지우기 (확인)", async () => {

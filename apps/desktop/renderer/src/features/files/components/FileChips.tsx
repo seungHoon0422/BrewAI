@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { Icon, IconButton, Spinner, cx } from '@brewai/ui';
 import { thumbOf, type FileItem, type Plan } from '../api';
-import { FILES, KIND_ICON, KIND_LABEL, MODE_HINT, MODE_LABEL, REASON, sizeText } from '../copy';
+import { FILES, KIND_ICON, KIND_LABEL, MODE_HINT, REASON, modeLabel, sizeText } from '../copy';
 import { removeDraft, type Draft } from '../hooks';
 
 function useThumb(file: FileItem | null, preview: string | null): string | null {
@@ -35,7 +35,6 @@ export const FileThumb = ({ file }: { file: FileItem }) => <Thumb file={file} pr
 export function DraftChips({ drafts, plans, draftKey }: { drafts: Draft[]; plans: Record<string, Plan>; draftKey: string }) {
   if (!drafts.length) return null;
   const ready = drafts.filter((d) => d.file);
-  const total = ready.reduce((t, d) => t + (plans[d.file!.id]?.tokens ?? 0), 0);
   const blocked = ready.some((d) => plans[d.file!.id]?.mode === 'blocked');
   return (
     <div className="fc-wrap">
@@ -51,11 +50,10 @@ export function DraftChips({ drafts, plans, draftKey }: { drafts: Draft[]; plans
                   {d.status === 'uploading' ? <><Spinner size="sm" />{FILES.uploading}</>
                     : d.status === 'error' ? <span className="fc-err">{d.error}</span>
                     : <>
-                      <span>{d.file ? KIND_LABEL[d.file.kind] : ''} {sizeText(d.size)}</span>
-                      {plan && <span className="fc-mode" data-mode={plan.mode} title={plan.reason ? REASON[plan.reason] ?? MODE_HINT[plan.mode] : MODE_HINT[plan.mode]}>
-                        {MODE_LABEL[plan.mode]}
+                      <span title={d.resized ? FILES.resized : undefined}>{d.file ? KIND_LABEL[d.file.kind] : ''} {sizeText(d.size)}</span>
+                      {plan && d.file && <span className="fc-mode" data-mode={plan.mode} title={plan.reason ? REASON[plan.reason] ?? MODE_HINT[plan.mode] : MODE_HINT[plan.mode]}>
+                        {modeLabel(plan.mode, d.file.kind)}
                       </span>}
-                      {plan && plan.mode !== 'blocked' && <span className="fc-tok">{FILES.tokens(plan.tokens)}</span>}
                     </>}
                 </span>
               </span>
@@ -66,7 +64,7 @@ export function DraftChips({ drafts, plans, draftKey }: { drafts: Draft[]; plans
       </ul>
       {ready.length > 0 && (
         <p className="fc-sum" aria-live="polite">
-          {FILES.total(ready.length, total)}{blocked && <span className="fc-warn"><Icon name="alert" size="sm" />{FILES.blockedWarn}</span>}
+          {FILES.total(ready.length)}{blocked && <span className="fc-warn"><Icon name="alert" size="sm" />{FILES.blockedWarn}</span>}
         </p>
       )}
     </div>

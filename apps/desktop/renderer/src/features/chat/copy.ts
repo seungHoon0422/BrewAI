@@ -46,12 +46,10 @@ export const DETAIL: Record<string, DetailCopy> = {
     reasoningOff: true,
     whenOff: { text: '모델 설정 문제로 거절됐어요', hint: '관리자에게 알려 주세요' }, // E2E
   },
-  provider_bad_request: {
-    text: '모델이 요청을 거절했어요',
-    hint: '생각 깊이를 끄고 다시 해 보고, 계속되면 다른 모델로',
-    reasoningOff: true,
-    whenOff: { text: '모델이 요청을 거절했어요', hint: '다시 해 보고, 계속되면 다른 모델로' }, // E2E
-  },
+  // 생각 칸 이름이 문구에 없는 거절 = 생각 탓이 아니다 → '생각 끄고 다시' 를 권하지 않는다
+  provider_bad_request: { text: '모델이 요청을 거절했어요', hint: '다시 해 보고, 계속되면 다른 모델로' }, // E2E
+  image_rejected: { text: '이미지가 너무 커서 모델이 받지 않았어요', hint: '이미지를 다시 올려 주세요. 올릴 때 긴 쪽을 2,048px로 줄여요' },
+  file_rejected: { text: '모델이 첨부 파일을 받지 않았어요', hint: '다른 모델로 해 보거나, 파일 화면에서 지우고 다시 올려 주세요' },
   gateway_key_invalid: {
     text: '게이트웨이 키가 맞지 않아요',
     hint: '.env 의 LLM_GATEWAY_KEY (또는 LITELLM_MASTER_KEY) 와 LiteLLM 키가 같은지 확인',

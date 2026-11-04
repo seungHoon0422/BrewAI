@@ -50,6 +50,8 @@ DETAILS = (
     "provider_model_not_found",
     "reasoning_unsupported",
     "provider_bad_request",
+    "image_rejected",
+    "file_rejected",
     "provider_rate_limited",
     "provider_unavailable",
     "gateway_budget_exceeded",
@@ -67,6 +69,10 @@ _MISSING_KEY = re.compile(
 )
 _NOT_FOUND = re.compile(r"not_found_error|model_not_found|does not exist|NotFoundError|unknown model|model not found", re.I)
 _GATEWAY_MODEL = re.compile(r"Invalid model name passed", re.I)
+# 첨부 (slice 07): 이미지 크기 · 형식 거절 (Anthropic = 가로 · 세로 8,000px 넘음 · 5MB · 그림을 못 읽음) · 문서(PDF) 거절
+_IMAGE = re.compile(r"image[^.]{0,60}(dimension|exceed|too large|too big|pixels|could not|invalid|unsupported|size)"
+                    r"|exceeds? (?:the )?max(?:imum)? allowed (?:size|dimension)|image_parse|Could not process image", re.I)
+_DOCUMENT = re.compile(r"(pdf|document)[^.]{0,60}(exceed|too large|too many pages|could not|invalid|unsupported|not supported)", re.I)
 # 생각 파라미터 이름이 문구에 있다 (reasoning_effort · reasoning.effort|summary|… · thinking · budget_tokens · output_config = LiteLLM 이 effort 를 옮긴 칸)
 _REASONING = re.compile(
     r"reasoning_effort|budget_tokens|output_config|reasoning\.(?:effort|summary|context|mode)"
@@ -168,6 +174,10 @@ def classify_http(status: int, error_type: str | None, body: Any, *, reasoning: 
     # ③ provider 가 요청을 거절 (설정 문제 — 다시 해도 같다)
     if status == 404 or (status == 400 and _NOT_FOUND.search(message)):
         return d(PROVIDER_REJECTED, "provider_model_not_found")
+    if status in (400, 413, 422) and _IMAGE.search(message):
+        return d(PROVIDER_REJECTED, "image_rejected")
+    if status in (400, 413, 422) and _DOCUMENT.search(message):
+        return d(PROVIDER_REJECTED, "file_rejected")
     if status in (400, 422):
         about = bool(_REASONING.search(message)) or _param_of(body).startswith("reasoning")
         return d(PROVIDER_REJECTED, "reasoning_unsupported" if reasoning and about else "provider_bad_request")

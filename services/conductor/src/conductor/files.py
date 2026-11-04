@@ -14,6 +14,7 @@ import hashlib
 import io
 import re
 import secrets
+import unicodedata
 import zipfile
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
@@ -77,8 +78,8 @@ class Parsed:
 
 
 def clean_name(name: str) -> str:
-    """표시 이름 = 경로 · 제어 문자 제거 · 120자. 비면 '파일'."""
-    base = re.split(r"[\\/]", name or "")[-1]
+    """표시 이름 = 경로 · 제어 문자 제거 · NFC (맥 파일 이름은 NFD = 자모가 갈라져 검색 · 비교가 어긋난다) · 120자. 비면 '파일'."""
+    base = unicodedata.normalize("NFC", re.split(r"[\\/]", name or "")[-1])
     base = _CTRL.sub("", base).strip()
     return base[:NAME_MAX] or "파일"
 

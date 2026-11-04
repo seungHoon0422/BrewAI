@@ -6,13 +6,16 @@ import type { FileKind, Mode, Where } from './api';
 export const KIND_LABEL: Record<FileKind, string> = { image: '이미지', pdf: 'PDF', text: '글', docx: 'Word', xlsx: 'Excel', pptx: 'PowerPoint' };
 export const KIND_ICON: Record<FileKind, IconName> = { image: 'image', pdf: 'file', text: 'text', docx: 'file', xlsx: 'grid', pptx: 'layers' };
 
-// 전달 배지 = 이 모델에 어떻게 가는지 (서버 files.plan 그대로) · 칩의 차별점
-export const MODE_LABEL: Record<Mode, string> = { original: '원본으로', text: '글로', outline: '필요할 때 읽음', blocked: '이 모델은 못 받아요' };
+// 전달 배지 = 이 모델에 어떻게 가는지 (서버 files.plan 그대로) · 칩의 차별점. 그대로 = 파일 자체를 보내 모델이 직접 본다 · 글 = 뽑은 글만
+export function modeLabel(mode: Mode, kind: FileKind): string {
+  if (mode === 'original') return kind === 'image' ? '이미지 그대로' : kind === 'pdf' ? 'PDF 그대로' : '파일 그대로';
+  return { text: '글만 뽑아서', outline: '필요한 부분만 읽음', blocked: '이 모델은 못 봐요' }[mode];
+}
 export const MODE_HINT: Record<Mode, string> = {
-  original: '파일을 그대로 모델에 보내요',
-  text: '파일에서 뽑은 글을 보내요',
-  outline: '앞부분과 목차만 보내고, 나머지는 모델이 필요할 때 쪽을 골라 읽어요',
-  blocked: '이 모델은 이 형식을 받을 수 없어 이름만 전해요. 다른 모델을 골라 보세요',
+  original: '파일을 그대로 보내서 모델이 직접 봐요 (그림 속 글자, 표, 도형까지)',
+  text: '파일에서 글만 뽑아 보내요 (그림과 모양은 빠져요)',
+  outline: '앞부분과 목차만 먼저 보내고, 나머지는 모델이 필요할 때 쪽을 골라 읽어요',
+  blocked: '이 모델은 이 형식을 볼 수 없어 이름만 전해요. 다른 모델을 골라 보세요',
 };
 export const REASON: Record<string, string> = {
   vision_unsupported: '이미지를 보는 모델이 아니에요',
@@ -48,8 +51,8 @@ export const FILES = {
   drop: '여기에 놓으면 첨부돼요',
   uploading: '올리는 중',
   remove: (name: string) => `${name} 빼기`,
-  tokens: (n: number) => `약 ${count(n)}토큰`,
-  total: (n: number, t: number) => `첨부 ${n}개, 약 ${count(t)}토큰`,
+  total: (n: number) => `첨부 ${n}개`,
+  resized: '긴 쪽을 2,048px로 줄여 올렸어요',
   chips: '첨부한 파일',
   blockedWarn: '이 모델이 받을 수 없는 파일이 있어요. 이름만 전해져요',
   // 스페이스 '파일' 화면
