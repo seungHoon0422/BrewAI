@@ -8,7 +8,9 @@ SKILL.md = 머리말(frontmatter) + 본문(지침). 코드를 실행하지 않�
   tools: [some_tool]               # 선택. 이 스킬이 기대는 툴 이름 (known_tools 를 주면 모르는 이름 = 거절 · 지금은 내장 툴이 없어 안 본다)
   ---
   본문 …
-점진 공개: 시스템 프롬프트엔 이름 · 화면 이름 한 줄만 (description 은 관리자 카탈로그 · 화면용), 모델이 use_skill(name) 을 부르면 그때 본문.
+점진 공개 (slice 08): 시스템 프롬프트엔 '스킬 N개 + 화면 이름 몇 개' 한 줄만 (스킬이 늘어도 거의 그대로 = 프롬프트 캐시) · 도구 인자 = need(할 일)
+· 서버가 이름 · 화면 이름 · 설명으로 고른다 (BM25 + 한영 사전 · connectors/rank.py · LLM 없음) → 맞는 스킬 본문 + 다른 후보 이름.
+스킬의 tools = 그 스킬을 부르면 도구 배열에 실리는 도구 (make_file 등 · agent._SkillGatedTools · 부르기 전엔 요청에 0).
 안전: 허용 폴더(root) 바로 아래 폴더만 · 심볼릭 링크·root 밖으로 나가는 경로 거절 · 파일 16KB · 스킬 50개 · 머리말 키 4개만.
 버전 = SKILL.md 의 sha256 앞 12자 (줄바꿈 LF 로 맞춘 뒤 · 관리자 카탈로그). 새 스킬 저장·등록(격리 → 테스트 → 승인)은 P5 — 여기는 읽기만.
 """
@@ -23,6 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .connectors.rank import bm25, tokens
 from .tools import USE_SKILL, ToolSpec
 
 log = logging.getLogger("conductor.skills")
@@ -35,6 +38,13 @@ MAX_LABEL = 40
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,47}$")
 _KEYS = ("name", "label", "description", "tools")
 _TOOL_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+PROMPT_LABELS = 12  # 프롬프트 한 줄에 보일 화면 이름 수 (넘으면 '외 N개')
+OTHERS = 3  # use_skill 결과의 다른 후보 수
+
+
+def _word(tok: str) -> bool:
+    """한 글자 한글 낱말(줘 · 해 · 좀 …)은 빼고 센다 — '… 해 줘' 같은 말끝이 모든 스킬에 점수를 주지 않게."""
+    return tok.isascii() or len(tok) > 1
 
 
 class SkillError(Exception):
@@ -151,30 +161,55 @@ class SkillRegistry:
         return {s.name: s.label for s in self.skills.values()}
 
     def prompt(self) -> str:
-        """시스템 프롬프트에 붙는 한 줄 (이름 + 화면 이름만 · 정렬 고정 = 프롬프트 캐시). 본문은 use_skill 로."""
+        """시스템 프롬프트에 붙는 한 줄 (스킬 수 + 화면 이름 PROMPT_LABELS 개 · 이름 순 고정 = 프롬프트 캐시). 본문은 use_skill 로."""
         if not self.skills:
             return ""
-        names = ", ".join(f"{s.name} {s.label}" for s in sorted(self.skills.values(), key=lambda s: s.name))
-        return f"\n스킬 (맞으면 use_skill 로 지침을 먼저 부른다): {names}"
+        ordered = sorted(self.skills.values(), key=lambda s: s.name)
+        labels = ", ".join(s.label for s in ordered[:PROMPT_LABELS]) + (f" 외 {len(ordered) - PROMPT_LABELS}개" if len(ordered) > PROMPT_LABELS else "")
+        return f"\n스킬 {len(ordered)}개 ({labels}): 맞을 것 같으면 먼저 use_skill {{need}}"
+
+    def find(self, need: str, name: str = "") -> tuple[Skill | None, list[Skill]]:
+        """need → (가장 맞는 스킬, 다른 후보). name 이 정확하면 그 스킬. 점수 0 = (None, [])."""
+        exact = self.get(name.strip()) if name else None
+        if exact is not None:
+            return exact, []
+        pool = sorted(self.skills.values(), key=lambda s: s.name)
+        docs = [[t for t in (*tokens(s.name.replace("-", " ")) * 3, *tokens(s.label) * 2, *tokens(s.description)) if _word(t)] for s in pool]
+        scores = bm25(docs, need or name)
+        order = [i for i in sorted(range(len(pool)), key=lambda i: (-scores[i], i)) if scores[i] > 0]
+        if not order:
+            return None, []
+        return pool[order[0]], [pool[i] for i in order[1 : 1 + OTHERS]]
 
     def tool(self) -> ToolSpec | None:
-        """use_skill 툴 (스킬이 없으면 None). 인자 스키마 = 스킬 이름 enum (짧게 · 모르는 이름은 모델이 못 고른다)."""
+        """use_skill 툴 (스킬이 없으면 None). 인자 = need (할 일 · 스킬이 늘어도 스키마가 그대로) · name (예전 기록 · 이름을 알 때)."""
         if not self.skills:
             return None
         registry = self
 
-        def use_skill(name: str) -> dict[str, Any]:
-            skill = registry.get((name or "").strip())
+        def use_skill(need: str = "", name: str = "") -> dict[str, Any]:
+            need, name = str(need or "")[:300], str(name or "")[:48]
+            skill, others = registry.find(need, name)
             if skill is None:
                 return {
-                    "error": "unknown_skill",
-                    "message": f"'{str(name)[:48]}' 스킬이 없어요.",
-                    "available": sorted(registry.skills),
+                    "error": "no_skill",
+                    "message": "맞는 스킬이 없다. 스킬 없이 바로 하거나 아래 이름으로 다시 부른다.",
+                    "available": [f"{s.name} {s.label}" for s in sorted(registry.skills.values(), key=lambda s: s.name)],
                 }
-            return {"name": skill.name, "label": skill.label, "tools": list(skill.tools), "instructions": skill.body}
+            out: dict[str, Any] = {"name": skill.name, "label": skill.label, "tools": list(skill.tools), "instructions": skill.body}
+            if others:
+                out["others"] = [f"{s.name} {s.label}" for s in others]  # 더 맞는 게 있으면 name 으로 다시
+            return out
 
-        schema = {"type": "object", "properties": {"name": {"type": "string", "enum": sorted(self.skills)}}, "required": ["name"]}
-        return ToolSpec(name=USE_SKILL, label="스킬 사용", description="스킬 지침을 불러온다.", function=use_skill, schema=schema)
+        schema = {
+            "type": "object",
+            "properties": {
+                "need": {"type": "string", "description": "할 일 한 줄"},
+                "name": {"type": "string", "description": "이름을 알 때만"},
+            },
+            "required": ["need"],
+        }
+        return ToolSpec(name=USE_SKILL, label="스킬 사용", description="할 일에 맞는 스킬 지침을 찾아 부른다.", function=use_skill, schema=schema)
 
 
 def load_skills(root: str | Path | None, *, known_tools: Iterable[str] = (), source: str = "runtime/skills") -> SkillRegistry:

@@ -2,6 +2,7 @@
 // 보안 기본값: contextIsolation·sandbox 켬, nodeIntegration 끔, 앱 밖 요청·이동·권한은 전부 막는다.
 // preload = 로그인 · 앱 연결 (preload.cjs) · 토큰은 main 에만 (auth.cjs · ADR-0010). renderer 는 토큰을 못 본다.
 // MCP 앱 연결 = mcp-connect.cjs (시스템 브라우저 + loopback · MCP 토큰은 conductor 에만 · ADR-0013).
+// 만든 파일 저장 = save-file.cjs (저장 대화상자 · 경로는 renderer 에 안 돌려준다 · slice 08).
 // 게이트웨이·Langfuse 키는 넣지 않는다. 데스크톱은 우리 API 만 부른다 (AGENTS.md · ADR-0004).
 const { app, BrowserWindow, nativeTheme, net, protocol, session, shell } = require('electron');
 const fs = require('node:fs');
@@ -10,6 +11,7 @@ const { fileURLToPath, pathToFileURL } = require('node:url');
 const { apiOrigin } = require('./api-url.cjs');
 const { createAuth } = require('./auth.cjs');
 const { createMcp } = require('./mcp-connect.cjs');
+const { createSave } = require('./save-file.cjs');
 
 const isMac = process.platform === 'darwin';
 const DIST = path.join(__dirname, 'dist');
@@ -138,6 +140,7 @@ function focus() {
 
 const auth = API ? createAuth({ api: API, packaged: app.isPackaged, fromApp, focus }) : null;
 const mcp = auth ? createMcp({ request: auth.request, focus, fromApp, packaged: app.isPackaged }) : null;
+const saver = createSave({ fromApp, packaged: app.isPackaged });
 
 // 한 번에 하나만 (바로가기를 두 번 눌러도). 두 개가 같은 refresh 를 회전하면 재사용 감지로 세션이 통째 폐기돼 둘 다 로그아웃된다.
 // E2E · 개발의 여러 사용자 launch (BREWAI_USER_DATA 따로 · 배포본 아님) 만 예외
@@ -200,6 +203,7 @@ app.whenReady().then(() => {
   if (!first) return; // 두 번째 실행 = 첫 창을 앞으로 (second-instance) 하고 끝
   lockDown(session.defaultSession);
   protocol.handle('app', serve);
+  saver.register();
   if (auth) {
     auth.register();
     mcp?.register();

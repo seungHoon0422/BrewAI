@@ -500,6 +500,11 @@ class Files:
                 db.execute("UPDATE files SET thread_id = ?, run_id = ? WHERE id = ? AND project_id IS NULL AND (thread_id IS NULL OR thread_id = ?)",
                            (thread_id, run_id, fid, thread_id))
 
+    def attach(self, file_id: str, *, thread_id: str) -> None:
+        """만든 파일(make_file)을 그 대화에 묶는다 — 턴(run_id)에는 안 묶는다 = 내 말풍선 첨부 칩에 안 나온다 (답의 도구 카드가 보여 준다)."""
+        with self.store.tx() as db:
+            db.execute("UPDATE files SET thread_id = ? WHERE id = ? AND thread_id IS NULL AND project_id IS NULL", (thread_id, file_id))
+
     def of_runs(self, run_ids: Sequence[str]) -> dict[str, list[FileRow]]:
         """대화 기록의 턴마다 첨부 (내 말풍선 칩)."""
         if not run_ids:

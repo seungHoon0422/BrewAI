@@ -117,6 +117,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from . import diagnose as dx
+from . import docmake as dm
 from . import files as fl
 from . import team as tm
 from .connectors.client import split_public
@@ -452,6 +453,43 @@ def file_toolset(scope: RunScope) -> FunctionToolset[None] | None:
         return store.read(f, page=page, query=query)  # type: ignore[no-any-return]
 
     return FunctionToolset([Tool.from_schema(read_file, fl.READ_FILE, fl.READ_FILE_DESC, fl.READ_FILE_SCHEMA)], max_retries=1, timeout=TOOL_TIMEOUT_S)
+
+
+def skill_tools(messages: Sequence[ModelMessage]) -> set[str]:
+    """이 대화에서 use_skill 로 부른 스킬의 도구 (결과의 tools · 기록 + 이번 실행)."""
+    out: set[str] = set()
+    for m in messages:
+        if isinstance(m, ModelRequest):
+            for p in m.parts:
+                if isinstance(p, ToolReturnPart) and p.tool_name == USE_SKILL and isinstance(p.content, dict):
+                    got = p.content.get("tools")
+                    out.update(t for t in got if isinstance(t, str)) if isinstance(got, list) else None
+    return out
+
+
+def skill_toolset(scope: RunScope, *, thread_id: str) -> AbstractToolset[None] | None:
+    """make_file (slice 08) = 문서 스킬(tools: [make_file])을 부른 대화에서만 도구 배열에 (부르기 전 = 요청에 0 · hello 바이트 그대로).
+    만든 파일 = 파일 저장소 (그 대화에 묶음 · 내 말풍선 첨부가 아니다) · 결과 = 파일 id · 이름 · 크기 (답의 도구 카드가 칩으로)."""
+    store = scope.file_store
+    if store is None or not scope.user_id or not scope.space_id:
+        return None
+    user_id, space_id = scope.user_id, scope.space_id
+
+    def make_file(kind: str, name: str, title: str | None = None, subtitle: str | None = None, blocks: Any = None,
+                  sheets: Any = None, slides: Any = None) -> dict[str, Any]:
+        spec = {"kind": kind, "name": name, "title": title, "subtitle": subtitle, "blocks": blocks, "sheets": sheets, "slides": slides}
+        try:
+            made = dm.make(spec)
+            row = store.add(user_id=user_id, space_id=space_id, project_id=None, name=made.name, data=made.data)
+        except dm.MakeError as e:
+            return {"error": e.code, "message": e.message}
+        except fl.FileError as e:
+            return {"error": e.code, "message": "파일을 저장하지 못했다 (용량 · 크기 한도)"}
+        store.attach(row.id, thread_id=thread_id)
+        return {"file": {"id": row.id, "name": row.name, "kind": row.kind, "size": row.size}, "message": "만들었다. 답 아래에 파일 칩이 붙는다."}
+
+    tools = FunctionToolset([Tool.from_schema(make_file, dm.MAKE_FILE, dm.MAKE_FILE_DESC, dm.MAKE_FILE_SCHEMA)], max_retries=1, timeout=TOOL_TIMEOUT_S)
+    return tools.filtered(lambda ctx, td: td.name in skill_tools(ctx.messages))
 
 
 def with_files(last: UserMessage, prompt: str, attachments: Sequence[Any]) -> UserMessage:
@@ -860,7 +898,7 @@ def compact_result(content: Any) -> Any:
     body = content.get("result", content) if isinstance(content, dict) else content
     body_text = body if isinstance(body, str) else json.dumps(body, ensure_ascii=False, default=str)
     head = body_text.encode("utf-8")[:HISTORY_HEAD_BYTES].decode("utf-8", errors="ignore")
-    keep = {k: content[k] for k in ("source", "untrusted", "name", "label", "error") if isinstance(content, dict) and k in content}
+    keep = {k: content[k] for k in ("source", "untrusted", "name", "label", "error", "tools") if isinstance(content, dict) and k in content}  # tools = 스킬이 연 도구 (skill_tools)
     return {**keep, "result": head.rstrip() + "…", "note": f"줄임: 지난 턴 결과 {size:,}바이트의 앞부분. 필요하면 다시 부른다."}
 
 
@@ -988,6 +1026,7 @@ class _Activity:
     messages: str | None = None
     usage: dict[str, Any] | None = None
     apps: _AppRun | None = None  # MCP 앱 (없으면 None)
+    skills: SkillRegistry | None = None  # use_skill {need} → skill:<이름> 단계 (use_skill 함수와 같은 고르기)
     pending: list[dict[str, Any]] = field(default_factory=list)  # 연결 대기로 멈춘 호출 (on_complete 가 채운다)
     # 팀원 도구 줄 (자식 줄 {parent, agent}) = opened 밖 (batch · 열린 툴 검사에 안 섞인다) · finish 가 닫는다
     children: dict[str, int] = field(default_factory=dict)  # 열린 자식 줄 call id → steps 위치
@@ -1201,10 +1240,10 @@ class _RunStream:
                 member = team.roster.member(skill["id"], args.get("role"), args.get("task"))
                 step = f"agent:{member.agent}"
                 act.labels[step] = member.role
-            else:
-                name = args.get("name")
-                name = name.strip() if isinstance(name, str) else ""
-                step = f"skill:{name if SKILL_NAME_RE.match(name) else 'unknown'}"
+            else:  # use_skill: need → 서버가 고른 스킬 (함수와 같은 find) · 못 찾음 = skill:unknown
+                need, name = args.get("need"), args.get("name")
+                found = act.skills.find(need if isinstance(need, str) else "", name if isinstance(name, str) else "")[0] if act.skills else None
+                step = f"skill:{found.name if found and SKILL_NAME_RE.match(found.name) else 'unknown'}"
             out = [*act.open(f"{step}#{skill['id']}", step, skill["id"]), *skill["events"]]
             if skill["tool"] == DELEGATE:
                 ended.add(skill["id"])
@@ -1468,7 +1507,7 @@ class ChatRuntime:
         model, blobs, sink, scope = await prepare(req)
         apps = _AppRun(scope.apps) if scope.apps is not None and model.supports_tools else None
         labels = {f"tool:{t.name}": t.label for t in self.tools} | self.skills.labels() | (scope.apps.labels() if scope.apps is not None else {})
-        activity = _Activity(sink=sink, labels=labels, apps=apps)  # 여기부터 실행 기록이 열려 있다 → 어떤 길로 나가든 finish
+        activity = _Activity(sink=sink, labels=labels, apps=apps, skills=self.skills)  # 여기부터 실행 기록이 열려 있다 → 어떤 길로 나가든 finish
         try:
             resumed = await self._resume(scope, apps, blobs) if req.resume else None
             return self._stream(adapter, req, model, blobs, activity, scope, resumed)
@@ -1617,8 +1656,10 @@ class ChatRuntime:
         if model.supports_tools:  # 실행마다 동시 실행 상한 하나 (스킬 · 앱 도구가 같이 센다) · 도구 배열 = 고정 도구 → delegate → use_app → 공개 순
             gate = asyncio.Semaphore(MAX_PARALLEL_TOOLS)  # delegate 는 gate 밖 (팀원이 칸을 잡고 기다리면 4칸 교착)
             files_ts = file_toolset(scope)  # read_file = 파일이 있는 대화만 (고정 도구 · 팀 다음 · 앱 앞 = 그 대화에서 늘 같은 자리)
+            made_ts = skill_toolset(scope, thread_id=req.thread_id) if self.skills.skills else None  # make_file = 문서 스킬을 부른 뒤만
             toolsets = [bounded(self._toolset, gate=gate), *([_TeamTools(team)] if team else []),
-                        *([bounded(files_ts, gate=gate)] if files_ts else []), *([bounded(_AppTools(apps), gate=gate)] if apps else [])]
+                        *([bounded(files_ts, gate=gate)] if files_ts else []), *([bounded(made_ts, gate=gate)] if made_ts else []),
+                        *([bounded(_AppTools(apps), gate=gate)] if apps else [])]
         # 실행 지침 = 앱 목록 한 줄 (handle 순 고정 = 프롬프트 캐시) → 프로젝트 지침 (conductor 규칙 · 앱 목록 뒤에)
         block = apps.apps.prompt() if apps else ""
         instructions = "\n\n".join(x for x in (block, scope.file_line, scope.instructions) if x) or None

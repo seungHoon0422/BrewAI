@@ -20,6 +20,10 @@
 .fc-mode[data-mode="blocked"]{color:var(--warn-text);border-color:currentColor}
 .fc-tok{flex:none}
 .fc-sum{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-2);margin:0;font-size:var(--fs-xs);color:var(--text-muted)}
+/* 답 아래 만든 파일 (slice 08) — 칩 + 저장 단추 · 넓게 (이름이 덜 잘리게) */
+.fc-made-list{margin:var(--space-2) 0 var(--space-1)}
+.fc-made{max-width:360px;padding-right:var(--space-1-5);background:var(--surface)}
+.fc-ok{display:inline-flex;align-items:center;gap:var(--space-1);color:var(--ok-text)}
 .fc-warn{display:inline-flex;align-items:center;gap:var(--space-1);color:var(--warn-text)}
 
 /* 내 말풍선: 칩 줄 위 · 말풍선 아래 (오른쪽 정렬) */

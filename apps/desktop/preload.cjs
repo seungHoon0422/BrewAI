@@ -1,4 +1,5 @@
-// 로그인 · 앱 연결 preload (sandbox · contextIsolation). renderer 에 여는 것 = window.brewai.auth · window.brewai.mcp · window.brewai.dev.
+// 로그인 · 앱 연결 · 파일 저장 preload (sandbox · contextIsolation). renderer 에 여는 것 = window.brewai.auth · mcp · files · dev.
+// files.save = 바이트 + 이름 → main 이 저장 대화상자 (어디에 쓸지는 사람이 고른다 · 결과는 {ok, code?, name?} 뿐 · 경로는 안 돌려준다).
 // dev = 개발 빌드인지 (main 이 배포본이 아닐 때만 --brewai-dev 를 넘긴다 · 값 하나뿐 · 비밀 없음).
 // 토큰은 오가지 않는다: 결과는 {ok, code?, retryAfter?, linked?} · 상태는 {status, reason, user} 뿐 (auth.cjs)
 // · 앱 연결 결과는 {ok, code?, connection?, tool_count?} 뿐 (mcp-connect.cjs).
@@ -25,5 +26,8 @@ contextBridge.exposeInMainWorld('brewai', {
   mcp: {
     connect: (input) => ipcRenderer.invoke('mcp:connect', input),
     cancel: () => ipcRenderer.invoke('mcp:cancel'),
+  },
+  files: {
+    save: (input) => ipcRenderer.invoke('files:save', input),
   },
 });

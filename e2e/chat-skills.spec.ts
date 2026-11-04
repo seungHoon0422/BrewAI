@@ -7,7 +7,7 @@ import { expectHeading, openMenu, openSettings, shot } from './helpers';
 const NAV = '메뉴';
 const SKILLS = { id: 'settings/skills', label: '스킬' }; // 설정 › 스킬
 const CHAT = { id: 'chat', label: '대화', h1: '무엇을 맡길까요?' };
-const STARTERS = ['비교표 만들기', '요약'];
+const STARTERS = ['비교표 만들기', 'Excel 표', '발표 자료', '요약', 'Word 문서']; // 이름 순 (compare-table · excel-sheet · ppt-deck · summarize · word-doc)
 
 test.describe.configure({ mode: 'serial' });
 let app: ElectronApplication;
@@ -27,16 +27,18 @@ const skillRow = (p: Page, name: string) => skillList(p).locator(`li[data-skill=
 const usedOf = async (name: string) =>
   (await api.get<{ name: string; used: number }[]>('/api/skills')).find((s) => s.name === name)?.used ?? -1;
 
-test('스킬 메뉴: 스타터 스킬 2개 (이름 · 설명 · 내장 · 사용 횟수) · 없앤 스킬 · 내장 도구 없음', async () => {
+test('스킬 메뉴: 스타터 스킬 5개 (이름 · 설명 · 내장 · 사용 횟수) · 문서 스킬만 쓰는 도구 = 파일 만들기 · 없앤 스킬', async () => {
   await openSettings(win, SKILLS);
-  await expect(skillList(win).locator('li')).toHaveCount(2);
+  await expect(skillList(win).locator('li')).toHaveCount(5);
   await expect(skillList(win).locator('li b')).toHaveText(STARTERS);
-  await expect(win.locator('.sec-head .count').first()).toHaveText('2');
+  await expect(win.locator('.sec-head .count').first()).toHaveText('5');
   const compare = skillRow(win, 'compare-table');
   await expect(compare.locator('.badge')).toHaveText('내장');
   await expect(compare.locator('.sk-name')).toHaveText('compare-table');
   await expect(compare.locator('.row-sub')).toContainText('비교하는 표');
-  await expect(skillList(win).locator('.sk-tools')).toHaveCount(0); // 스킬이 쓰는 내장 도구는 없다
+  await expect(skillList(win).locator('.sk-tools')).toHaveCount(3); // 문서 스킬 3개 = make_file
+  await expect(skillRow(win, 'word-doc').locator('.sk-tools')).toHaveText('파일 만들기');
+  await expect(compare.locator('.sk-tools')).toHaveCount(0);
   for (const gone of ['email-reply', 'meeting-prep', 'skill-creator']) await expect(skillRow(win, gone)).toHaveCount(0);
   await expect(win.getByText('스킬 만들기')).toHaveCount(0);
   await expect(win.getByText('아직 Skill이 없어요')).toHaveCount(0); // 빈 상태 대신 목록

@@ -9,7 +9,7 @@
   GET    /api/models                 노출 모델만 · 기본 모델이 첫 항목(is_default) · 나머지는 관리자 순서
                                      + source(config|ui|mixed|null = 등록 출처) · health(ok|error|unknown) · health_code · health_at
                                        (마지막 연결 결과. error 여도 목록에 남고 고를 수 있다 — 화면은 경고만)
-  GET    /api/tools                  conductor 툴 [{name, label, description}] (내장 툴은 없다 · 스킬이 있으면 use_skill 하나 · MCP 앱 도구는 앱마다)
+  GET    /api/tools                  conductor 툴 [{name, label, description}] (내장 툴은 없다 · 스킬이 있으면 use_skill · 문서 스킬이 있으면 make_file · MCP 앱 도구는 앱마다)
   GET    /api/skills                 제품 스킬 (runtime/skills) [{name, label, description, tools, builtin, used}] (단계 skill:<name>)
   POST   /api/chat                   AG-UI RunAgentInput → AG-UI SSE (agent.py 머리말 = 이벤트 순서)
                                      forwardedProps.spaceId · projectId = 새 대화만 (없으면 내 스페이스) · 기존 대화는 DB 값
@@ -87,6 +87,8 @@ from .providers import provider_label
 from .scopes import Crumb, Scopes, describe
 from .settings import Settings, load_settings
 from .skills import load_skills
+from . import docmake as dm
+from .tools import SKILL_TOOLS, tool_label
 from .store import Store, StoreConflict
 from .usage import health_state as usage_health
 
@@ -372,7 +374,7 @@ def create_app(
     runtime = runtime or ChatRuntime(
         gateway_url=settings.gateway_url,
         gateway_key=settings.gateway_key,
-        skills=load_skills(settings.skills_dir),
+        skills=load_skills(settings.skills_dir, known_tools=SKILL_TOOLS),
     )
     store = store or Store(settings.db_path)
     registry = ModelRegistry(store, catalog, bootstrap=settings.bootstrap_models, default_model=settings.default_model)
@@ -528,7 +530,9 @@ def create_app(
 
     @user.get("/api/tools")
     async def list_tools() -> list[dict[str, str]]:
-        return [{"name": t.name, "label": t.label, "description": t.description} for t in runtime.tools]
+        gated = sorted({t for sk in runtime.skills.list() for t in sk.tools})  # 스킬이 여는 도구 (make_file) = 스킬 화면의 '쓰는 도구' 이름
+        extra = [{"name": dm.MAKE_FILE, "label": tool_label(dm.MAKE_FILE), "description": dm.MAKE_FILE_DESC}] if dm.MAKE_FILE in gated else []
+        return [{"name": t.name, "label": t.label, "description": t.description} for t in runtime.tools] + extra
 
     @user.get("/api/skills")
     async def list_skills() -> list[dict[str, Any]]:

@@ -187,7 +187,8 @@ export const TOOL = {
   write: '쓰기',
   writeTitle: '앱의 데이터를 바꾸는 도구예요',
   waitingAuth: '앱 연결을 기다려요',
-  rows: { skill: '스킬', input: '입력', error: '오류', result: '결과', state: '상태' },
+  rows: { skill: '스킬', input: '입력', error: '오류', result: '결과', state: '상태', file: '파일' },
+  made: '만들었어요 (답 아래에서 저장)',
   skillLoaded: (lines: number | null) => `지침 불러옴${lines != null ? ` (${count(lines)}줄)` : ''}`,
   found: (n: number) => `${count(n)}개`,
   none: '결과 없음',
@@ -375,6 +376,11 @@ export function sampleGroups(apps: readonly Sample[], first: string | null): Sam
     { title: '스킬 비교표', items: [
       { label: '노트북 3종 비교표', prompt: '노트북 3종 가격, 무게, 배터리 비교표 만들어줘' },
       { label: '구독 요금제 비교', prompt: '넷플릭스, 디즈니플러스, 티빙 요금제를 가격, 화질, 동시 접속 수로 비교해 줘' },
+    ] },
+    { title: '문서 파일 만들기', items: [
+      { label: 'Word 회의록', prompt: '오늘 회의 내용을 회의록 Word 파일로 만들어 줘. 안건은 신제품 출시 일정, 결정은 12월 첫 주 출시, 할 일은 민지가 공지 작성(금요일까지), 준호가 QA(목요일까지)야' },
+      { label: 'Excel 예산표', prompt: '팀 회식 예산을 엑셀 파일로 만들어 줘. 항목은 식사 40만원, 음료 12만원, 이동 8만원이고 맨 아래 합계는 수식으로 넣어 줘' },
+      { label: 'PPT 발표 자료', prompt: '신입 교육용 발표 자료를 피피티로 5장 만들어 줘. 회사 소개, 일하는 방식, 도구, 첫 주 할 일, 질문 순서로' },
     ] },
     { title: '앱 도구', items: apps, empty: SAMPLE.noApp },
     { title: '동시 실행', items: [

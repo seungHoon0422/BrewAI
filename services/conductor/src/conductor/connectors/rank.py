@@ -43,6 +43,8 @@ KO_EN: dict[str, tuple[str, ...]] = {
     "일정": ("event", "calendar"), "캘린더": ("calendar",), "회의": ("meeting", "event"), "메일": ("email", "mail"),
     "상태": ("status", "state"), "라벨": ("label",), "태그": ("tag", "label"), "마일스톤": ("milestone",), "사이클": ("cycle",),
     "풀리퀘": ("pull", "request"), "커밋": ("commit",), "브랜치": ("branch",), "데이터베이스": ("database",),
+    "워드": ("word", "docx"), "엑셀": ("excel", "xlsx", "spreadsheet"), "스프레드시트": ("spreadsheet", "xlsx"), "시트": ("sheet",),
+    "발표": ("presentation", "pptx", "slide"), "피피티": ("pptx", "presentation"), "슬라이드": ("slide", "pptx"), "보고서": ("report",),
 }
 _WRITE_INTENT = ("만들", "생성", "추가", "작성", "등록", "올려", "수정", "고쳐", "바꿔", "변경", "삭제", "지워", "닫", "보내", "보관", "업데이트",
                  "create", "add", "update", "edit", "delete", "remove", "send", "post", "close", "write", "set")
@@ -96,27 +98,34 @@ def _doc(tool: Tool, aliases: Iterable[str]) -> list[str]:
     return doc
 
 
-def score(tools: Sequence[Tool], need: str, *, aliases: Mapping[str, Iterable[str]] | None = None) -> list[Scored]:
-    """모든 도구의 점수 (원래 순서). aliases = {원래 이름: [별칭 …]} (관리자 mcp_tool_policy · 서버 별칭)."""
-    aliases = aliases or {}
-    docs = [_doc(t, aliases.get(t.name, ())) for t in tools]
-    q = list(dict.fromkeys(query_tokens(need)))  # 같은 낱말 반복은 한 번
+def bm25(docs: Sequence[Sequence[str]], need: str) -> list[float]:
+    """문서(낱말 목록)마다 need 점수 (BM25 · need = 한영 사전 더함 · 같은 낱말 반복은 한 번). 도구 · 스킬 고르기가 같이 쓴다."""
+    q = list(dict.fromkeys(query_tokens(need)))
     n = len(docs)
     if not n:
         return []
     avg = sum(len(d) for d in docs) / n or 1.0
     df = Counter(tok for d in docs for tok in set(d))
-    wants_write = write_intent(need)
-    out: list[Scored] = []
-    for tool, d in zip(tools, docs, strict=True):
+    out: list[float] = []
+    for d in docs:
         tf = Counter(d)
         s = 0.0
         for tok in q:
             f = tf.get(tok, 0)
-            if not f:
-                continue
-            idf = math.log(1 + (n - df[tok] + 0.5) / (df[tok] + 0.5))
-            s += idf * f * (K1 + 1) / (f + K1 * (1 - B + B * len(d) / avg))
+            if f:
+                idf = math.log(1 + (n - df[tok] + 0.5) / (df[tok] + 0.5))
+                s += idf * f * (K1 + 1) / (f + K1 * (1 - B + B * len(d) / avg))
+        out.append(s)
+    return out
+
+
+def score(tools: Sequence[Tool], need: str, *, aliases: Mapping[str, Iterable[str]] | None = None) -> list[Scored]:
+    """모든 도구의 점수 (원래 순서). aliases = {원래 이름: [별칭 …]} (관리자 mcp_tool_policy · 서버 별칭)."""
+    aliases = aliases or {}
+    docs = [_doc(t, aliases.get(t.name, ())) for t in tools]
+    wants_write = write_intent(need)
+    out: list[Scored] = []
+    for tool, s in zip(tools, bm25(docs, need), strict=True):
         if s > 0:
             if tool.write:
                 s *= WRITE_BOOST if wants_write else WRITE_DAMP

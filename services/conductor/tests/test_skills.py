@@ -17,10 +17,11 @@ from pydantic_ai.models.test import TestModel
 
 from conductor.agent import INSTRUCTIONS
 from conductor.skills import MAX_SKILL_BYTES, SkillError, load_skills, parse_skill
-from conductor.tools import ToolSpec
+from conductor.tools import SKILL_TOOLS, ToolSpec
 
 KNOWN = ["calculator", "unit_convert", "count_chars"]  # known_tools 검사용 이름 (내장 툴은 없다 · 꽂은 툴 이름을 준다고 치고)
-STARTERS = ["compare-table", "summarize"]  # 사람이 평소 쓰는 문서 스킬만 남겼다
+STARTERS = ["compare-table", "excel-sheet", "ppt-deck", "summarize", "word-doc"]  # 평소 쓰는 글 스킬 2 + 문서 파일 스킬 3 (slice 08)
+DOC_SKILLS = {"excel-sheet", "ppt-deck", "word-doc"}  # tools: [make_file]
 
 
 def count_chars(text: str) -> dict[str, Any]:
@@ -51,20 +52,50 @@ def write(root: Path, name: str, text: str | bytes) -> Path:
 
 
 def test_starter_skills_load_cleanly(h) -> None:
-    reg = load_skills(h.SKILLS_DIR)
+    reg = load_skills(h.SKILLS_DIR, known_tools=SKILL_TOOLS)
     assert reg.errors == []
     assert [s.name for s in reg.list()] == STARTERS
     for s in reg.list():
         assert len(s.version) == 12 and int(s.version, 16) >= 0
         assert s.label and s.description and s.body and s.builtin and s.source == "runtime/skills"
-        assert s.tools == ()  # 스타터는 툴에 기대지 않는다 (내장 툴이 없어졌다)
+        assert s.tools == (("make_file",) if s.name in DOC_SKILLS else ())  # 문서 스킬 = 부르면 make_file 이 실린다
+        assert "·" not in s.description  # 스킬 화면에 보이는 글 (가운뎃점 금지)
         assert "관리자" not in s.description  # 사용자 앱(스킬 메뉴)에 보이는 글
         for gone in ("text_stats", "unit_convert", "calculator", "current_time", "date_calc"):
             assert gone not in s.body
-    # 시스템 프롬프트 = 한 줄 (이름 + 화면 이름 · 설명 · 본문 없음)
-    assert reg.prompt() == "\n스킬 (맞으면 use_skill 로 지침을 먼저 부른다): compare-table 비교표 만들기, summarize 요약"
+    # 시스템 프롬프트 = 한 줄 (스킬 수 + 화면 이름 · 이름 순 · 설명 · 본문 없음) · 도구 스키마 = need (스킬 이름 enum 없음 = 스킬이 늘어도 그대로)
+    assert reg.prompt() == "\n스킬 5개 (비교표 만들기, Excel 표, 발표 자료, 요약, Word 문서): 맞을 것 같으면 먼저 use_skill {need}"
     schema = reg.tool().schema  # type: ignore[union-attr]
-    assert schema == {"type": "object", "properties": {"name": {"type": "string", "enum": STARTERS}}, "required": ["name"]}
+    assert list(schema["properties"]) == ["need", "name"] and schema["required"] == ["need"] and "enum" not in json.dumps(schema)
+
+
+def test_prompt_and_schema_stay_small_as_skills_grow(tmp_path: Path) -> None:
+    for i in range(30):
+        write(tmp_path, f"s{i:02d}", skill_md(f"s{i:02d}", description=f"스킬 {i} 설명."))
+    reg = load_skills(tmp_path)
+    assert len(reg.skills) == 30
+    assert reg.prompt().count("데모") == 12 and reg.prompt().endswith("외 18개): 맞을 것 같으면 먼저 use_skill {need}")
+    one = tmp_path / "one"
+    write(one, "s00", skill_md("s00"))
+    assert reg.tool().schema == load_skills(one).tool().schema  # type: ignore[union-attr]  # 스킬 30개 = 1개와 같은 스키마
+
+
+@pytest.mark.parametrize(("need", "want"), [
+    ("분기 보고서를 워드로", "word-doc"), ("회의록 docx 로", "word-doc"), ("엑셀 파일로 정리해 줘", "excel-sheet"), ("csv 로 뽑아 줘", "excel-sheet"),
+    ("스프레드시트", "excel-sheet"), ("피피티 만들어 줘", "ppt-deck"), ("PPT 슬라이드", "ppt-deck"), ("발표 자료", "ppt-deck"),
+    ("이 글 요약해 줘", "summarize"), ("세 제품 비교", "compare-table"),
+])
+def test_use_skill_finds_by_need(h, need: str, want: str) -> None:
+    out = load_skills(h.SKILLS_DIR, known_tools=SKILL_TOOLS).tool().function(need)  # type: ignore[union-attr]
+    assert out["name"] == want and out["instructions"], need
+    assert out["tools"] == (["make_file"] if want in DOC_SKILLS else [])
+
+
+def test_use_skill_no_match_lists_names(h) -> None:
+    tool = load_skills(h.SKILLS_DIR).tool()
+    out = tool.function("날씨 알려 줘")  # type: ignore[union-attr]
+    assert out["error"] == "no_skill" and out["available"][0] == "compare-table 비교표 만들기" and len(out["available"]) == 5
+    assert tool.function("", name="summarize")["name"] == "summarize"  # type: ignore[union-attr]  # 이름을 알면 (예전 기록)
 
 
 # ── 머리말 오류 ──
@@ -145,10 +176,11 @@ def test_use_skill_tool_only_returns_registered_skills(tmp_path: Path) -> None:
     reg = load_skills(tmp_path, known_tools=KNOWN)
     tool = reg.tool()
     assert tool is not None and tool.name == "use_skill" and tool.label == "스킬 사용"
-    assert tool.function("demo") == {"name": "demo", "label": "데모", "tools": [], "instructions": "# 데모\n\n1. 한다"}
-    for bad in ("../demo", "demo/../../etc", "/etc/passwd", "DEMO", "", "x" * 200):
-        out = tool.function(bad)
-        assert out["error"] == "unknown_skill" and out["available"] == ["demo"], bad
+    assert tool.function("", name="demo") == {"name": "demo", "label": "데모", "tools": [], "instructions": "# 데모\n\n1. 한다"}
+    assert tool.function("데모 해 줘")["name"] == "demo"  # need 로 찾음
+    for bad in ("../x", "x/../../etc", "/etc/passwd", "", "y" * 200):
+        out = tool.function(bad, name=bad)
+        assert out["error"] == "no_skill" and out["available"] == ["demo 데모"], bad
     assert load_skills(None).tool() is None  # 스킬 없음 = 툴도 없음
 
 
@@ -164,8 +196,8 @@ def _skill_then_tool_model(seen: dict[str, Any]) -> FunctionModel:
         last_user = max(i for i, m in enumerate(messages) if isinstance(m, ModelRequest) and any(isinstance(p, UserPromptPart) for p in m.parts))
         returns = [p for m in messages[last_user:] if isinstance(m, ModelRequest) for p in m.parts if isinstance(p, ToolReturnPart)]
         if not returns:
-            yield {0: DeltaToolCall(name="use_skill", json_args='{"name": ', tool_call_id=f"s{len(messages)}")}
-            yield {0: DeltaToolCall(json_args='"summarize"}', tool_call_id=f"s{len(messages)}")}
+            yield {0: DeltaToolCall(name="use_skill", json_args='{"need": ', tool_call_id=f"s{len(messages)}")}
+            yield {0: DeltaToolCall(json_args='"글 요약"}', tool_call_id=f"s{len(messages)}")}
             return
         if len(returns) == 1:
             seen["skill_result"] = returns[0].content
@@ -189,7 +221,7 @@ def test_chat_uses_a_skill_with_skill_step(make_api, h) -> None:
     i_start = next(i for i, e in enumerate(events) if e["type"] == "TOOL_CALL_START" and e["toolCallName"] == "use_skill")
     assert i_step < i_start and t[i_start + 1 : i_start + 4] == ["TOOL_CALL_ARGS", "TOOL_CALL_ARGS", "TOOL_CALL_END"]
     assert events[1]["value"]["skills"] == STARTERS and "use_skill" in events[1]["value"]["tools"]
-    assert seen["instructions"].startswith(INSTRUCTIONS) and "summarize 요약" in seen["instructions"]
+    assert seen["instructions"].startswith(INSTRUCTIONS) and "요약, Word 문서" in seen["instructions"]
     assert "use_skill" in seen["tools"]
     assert seen["skill_result"]["name"] == "summarize" and "3줄" in seen["skill_result"]["instructions"]  # 본문은 그때 준다
     run = api.client.get("/api/runs").json()[0]
@@ -198,11 +230,11 @@ def test_chat_uses_a_skill_with_skill_step(make_api, h) -> None:
     ]
     parts = api.client.get("/api/threads/thread-1").json()["messages"][1]["parts"]
     card = parts[0]
-    assert card["name"] == "use_skill" and card["label"] == "스킬 사용" and card["args"] == {"name": "summarize"}
+    assert card["name"] == "use_skill" and card["label"] == "스킬 사용" and card["args"] == {"need": "글 요약"}
     assert "instructions" not in card["result"] and card["result"]["label"] == "요약" and card["result"]["lines"] > 3  # 화면엔 본문 안 보냄
     assert parts[1]["name"] == "count_chars" and parts[1]["result"]["characters"] == 5
     used = {s["name"]: s["used"] for s in api.client.get("/api/skills").json()}
-    assert used == {"compare-table": 0, "summarize": 1}
+    assert used == {"compare-table": 0, "excel-sheet": 0, "ppt-deck": 0, "summarize": 1, "word-doc": 0}
     api.chat("한 번 더 요약")
     assert {s["name"]: s["used"] for s in api.client.get("/api/skills").json()}["summarize"] == 2
 
@@ -218,7 +250,7 @@ def test_unknown_skill_name_still_closes_the_step(make_api, h) -> None:
     events = api.chat("아무거나")
     assert [e["stepName"] for e in events if e["type"] == "STEP_STARTED"] == ["skill:unknown", "writing"]
     result = next(e for e in events if e["type"] == "TOOL_CALL_RESULT")
-    assert json.loads(result["content"])["error"] == "unknown_skill"
+    assert json.loads(result["content"])["error"] == "no_skill"
     assert api.client.get("/api/runs").json()[0]["steps"][0]["status"] == "done"
 
 
@@ -234,7 +266,8 @@ def test_skills_endpoints_and_admin_catalog(make_api, h) -> None:
     assert len(row["version"]) == 12
     # 사용자 앱 ↔ 관리자 분리: 관리자 카탈로그는 관리자 출처만
     assert api.client.get("/api/admin/skills", headers={"origin": "app://brewai"}).status_code == 403
-    assert api.client.get("/api/tools").json()[-1]["name"] == "use_skill"
+    tools = api.client.get("/api/tools").json()
+    assert [t["name"] for t in tools] == ["use_skill", "make_file"] and tools[1]["label"] == "파일 만들기"  # 문서 스킬이 여는 도구 = 스킬 화면 이름
     assert make_api(lambda _: TestModel()).client.get("/api/skills").json() == []  # 스킬 폴더 없음 = 빈 목록
 
 

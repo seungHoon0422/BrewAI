@@ -1,7 +1,9 @@
-// 답 한 칸 = (생각 · 도구 상태 줄 + 펼치는 패널) → 글(마크다운) → 아래 한 줄 (답한 모델 · 걸린 시간). 실패 = 이유 + 고치는 곳 + 다시 시도.
+// 답 한 칸 = (생각 · 도구 상태 줄 + 펼치는 패널) → 글(마크다운) → 만든 파일 칩(make_file · 저장) → 아래 한 줄 (답한 모델 · 걸린 시간). 실패 = 이유 + 고치는 곳 + 다시 시도.
 // 글은 흐르는 동안에도 마크다운으로 (날것 문법 글자 없음 · 일정한 속도로 펼침) — markdown/render.tsx.
 import { Button, StatusDot, providerLabel } from '@brewai/ui';
 import { seconds } from '../../../lib/format';
+import { madeFile, type MadeFile } from '../../files/api';
+import { MadeFiles } from '../../files/components/MadeFiles';
 import { ModelName } from '../../models/components/ModelName';
 import { CHAT, FAILURE_TEXT, failureCopy, joinParts, modelNames } from '../copy';
 import { retry } from '../hooks';
@@ -29,6 +31,7 @@ export function AnswerView({ turn, latest, threadId, teamRun = null }: { turn: T
           {texts.map((p, i) => (
             <Markdown key={p.id} id={p.id} className="txt" text={p.text} live={live && i === texts.length - 1} />
           ))}
+          <MadeFiles files={made(a)} />
           {a.cards.length > 0 && <AppCards cards={a.cards} parts={a.parts} threadId={threadId} runId={a.runId} active={latest} />}
           {(a.model || a.status === 'stopped') && (
             <div className="afoot">
@@ -48,6 +51,10 @@ export function AnswerView({ turn, latest, threadId, teamRun = null }: { turn: T
     </>
   );
 }
+
+// 이 답이 만든 파일 (make_file 이 끝난 칸 · 나온 순서)
+const made = (a: Answer): MadeFile[] =>
+  a.parts.flatMap((p) => (p.kind === 'tool' && p.name === 'make_file' && p.status === 'done' ? [madeFile(p.result)].filter((f): f is MadeFile => f !== null) : []));
 
 const failText = (a: Answer) => failureCopy(a.failureDetail, a.reasoning)?.text || (a.failure ? FAILURE_TEXT[a.failure] : '');
 

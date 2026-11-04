@@ -5,10 +5,10 @@ import { expectHeading, shot } from './helpers';
 import { MEMO, addMemo, idle, type App } from './mcp';
 
 // 개발용 샘플 메뉴 (개발 빌드에서만 = main 이 배포본이 아닐 때 --brewai-dev → preload window.brewai.dev · E2E 빌드본도 개발 빌드)
-// 입력창 첨부 옆 '샘플' 단추 → 기능 묶음 10개의 질문 → 고르면 홈 제안처럼 바로 보낸다 (POST /api/chat 의 마지막 user 글 = 그 질문)
+// 입력창 첨부 옆 '샘플' 단추 → 기능 묶음 11개의 질문 → 고르면 홈 제안처럼 바로 보낸다 (POST /api/chat 의 마지막 user 글 = 그 질문)
 // 질문은 진짜 모델용 글이라 mock 표시([fake:…])가 없다 → mock 게이트웨이는 그냥 답한다. 앱 도구 묶음 = 쓸 수 있는 내 앱 (여기선 '메모')
 const HOME_H1 = '무엇을 맡길까요?';
-const GROUPS = ['대화 기본', '생각', '마크다운 표', '스킬 요약', '스킬 비교표', '앱 도구', '동시 실행', '여러 단계', '에이전트 팀', '오류 처리'];
+const GROUPS = ['대화 기본', '생각', '마크다운 표', '스킬 요약', '스킬 비교표', '문서 파일 만들기', '앱 도구', '동시 실행', '여러 단계', '에이전트 팀', '오류 처리'];
 const FIRST = '안녕! 너는 어떤 일을 도와줄 수 있어? 세 줄로 알려 줘';
 const MEMO_DOCS = `${MEMO.name} 앱으로 시작하기 문서를 찾아 핵심 세 가지를 정리해 줘`; // 메모 = 분류 문서 → 시작하기 문서 찾기
 const SECOND = '블랙홀이 무엇인지 초등학생도 알 수 있게 세 문장으로 설명해 줘';
@@ -40,7 +40,7 @@ test.afterAll(async () => {
   if (api && memo) await api.del(`/api/me/mcp/servers/${memo.id}`);
 });
 
-test('개발 빌드: 입력창에 샘플 단추 · 메뉴 = 기능 묶음 10개 · 앱 도구는 연결된 앱 기준 · mock 표시 없음', async () => {
+test('개발 빌드: 입력창에 샘플 단추 · 메뉴 = 기능 묶음 11개 · 앱 도구는 연결된 앱 기준 · mock 표시 없음', async () => {
   expect(await win.evaluate(() => (window as { brewai?: { dev?: boolean } }).brewai?.dev)).toBe(true);
   const { button, menu } = ui(win);
   await expect(button).toBeVisible();

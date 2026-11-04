@@ -7,7 +7,7 @@
     "messages": [
      {
       "role": "system",
-      "content": "너는 BrewAI 에이전트다. 한국어로 짧고 정확하게 답한다. 서로 상관없는 도구 호출은 한 응답에 같이 부른다.\n스킬 (맞으면 use_skill 로 지침을 먼저 부른다): compare-table 비교표 만들기, summarize 요약"
+      "content": "너는 BrewAI 에이전트다. 한국어로 짧고 정확하게 답한다. 서로 상관없는 도구 호출은 한 응답에 같이 부른다.\n스킬 5개 (비교표 만들기, Excel 표, 발표 자료, 요약, Word 문서): 맞을 것 같으면 먼저 use_skill {need}"
      },
      {
       "role": "user",
@@ -27,24 +27,24 @@
       "type": "function",
       "function": {
        "name": "use_skill",
-       "description": "스킬 지침을 불러온다.",
+       "description": "할 일에 맞는 스킬 지침을 찾아 부른다.",
        "parameters": {
         "type": "object",
         "properties": {
+         "need": {
+          "type": "string",
+          "description": "할 일 한 줄"
+         },
          "name": {
           "type": "string",
-          "enum": [
-           "compare-table",
-           "summarize"
-          ]
+          "description": "이름을 알 때만"
          }
         },
         "required": [
-         "name"
+         "need"
         ],
         "additionalProperties": false
-       },
-       "strict": true
+       }
       }
      }
     ],
@@ -76,7 +76,10 @@
       ],
       "skills": [
        "compare-table",
-       "summarize"
+       "excel-sheet",
+       "ppt-deck",
+       "summarize",
+       "word-doc"
       ],
       "turn": 1,
       "space_id": "<uuid>",
@@ -151,7 +154,7 @@
     "messages": [
      {
       "role": "system",
-      "content": "너는 BrewAI 에이전트다. 한국어로 짧고 정확하게 답한다. 서로 상관없는 도구 호출은 한 응답에 같이 부른다.\n스킬 (맞으면 use_skill 로 지침을 먼저 부른다): compare-table 비교표 만들기, summarize 요약"
+      "content": "너는 BrewAI 에이전트다. 한국어로 짧고 정확하게 답한다. 서로 상관없는 도구 호출은 한 응답에 같이 부른다.\n스킬 5개 (비교표 만들기, Excel 표, 발표 자료, 요약, Word 문서): 맞을 것 같으면 먼저 use_skill {need}"
      },
      {
       "role": "system",
@@ -175,24 +178,24 @@
       "type": "function",
       "function": {
        "name": "use_skill",
-       "description": "스킬 지침을 불러온다.",
+       "description": "할 일에 맞는 스킬 지침을 찾아 부른다.",
        "parameters": {
         "type": "object",
         "properties": {
+         "need": {
+          "type": "string",
+          "description": "할 일 한 줄"
+         },
          "name": {
           "type": "string",
-          "enum": [
-           "compare-table",
-           "summarize"
-          ]
+          "description": "이름을 알 때만"
          }
         },
         "required": [
-         "name"
+         "need"
         ],
         "additionalProperties": false
-       },
-       "strict": true
+       }
       }
      },
      {
@@ -246,7 +249,10 @@
       ],
       "skills": [
        "compare-table",
-       "summarize"
+       "excel-sheet",
+       "ppt-deck",
+       "summarize",
+       "word-doc"
       ],
       "turn": 1,
       "space_id": "<uuid>",
@@ -376,7 +382,7 @@
     "messages": [
      {
       "role": "system",
-      "content": "너는 BrewAI 에이전트다. 한국어로 짧고 정확하게 답한다. 서로 상관없는 도구 호출은 한 응답에 같이 부른다.\n스킬 (맞으면 use_skill 로 지침을 먼저 부른다): compare-table 비교표 만들기, summarize 요약"
+      "content": "너는 BrewAI 에이전트다. 한국어로 짧고 정확하게 답한다. 서로 상관없는 도구 호출은 한 응답에 같이 부른다.\n스킬 5개 (비교표 만들기, Excel 표, 발표 자료, 요약, Word 문서): 맞을 것 같으면 먼저 use_skill {need}"
      },
      {
       "role": "system",
@@ -400,24 +406,24 @@
       "type": "function",
       "function": {
        "name": "use_skill",
-       "description": "스킬 지침을 불러온다.",
+       "description": "할 일에 맞는 스킬 지침을 찾아 부른다.",
        "parameters": {
         "type": "object",
         "properties": {
+         "need": {
+          "type": "string",
+          "description": "할 일 한 줄"
+         },
          "name": {
           "type": "string",
-          "enum": [
-           "compare-table",
-           "summarize"
-          ]
+          "description": "이름을 알 때만"
          }
         },
         "required": [
-         "name"
+         "need"
         ],
         "additionalProperties": false
-       },
-       "strict": true
+       }
       }
      },
      {
@@ -451,7 +457,7 @@
     "messages": [
      {
       "role": "system",
-      "content": "너는 BrewAI 에이전트다. 한국어로 짧고 정확하게 답한다. 서로 상관없는 도구 호출은 한 응답에 같이 부른다.\n스킬 (맞으면 use_skill 로 지침을 먼저 부른다): compare-table 비교표 만들기, summarize 요약"
+      "content": "너는 BrewAI 에이전트다. 한국어로 짧고 정확하게 답한다. 서로 상관없는 도구 호출은 한 응답에 같이 부른다.\n스킬 5개 (비교표 만들기, Excel 표, 발표 자료, 요약, Word 문서): 맞을 것 같으면 먼저 use_skill {need}"
      },
      {
       "role": "system",
@@ -487,24 +493,24 @@
       "type": "function",
       "function": {
        "name": "use_skill",
-       "description": "스킬 지침을 불러온다.",
+       "description": "할 일에 맞는 스킬 지침을 찾아 부른다.",
        "parameters": {
         "type": "object",
         "properties": {
+         "need": {
+          "type": "string",
+          "description": "할 일 한 줄"
+         },
          "name": {
           "type": "string",
-          "enum": [
-           "compare-table",
-           "summarize"
-          ]
+          "description": "이름을 알 때만"
          }
         },
         "required": [
-         "name"
+         "need"
         ],
         "additionalProperties": false
-       },
-       "strict": true
+       }
       }
      },
      {
@@ -538,7 +544,7 @@
     "messages": [
      {
       "role": "system",
-      "content": "너는 BrewAI 에이전트다. 한국어로 짧고 정확하게 답한다. 서로 상관없는 도구 호출은 한 응답에 같이 부른다.\n스킬 (맞으면 use_skill 로 지침을 먼저 부른다): compare-table 비교표 만들기, summarize 요약"
+      "content": "너는 BrewAI 에이전트다. 한국어로 짧고 정확하게 답한다. 서로 상관없는 도구 호출은 한 응답에 같이 부른다.\n스킬 5개 (비교표 만들기, Excel 표, 발표 자료, 요약, Word 문서): 맞을 것 같으면 먼저 use_skill {need}"
      },
      {
       "role": "system",
@@ -593,24 +599,24 @@
       "type": "function",
       "function": {
        "name": "use_skill",
-       "description": "스킬 지침을 불러온다.",
+       "description": "할 일에 맞는 스킬 지침을 찾아 부른다.",
        "parameters": {
         "type": "object",
         "properties": {
+         "need": {
+          "type": "string",
+          "description": "할 일 한 줄"
+         },
          "name": {
           "type": "string",
-          "enum": [
-           "compare-table",
-           "summarize"
-          ]
+          "description": "이름을 알 때만"
          }
         },
         "required": [
-         "name"
+         "need"
         ],
         "additionalProperties": false
-       },
-       "strict": true
+       }
       }
      },
      {
@@ -688,7 +694,7 @@
     "messages": [
      {
       "role": "system",
-      "content": "너는 BrewAI 에이전트다. 한국어로 짧고 정확하게 답한다. 서로 상관없는 도구 호출은 한 응답에 같이 부른다.\n스킬 (맞으면 use_skill 로 지침을 먼저 부른다): compare-table 비교표 만들기, summarize 요약"
+      "content": "너는 BrewAI 에이전트다. 한국어로 짧고 정확하게 답한다. 서로 상관없는 도구 호출은 한 응답에 같이 부른다.\n스킬 5개 (비교표 만들기, Excel 표, 발표 자료, 요약, Word 문서): 맞을 것 같으면 먼저 use_skill {need}"
      },
      {
       "role": "system",
@@ -762,24 +768,24 @@
       "type": "function",
       "function": {
        "name": "use_skill",
-       "description": "스킬 지침을 불러온다.",
+       "description": "할 일에 맞는 스킬 지침을 찾아 부른다.",
        "parameters": {
         "type": "object",
         "properties": {
+         "need": {
+          "type": "string",
+          "description": "할 일 한 줄"
+         },
          "name": {
           "type": "string",
-          "enum": [
-           "compare-table",
-           "summarize"
-          ]
+          "description": "이름을 알 때만"
          }
         },
         "required": [
-         "name"
+         "need"
         ],
         "additionalProperties": false
-       },
-       "strict": true
+       }
       }
      },
      {
@@ -857,7 +863,7 @@
     "messages": [
      {
       "role": "system",
-      "content": "너는 BrewAI 에이전트다. 한국어로 짧고 정확하게 답한다. 서로 상관없는 도구 호출은 한 응답에 같이 부른다.\n스킬 (맞으면 use_skill 로 지침을 먼저 부른다): compare-table 비교표 만들기, summarize 요약"
+      "content": "너는 BrewAI 에이전트다. 한국어로 짧고 정확하게 답한다. 서로 상관없는 도구 호출은 한 응답에 같이 부른다.\n스킬 5개 (비교표 만들기, Excel 표, 발표 자료, 요약, Word 문서): 맞을 것 같으면 먼저 use_skill {need}"
      },
      {
       "role": "system",
@@ -943,24 +949,24 @@
       "type": "function",
       "function": {
        "name": "use_skill",
-       "description": "스킬 지침을 불러온다.",
+       "description": "할 일에 맞는 스킬 지침을 찾아 부른다.",
        "parameters": {
         "type": "object",
         "properties": {
+         "need": {
+          "type": "string",
+          "description": "할 일 한 줄"
+         },
          "name": {
           "type": "string",
-          "enum": [
-           "compare-table",
-           "summarize"
-          ]
+          "description": "이름을 알 때만"
          }
         },
         "required": [
-         "name"
+         "need"
         ],
         "additionalProperties": false
-       },
-       "strict": true
+       }
       }
      },
      {
@@ -1058,7 +1064,10 @@
       ],
       "skills": [
        "compare-table",
-       "summarize"
+       "excel-sheet",
+       "ppt-deck",
+       "summarize",
+       "word-doc"
       ],
       "turn": 1,
       "space_id": "<uuid>",
@@ -1149,7 +1158,10 @@
       ],
       "skills": [
        "compare-table",
-       "summarize"
+       "excel-sheet",
+       "ppt-deck",
+       "summarize",
+       "word-doc"
       ],
       "turn": 2,
       "space_id": "<uuid>",
@@ -1361,7 +1373,10 @@
       ],
       "skills": [
        "compare-table",
-       "summarize"
+       "excel-sheet",
+       "ppt-deck",
+       "summarize",
+       "word-doc"
       ],
       "turn": 3,
       "space_id": "<uuid>",
@@ -1600,7 +1615,7 @@
     "messages": [
      {
       "role": "system",
-      "content": "너는 BrewAI 에이전트다. 한국어로 짧고 정확하게 답한다. 서로 상관없는 도구 호출은 한 응답에 같이 부른다.\n스킬 (맞으면 use_skill 로 지침을 먼저 부른다): compare-table 비교표 만들기, summarize 요약"
+      "content": "너는 BrewAI 에이전트다. 한국어로 짧고 정확하게 답한다. 서로 상관없는 도구 호출은 한 응답에 같이 부른다.\n스킬 5개 (비교표 만들기, Excel 표, 발표 자료, 요약, Word 문서): 맞을 것 같으면 먼저 use_skill {need}"
      },
      {
       "role": "system",
@@ -1624,24 +1639,24 @@
       "type": "function",
       "function": {
        "name": "use_skill",
-       "description": "스킬 지침을 불러온다.",
+       "description": "할 일에 맞는 스킬 지침을 찾아 부른다.",
        "parameters": {
         "type": "object",
         "properties": {
+         "need": {
+          "type": "string",
+          "description": "할 일 한 줄"
+         },
          "name": {
           "type": "string",
-          "enum": [
-           "compare-table",
-           "summarize"
-          ]
+          "description": "이름을 알 때만"
          }
         },
         "required": [
-         "name"
+         "need"
         ],
         "additionalProperties": false
-       },
-       "strict": true
+       }
       }
      },
      {
@@ -1675,7 +1690,7 @@
     "messages": [
      {
       "role": "system",
-      "content": "너는 BrewAI 에이전트다. 한국어로 짧고 정확하게 답한다. 서로 상관없는 도구 호출은 한 응답에 같이 부른다.\n스킬 (맞으면 use_skill 로 지침을 먼저 부른다): compare-table 비교표 만들기, summarize 요약"
+      "content": "너는 BrewAI 에이전트다. 한국어로 짧고 정확하게 답한다. 서로 상관없는 도구 호출은 한 응답에 같이 부른다.\n스킬 5개 (비교표 만들기, Excel 표, 발표 자료, 요약, Word 문서): 맞을 것 같으면 먼저 use_skill {need}"
      },
      {
       "role": "system",
@@ -1718,24 +1733,24 @@
       "type": "function",
       "function": {
        "name": "use_skill",
-       "description": "스킬 지침을 불러온다.",
+       "description": "할 일에 맞는 스킬 지침을 찾아 부른다.",
        "parameters": {
         "type": "object",
         "properties": {
+         "need": {
+          "type": "string",
+          "description": "할 일 한 줄"
+         },
          "name": {
           "type": "string",
-          "enum": [
-           "compare-table",
-           "summarize"
-          ]
+          "description": "이름을 알 때만"
          }
         },
         "required": [
-         "name"
+         "need"
         ],
         "additionalProperties": false
-       },
-       "strict": true
+       }
       }
      },
      {
@@ -1813,7 +1828,7 @@
     "messages": [
      {
       "role": "system",
-      "content": "너는 BrewAI 에이전트다. 한국어로 짧고 정확하게 답한다. 서로 상관없는 도구 호출은 한 응답에 같이 부른다.\n스킬 (맞으면 use_skill 로 지침을 먼저 부른다): compare-table 비교표 만들기, summarize 요약"
+      "content": "너는 BrewAI 에이전트다. 한국어로 짧고 정확하게 답한다. 서로 상관없는 도구 호출은 한 응답에 같이 부른다.\n스킬 5개 (비교표 만들기, Excel 표, 발표 자료, 요약, Word 문서): 맞을 것 같으면 먼저 use_skill {need}"
      },
      {
       "role": "system",
@@ -1888,24 +1903,24 @@
       "type": "function",
       "function": {
        "name": "use_skill",
-       "description": "스킬 지침을 불러온다.",
+       "description": "할 일에 맞는 스킬 지침을 찾아 부른다.",
        "parameters": {
         "type": "object",
         "properties": {
+         "need": {
+          "type": "string",
+          "description": "할 일 한 줄"
+         },
          "name": {
           "type": "string",
-          "enum": [
-           "compare-table",
-           "summarize"
-          ]
+          "description": "이름을 알 때만"
          }
         },
         "required": [
-         "name"
+         "need"
         ],
         "additionalProperties": false
-       },
-       "strict": true
+       }
       }
      },
      {
@@ -2003,7 +2018,10 @@
       ],
       "skills": [
        "compare-table",
-       "summarize"
+       "excel-sheet",
+       "ppt-deck",
+       "summarize",
+       "word-doc"
       ],
       "turn": 1,
       "space_id": "<uuid>",
@@ -2143,8 +2161,8 @@
     {
      "type": "TOOL_CALL_RESULT",
      "messageId": "<uuid>",
-     "toolCallId": "call_2_1",
-     "content": "{\"source\":\"notes\",\"untrusted\":true,\"result\":\"둘\"}",
+     "toolCallId": "call_2_0",
+     "content": "{\"source\":\"notes\",\"untrusted\":true,\"result\":\"하나\"}",
      "role": "tool"
     },
     {
@@ -2154,8 +2172,8 @@
     {
      "type": "TOOL_CALL_RESULT",
      "messageId": "<uuid>",
-     "toolCallId": "call_2_0",
-     "content": "{\"source\":\"notes\",\"untrusted\":true,\"result\":\"하나\"}",
+     "toolCallId": "call_2_1",
+     "content": "{\"source\":\"notes\",\"untrusted\":true,\"result\":\"둘\"}",
      "role": "tool"
     },
     {

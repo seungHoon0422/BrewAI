@@ -29,7 +29,12 @@ export type DesktopBridge = {
     connect: (input: { serverId: string; scope?: string | null }) => Promise<McpConnectResult>;
     cancel: () => Promise<boolean>;
   };
+  // 만든 파일 저장 (slice 08) = main 의 저장 대화상자 · code = cancelled · bad_input · write_failed
+  files?: {
+    save: (input: { name: string; bytes: Uint8Array }) => Promise<SaveResult>;
+  };
 };
+export type SaveResult = { ok: true; name: string } | { ok: false; code: string };
 
 declare global {
   interface Window {

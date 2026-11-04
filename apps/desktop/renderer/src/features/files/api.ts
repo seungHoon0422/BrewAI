@@ -1,6 +1,7 @@
 // 파일 (slice 07 · ADR-0015) — 올리기 · 목록 · 지우기 · 전달 계획 · 미리보기. 판정은 서버 (conductor api_files.py · files.py).
 // 올리기 = PUT /api/files 본문 그대로 (바이트를 대화 요청에 싣지 않는다 · 대화엔 id 만).
 import { ApiError, call, isObj, json, list, num, send, str, strOrNull } from '../../lib/api';
+import { bridge, type SaveResult } from '../../lib/bridge';
 
 export type FileKind = 'image' | 'pdf' | 'text' | 'docx' | 'xlsx' | 'pptx';
 export type Where = { kind: 'thread' | 'project' | 'draft'; id: string | null; title: string | null };
@@ -74,3 +75,33 @@ export const dataUrl = (blob: Blob) =>
     r.onerror = () => ok(null);
     r.readAsDataURL(blob);
   });
+
+// 만든 파일 (make_file 결과 = 답의 도구 칸) — {id, name, kind, size} · 모양이 틀리면 null
+export type MadeFile = { id: string; name: string; kind: FileKind; size: number };
+export function madeFile(result: unknown): MadeFile | null {
+  const f = isObj(result) && isObj(result.file) ? result.file : null;
+  if (!f || typeof f.id !== 'string' || typeof f.name !== 'string') return null;
+  return { id: f.id, name: f.name, kind: KINDS.find((k) => k === f.kind) ?? 'text', size: num(f.size) ?? 0 };
+}
+
+// 저장 = 우리 API 에서 받아 → main 의 저장 대화상자 (어디에 쓸지는 사람이 고른다 · 데스크톱만). 다리 없음(브라우저) = 내려받기 링크
+export async function saveFile(f: { id: string; name: string }): Promise<SaveResult> {
+  let blob: Blob;
+  try {
+    blob = await (await call(`/api/files/${encodeURIComponent(f.id)}/content`)).blob();
+  } catch (e) {
+    return { ok: false, code: e instanceof ApiError && e.kind === 'not_found' ? 'gone' : 'fetch_failed' };
+  }
+  if (!bridge?.files) {
+    const url = URL.createObjectURL(blob);
+    const a = Object.assign(document.createElement('a'), { href: url, download: f.name });
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    return { ok: true, name: f.name };
+  }
+  try {
+    return await bridge.files.save({ name: f.name, bytes: new Uint8Array(await blob.arrayBuffer()) });
+  } catch {
+    return { ok: false, code: 'write_failed' };
+  }
+}

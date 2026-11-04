@@ -3,7 +3,7 @@
 게이트웨이로 가는 요청 본문(바이트 그대로 · OpenAIChatModel → httpx2.MockTransport)과 SSE 이벤트(시각 · 무작위 id · 시간 칸만 지움)를
 경우 4개로 남긴다: hello 앱 0개 · hello 앱 54개 · MCP 3턴(공개 → 도구 → 후속) · 한 응답의 병렬 MCP 도구 2개.
 사용자 · 서버 id (uuid4) 는 '<uuid>' 로 바꾼다. 다시 찍기 = 이 파일의 capture() (게이트가 꺼진 길이 바뀌지 않았다는 걸 보이는 게 목적이라
-일부러 다시 찍지 않는다).
+일부러 다시 찍지 않는다). 다시 찍은 때: 2026-11-04 slice 08 (스킬 줄 · use_skill 인자 need · 스타터 5개 — 그 세 곳만 달라진 것을 diff 로 확인).
 """
 
 from __future__ import annotations

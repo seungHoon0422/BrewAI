@@ -4,7 +4,7 @@ import type { IconName } from '@brewai/ui';
 import { TOOL } from './copy';
 import type { ToolPart } from './model';
 
-export const TOOL_ICON: Record<string, IconName> = { use_skill: 'layers', use_app: 'plug' };
+export const TOOL_ICON: Record<string, IconName> = { use_skill: 'layers', use_app: 'plug', make_file: 'file', read_file: 'file' };
 export const TOOL_STATE_ICON: Partial<Record<ToolPart['status'], IconName>> = { done: 'check', error: 'close', waiting: 'lock' };
 // 카드 아이콘: MCP 앱 도구 = 플러그 (앱 서버) · 그 밖 = 도구마다
 export const toolIcon = (p: ToolPart): IconName => (p.app ? 'plug' : TOOL_ICON[p.name] ?? 'wrench');
@@ -126,6 +126,15 @@ function resultBody(body: unknown): { links: ToolLink[] | null; excerpt: string 
   return { links: null, excerpt: clip(squash(show(body))) };
 }
 
+// make_file 카드 = 만든 파일 이름 (결과가 오기 전엔 인자의 name.kind) · 본문 구조(blocks · slides)는 원문 토글 뒤에
+function madeName(args: Record<string, unknown> | null, res: Record<string, unknown> | null): string {
+  const f = res && typeof res.file === 'object' && res.file ? (res.file as Record<string, unknown>) : null;
+  if (f && typeof f.name === 'string') return f.name;
+  const name = show(args?.name);
+  const kind = show(args?.kind);
+  return name ? (kind ? `${name}.${kind}` : name) : '…';
+}
+
 export function toolView(p: ToolPart): ToolView {
   const args = asObj(p.args);
   const res = asObj(p.result);
@@ -134,7 +143,8 @@ export function toolView(p: ToolPart): ToolView {
   let links: ToolLink[] = [];
   let more = 0;
   let note = '';
-  if (p.name === 'use_skill') rows.push({ k: K.skill, v: show(res?.label) || show(args?.name) || '…' });
+  if (p.name === 'use_skill') rows.push({ k: K.skill, v: show(res?.label) || show(args?.name) || show(args?.need) || '…' });
+  else if (p.name === 'make_file') rows.push({ k: K.file, v: madeName(args, res) });
   else if (p.args !== undefined || p.argsText) {
     const v = p.args !== undefined ? argSummary(p.args) : '…';
     if (v) rows.push({ k: K.input, v });
@@ -148,6 +158,8 @@ export function toolView(p: ToolPart): ToolView {
   if (p.status === 'running' || p.status === 'cancelled') return done();
   if (res && 'error' in res) {
     rows.push({ k: K.error, v: errorText(res), err: true });
+  } else if (p.name === 'make_file' && res) {
+    rows.push({ k: K.result, v: TOOL.made });
   } else if (p.name === 'use_skill' && res) {
     // 지침 본문은 모델만 본다 — 카드엔 줄 수만 (기록에서 연 답은 서버가 본문을 빼고 lines 를 준다)
     const lines = typeof res.lines === 'number' ? res.lines : typeof res.instructions === 'string' ? res.instructions.split('\n').length : null;
