@@ -122,6 +122,16 @@ export const USAGE_COPY = {
   more: '상세보기',
   topEmptyShort: '기록이 없어요',
   summaryLine: (runs: string, tokens: string, cost: string) => [`호출 ${runs}`, `토큰 ${tokens}`, `비용 ${cost}`],
+  // 줄인 숫자의 실제 값 (마우스를 올리면)
+  exactTokens: (all: string, input: string, output: string) => `${all} 토큰 (입력 ${input}, 출력 ${output})`,
+  exactCost: (v: string) => `추정 ${v}`,
+  // 비용 분해 (사용량 화면 · E2E: region '비용 분해')
+  cost: '비용 분해',
+  costHint: '추정 비용을 토큰 종류와 모델로 나눠요',
+  costKinds: '토큰 종류별',
+  costModels: '모델별',
+  costModelsHint: '비용 많은 순',
+  modelsOther: (n: number) => `기타 ${n}개`,
 } as const;
 
 // 모델 자세히 페이지의 '사용량' 칸 (E2E: region '사용량' · 표 '종류별 토큰과 비용')

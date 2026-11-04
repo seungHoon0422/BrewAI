@@ -67,3 +67,11 @@ a.us-top-name:hover b{text-decoration:underline;text-underline-offset:2px}
   .us .ui-card-head>.ui-card-actions{flex:1 1 100%;min-width:0}
   .us .us-switch{justify-content:flex-start}
 }
+
+/* 비용 분해 (개요에서 옮김) — 합계 · 종류 · 모델 나란히 (좁으면 위아래) */
+.us-costcard{display:grid;gap:var(--space-3);align-content:start;min-width:0}
+.us-costcard-total{display:flex;align-items:baseline;flex-wrap:wrap;gap:var(--space-1) var(--space-2)}
+.us-costcard-total b{font-size:var(--fs-xl);font-weight:var(--fw-semibold)}
+.us-costcard .us-sub{margin:0}
+.us-costcard-body{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:var(--space-3) var(--space-5);align-items:start}
+.us-costcard-part{display:grid;gap:var(--space-3);min-width:0}

@@ -8,16 +8,14 @@
 .ov-muted{margin:0;font-size:var(--fs-xs);color:var(--text-muted)}
 .ov-more{justify-self:start;margin-left:calc(-1 * var(--space-2))}
 
-/* Top 5 · 비용 분해 */
-.ov-top{display:grid;min-width:0;transition:opacity var(--dur-base)}
-.ov-top>.ui-card{height:100%;box-sizing:border-box}
-.ov-cost-total{display:flex;align-items:baseline;flex-wrap:wrap;gap:var(--space-1) var(--space-2)}
-.ov-cost-total b{font-size:var(--fs-xl);font-weight:var(--fw-semibold)}
-.ov-cost .us-sub{margin:0}
-/* 비용 분해(넓게) + 작은 흐름(좁게) · 비용 카드 안 = 종류 · 모델 나란히 (좁으면 위아래) → 두 카드 높이가 비슷해 빈 칸이 크지 않다 */
-.ov-split{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:var(--space-3)}
-.ov-cost-body{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:var(--space-3) var(--space-5);align-items:start}
-.ov-cost-part{display:grid;gap:var(--space-3);min-width:0}
+/* 단위별 추이(넓게) + 호출과 비용 흐름(좁게) · 단위별 카드 = 탭 둘 → 선 차트 → 그 단위 Top 5 표 */
+.ov-split{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:var(--space-3);align-items:start}
+.ov-unit-tabs{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:var(--space-2)}
+.ov-unit-body{display:grid;gap:var(--space-3);min-width:0;transition:opacity var(--dur-base)}
+.ov-unit-hold{min-height:200px}
+.ov-unit-top{display:grid;gap:var(--space-2);min-width:0;padding-top:var(--space-2);border-top:1px solid var(--border-subtle)}
+.ov-unit-top .us-sub{margin:0}
+.ov-unit-top .ov-muted{display:inline;font-weight:var(--fw-regular)}
 
 /* 게이트웨이 카드 */
 .ov-gw-counts{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:var(--space-2);margin:0}

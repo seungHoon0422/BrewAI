@@ -14,17 +14,17 @@ export const OVERVIEW_COPY = {
   // 흐름 (작게)
   trend: '호출과 비용 추이',
   trendHint: '하루별, 비용은 게이트웨이 가격 기준 추정',
-  // Top 5 (E2E: region 이름)
+  // 단위별 추이 (E2E: region '단위별 추이' · 단위 탭 · 기준 탭 · 아래 Top 5 표 = 표 이름)
+  unitTrend: '단위별 추이',
+  unitHint: '많이 쓴 다섯과 그 밖을 하루별로, 선 위에 마우스를 올리면 실제 값',
+  unitTabs: '단위',
+  metricTabs: '기준',
+  unitChart: (unit: string, metric: string) => `${unit}별 ${metric} 추이`,
+  rest: (n: number) => `그 밖 ${n}개`,
+  // Top 5 (E2E: 표 이름)
   top: { org: `${ORG} Top 5`, user: '사용자 Top 5', model: '모델 Top 5', space: `${SPACE} Top 5` },
-  topHint: '호출 많은 순, 이름을 누르면 그 대상',
+  topHint: '기준 많은 순, 이름을 누르면 그 대상',
   topEmpty: '이 기간에 기록이 없어요',
-  // 비용 분해 (E2E: region '비용 분해')
-  cost: '비용 분해',
-  costHint: '추정 비용을 토큰 종류와 모델로 나눠요',
-  costKinds: '토큰 종류별',
-  costModels: '모델별',
-  costModelsHint: '비용 많은 순',
-  modelsOther: (n: number) => `기타 ${n}개`,
   // 게이트웨이 카드 (E2E: region '게이트웨이' · data-state)
   gateway: '게이트웨이',
   gatewayLink: '모델 보기',

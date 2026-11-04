@@ -390,6 +390,43 @@ def _select(db: sqlite3.Connection, w: Window, f: Filters, group: Group | None) 
     ).fetchall()
 
 
+TREND_KEYS = ("runs", "tokens", "cost_usd")
+
+
+def _trend(db: sqlite3.Connection, w: Window, f: Filters, group: Group) -> dict[str | None, dict[str, list[Any]]]:
+    """묶음마다 하루별 흐름 (호출 · 토큰 · 비용 · w.dates() 순 · 빈 날 = 0 · 비용을 모르는 날 = None) — 개요 '단위별 추이'."""
+    lo, hi = w.bounds
+    cond, params = f.sql()
+    rows = db.execute(
+        f"SELECT {_KEY[group]} AS k, date(u.started_at, ?) AS d, COUNT(*) AS runs,"
+        " COALESCE(SUM(u.input_tokens), 0) + COALESCE(SUM(u.output_tokens), 0) AS tokens, SUM(u.cost_usd) AS cost_usd"
+        f" FROM usage_events u LEFT JOIN spaces s ON s.id = u.space_id WHERE u.started_at >= ? AND u.started_at < ?{cond} GROUP BY k, d",
+        (w.modifier, lo, hi, *params),
+    ).fetchall()
+    at = {d: i for i, d in enumerate(w.dates())}
+    out: dict[str | None, dict[str, list[Any]]] = {}
+    for r in rows:
+        i = at.get(r["d"])
+        if i is None:
+            continue
+        t = out.setdefault(r["k"], {"runs": [0] * len(at), "tokens": [0] * len(at), "cost_usd": [None] * len(at)})
+        t["runs"][i] = int(r["runs"] or 0)
+        t["tokens"][i] = int(r["tokens"] or 0)
+        t["cost_usd"][i] = _usd(r["cost_usd"])
+    return out
+
+
+def _sum_trend(parts: list[dict[str, list[Any]]], n: int) -> dict[str, list[Any]]:
+    out: dict[str, list[Any]] = {"runs": [0] * n, "tokens": [0] * n, "cost_usd": [None] * n}
+    for p in parts:
+        for i in range(n):
+            out["runs"][i] += p["runs"][i]
+            out["tokens"][i] += p["tokens"][i]
+            if p["cost_usd"][i] is not None:
+                out["cost_usd"][i] = round((out["cost_usd"][i] or 0) + p["cost_usd"][i], 8)
+    return out
+
+
 def _labels(db: sqlite3.Connection, group: Group, keys: list[str], w: Window, model_labels: Mapping[str, str]) -> dict[str, dict[str, Any]]:
     marks = ", ".join("?" * len(keys))
     if not keys:
@@ -421,11 +458,12 @@ def _labels(db: sqlite3.Connection, group: Group, keys: list[str], w: Window, mo
 
 def summary(
     db: sqlite3.Connection, w: Window, f: Filters, group: Group = "day", *, limit: int = 50, model_labels: Mapping[str, str] | None = None,
-    series: bool = True, sort: Sort = "runs",
+    series: bool = True, sort: Sort = "runs", trend: bool = False,
 ) -> dict[str, Any]:
     """기간 하나 = 합계 + 지난 같은 길이 기간 합계(증감) + 하루별 흐름(빈 날 = 0) + 묶음별 줄 (group != day).
     series=False = 묶음 줄만 쓰는 곳(개요의 Top 5 카드): 지난 기간 · 하루별 흐름을 건너뛴다 (previous None · series []).
-    sort = 묶음 줄 순서 (runs | tokens | cost · 큰 것부터) → limit 으로 자른 나머지는 others 하나."""
+    sort = 묶음 줄 순서 (runs | tokens | cost · 큰 것부터) → limit 으로 자른 나머지는 others 하나.
+    trend = 묶음 줄 · others 마다 하루별 흐름 {runs, tokens, cost_usd} (dates = 그 날짜들 · 개요 '단위별 추이' 차트)."""
     ensure_columns(db)
     totals = _totals((_select(db, w, f, None) or [None])[0])
     previous = _totals((_select(db, w.previous, f, None) or [None])[0]) if series else None
@@ -452,6 +490,15 @@ def summary(
         costs = [t["cost_usd"] for _, t in rest if t["cost_usd"] is not None]
         agg["cost_usd"] = round(sum(costs), 8) if costs else None
         out["others"] = {"count": len(rest), **agg, "share": round(agg["runs"] / total_runs, 4)}
+    if trend:
+        dates = w.dates()
+        by = _trend(db, w, f, group)
+        zero = _sum_trend([], len(dates))
+        out["dates"] = dates
+        for g in out["groups"]:
+            g["trend"] = by.get(g["key"], zero)
+        if out["others"] is not None:
+            out["others"]["trend"] = _sum_trend([by[k] for k, _ in rest if k in by], len(dates))
     return out
 
 

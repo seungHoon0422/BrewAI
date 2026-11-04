@@ -341,14 +341,14 @@ def register(admin: APIRouter) -> None:
         tz: int = Query(0, ge=-720, le=840), group: usage.Group = Query("day"),
         org: str | None = Query(None, max_length=64), space: str | None = Query(None, max_length=64),
         user: str | None = Query(None, max_length=64), model: str | None = Query(None, max_length=200),
-        limit: int = Query(50, ge=1, le=200), series: bool = Query(True), sort: usage.Sort = Query("runs"),
+        limit: int = Query(50, ge=1, le=200), series: bool = Query(True), sort: usage.Sort = Query("runs"), trend: bool = Query(False),
     ) -> dict[str, Any]:
         w = usage_window(request, start, end, tz)
         store = accounts_of(request).store
         labels = model_labels(request)
         with store.read() as db:
             return usage.summary(
-                db, w, usage.Filters(org=org, space=space, user=user, model=model), group, limit=limit, model_labels=labels, series=series, sort=sort,
+                db, w, usage.Filters(org=org, space=space, user=user, model=model), group, limit=limit, model_labels=labels, series=series, sort=sort, trend=trend,
             )
 
     @admin.get("/api/admin/usage/gateway")

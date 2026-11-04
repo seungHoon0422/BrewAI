@@ -8,13 +8,13 @@ import { listAdminSpaces } from '../../spaces/api';
 import { listUsers } from '../../users/api';
 import type { UsageRow } from '../api';
 import {
-  GROUP_LABEL, GROUP_ORDER, METRICS, METRIC_LABEL, METRIC_SORT, PERIODS, USAGE_COPY as C, USAGE_LOAD_FAILED, compact, count, percent, periodLabel, rangeText,
+  GROUP_LABEL, GROUP_ORDER, METRICS, METRIC_LABEL, METRIC_SORT, PERIODS, USAGE_COPY as C, USAGE_LOAD_FAILED, count, percent, periodLabel, rangeText,
   type BreakdownGroup, type Metric,
 } from '../copy';
 import { useGatewayStatus, useUsage, useUsageRoute } from '../hooks';
-import { COST_COLOR, CostCell, KindShare, MetricTrend, UsageKpis, metricText, metricValue, rowName } from './UsageParts';
+import { COST_COLOR, Compact, CostBreakdown, CostCell, KindShare, MetricTrend, UsageKpis, metricText, metricValue, rowName } from './UsageParts';
 
-// 사용량 메뉴 = 기간 · 묶음(조직 · 스페이스 · 사용자 · 모델) · 기준(호출 · 토큰 · 비용) · 거르개 → 숫자 카드 · 기준 흐름 · 종류별 · 묶음 막대 · 전체 표.
+// 사용량 메뉴 = 기간 · 묶음(조직 · 스페이스 · 사용자 · 모델) · 기준(호출 · 토큰 · 비용) · 거르개 → 숫자 카드 · 기준 흐름 · 종류별 · 비용 분해 · 묶음 막대 · 전체 표.
 // 화면 상태는 모두 주소에 (#/usage?group=user&metric=cost&org=…) → 개요 · 모델 자세히의 상세보기가 그대로 연다.
 // 줄을 누르면 한 칸 아래로 (조직 → 그 조직의 스페이스 → 그 스페이스의 사용자 → 그 사람의 모델 → 모델 자세히)
 const DRILL: Record<BreakdownGroup, BreakdownGroup | null> = { org: 'space', space: 'user', user: 'model', model: null };
@@ -31,6 +31,7 @@ export default function UsageScreen() {
   const route = useUsageRoute();
   const { days, group, metric, filter } = route;
   const usage = useUsage(days, group, filter, { limit: LIMIT, sort: METRIC_SORT[metric] });
+  const byCost = useUsage(days, 'model', filter, { limit: 5, series: false, sort: 'cost' }); // 비용 분해의 모델별 (비용 순 다섯)
   const options = useFilterOptions(days);
   const data = usage.data;
   const [sort, setSort] = useState<SortState>(null);
@@ -70,9 +71,9 @@ export default function UsageScreen() {
     },
     { key: 'runs', header: C.col.runs, sortable: true, cell: (r) => <span className="ui-num">{count(r.runs)}</span> },
     { key: 'errors', header: C.col.errors, sortable: true, hideBelow: 'md', cell: (r) => <span className="ui-num" data-bad={r.errors ? '' : undefined}>{percent(r.error_rate)}</span> },
-    { key: 'tokens', header: C.col.tokens, sortable: true, cell: (r) => <span className="ui-num">{compact(r.tokens)}</span> },
-    { key: 'cacheRead', header: <span title={C.colTitle.cacheRead}>{C.col.cacheRead}</span>, sortable: true, hideBelow: 'lg', cell: (r) => <span className="ui-num">{compact(r.cache_read_tokens)}</span> },
-    { key: 'cacheWrite', header: <span title={C.colTitle.cacheWrite}>{C.col.cacheWrite}</span>, sortable: true, hideBelow: 'lg', cell: (r) => <span className="ui-num">{compact(r.cache_write_tokens)}</span> },
+    { key: 'tokens', header: C.col.tokens, sortable: true, cell: (r) => <Compact v={r.tokens} /> },
+    { key: 'cacheRead', header: <span title={C.colTitle.cacheRead}>{C.col.cacheRead}</span>, sortable: true, hideBelow: 'lg', cell: (r) => <Compact v={r.cache_read_tokens} /> },
+    { key: 'cacheWrite', header: <span title={C.colTitle.cacheWrite}>{C.col.cacheWrite}</span>, sortable: true, hideBelow: 'lg', cell: (r) => <Compact v={r.cache_write_tokens} /> },
     { key: 'tools', header: C.col.tools, sortable: true, hideBelow: 'lg', cell: (r) => <span className="ui-num">{count(r.tool_calls)}</span> },
     { key: 'cost', header: <span title={C.colTitle.cost}>{C.col.cost}</span>, sortable: true, cell: (r) => <CostCell t={r} /> },
     { key: 'share', header: C.shareOf(metric), hideBelow: 'md', cell: (r) => <span className="ui-num">{percent(metricValue(metric, r) / total)}</span> },
@@ -117,6 +118,7 @@ export default function UsageScreen() {
                   <p className="us-note">{C.cacheHit} <b className="ui-num">{percent(data.totals.cache_hit_rate)}</b>, {C.cacheHitHint}</p>
                 </Card>
               </div>
+              <CostBreakdown data={data} models={byCost.data} />
               <Card as="section" aria-label={C.breakdown(group)}>
                 <CardHeader title={C.breakdown(group)} actions={
                   <span className="us-switch">

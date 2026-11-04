@@ -1,7 +1,8 @@
 // 사용량 조각 = 숫자 카드 줄 · 흐름 차트 (척도가 다르면 차트를 나눈다 · 축 하나씩) · 종류별 막대 · Top 표 · 묶음 줄 이름.
 // 개요 · 사용량 메뉴 · 모델 자세히가 같이 쓴다
 import type { ReactNode } from 'react';
-import { Card, CardHeader, LinkButton, ProviderIcon, ShareBar, StatTile, TimeSeriesChart, deltaOf, vizSlot, type ShareItem, type StatDelta } from '@brewai/ui';
+import { BarList, Card, CardHeader, LinkButton, ProviderIcon, ShareBar, StatTile, TimeSeriesChart, deltaOf, vizSlot, type BarItem, type ShareItem, type StatDelta } from '@brewai/ui';
+import { modelHref } from '../../models/route';
 import { TOKEN_KINDS, type ByKind, type UsageOthers, type UsageRow, type UsageSummary, type UsageTotals } from '../api';
 import {
   TOKEN_KIND_LABEL, USAGE_COPY as C, compact, count, dayLabel, money, moneyAxis, percent,
@@ -25,11 +26,11 @@ function pointsDelta(now: number, before: number, any: boolean): StatDelta | und
 export function UsageKpis({ data, hrefs }: { data: UsageSummary; hrefs?: Partial<Record<KpiKey, string>> }) {
   const { totals: t, previous: p, series, days } = data;
   const unknownCost = t.ok - t.cost_runs;
-  const tiles: { key: KpiKey; value: string; sub?: string; delta?: StatDelta; trend: number[]; icon: 'chat' | 'text' | 'receipt' | 'people' | 'alert' }[] = [
+  const tiles: { key: KpiKey; value: string; exact?: string; sub?: string; delta?: StatDelta; trend: number[]; icon: 'chat' | 'text' | 'receipt' | 'people' | 'alert' }[] = [
     { key: 'runs', value: count(t.runs), delta: deltaOf(t.runs, p.runs), trend: series.map((s) => s.runs), icon: 'chat', sub: C.runsSub(count(t.requests)) },
-    { key: 'tokens', value: compact(t.tokens), delta: deltaOf(t.tokens, p.tokens), trend: series.map((s) => s.tokens), icon: 'text',
+    { key: 'tokens', value: compact(t.tokens), exact: C.exactTokens(count(t.tokens), count(t.input_tokens), count(t.output_tokens)), delta: deltaOf(t.tokens, p.tokens), trend: series.map((s) => s.tokens), icon: 'text',
       sub: C.tokensSub(compact(t.input_tokens), compact(t.output_tokens)) },
-    { key: 'cost', value: money(t.cost_usd), delta: t.cost_usd === null || (p.cost_usd === null && p.ok > 0) ? undefined : deltaOf(t.cost_usd, p.cost_usd ?? 0, { upIsGood: false }),
+    { key: 'cost', value: money(t.cost_usd), exact: t.cost_usd === null ? undefined : C.exactCost(exactMoney(t.cost_usd)), delta: t.cost_usd === null || (p.cost_usd === null && p.ok > 0) ? undefined : deltaOf(t.cost_usd, p.cost_usd ?? 0, { upIsGood: false }),
       trend: series.map((s) => s.cost_usd ?? 0), icon: 'receipt', sub: t.runs && t.cost_usd === null ? C.costNone : C.costSub(Math.max(0, unknownCost)) },
     { key: 'users', value: count(t.active_users), delta: deltaOf(t.active_users, p.active_users), trend: series.map((s) => s.active_users), icon: 'people', sub: C.usersSub },
     { key: 'errors', value: percent(t.error_rate), delta: pointsDelta(t.error_rate, p.error_rate, t.runs + p.runs > 0),
@@ -38,12 +39,18 @@ export function UsageKpis({ data, hrefs }: { data: UsageSummary; hrefs?: Partial
   return (
     <div className="us-kpis">
       {tiles.map((k) => (
-        <StatTile key={k.key} data-kpi={k.key} label={C.kpi[k.key]} value={k.value} sub={k.sub} delta={withLabel(k.delta, days)} trend={k.trend}
+        <StatTile key={k.key} data-kpi={k.key} label={C.kpi[k.key]} value={k.value} exact={k.exact} sub={k.sub} delta={withLabel(k.delta, days)} trend={k.trend}
           icon={k.icon} href={hrefs?.[k.key]} deltaNote={k.delta && C.vsPrevious(days)} />
       ))}
     </div>
   );
 }
+
+// 비용 실제 값 (소수 6자리까지 · 끝 0 없음) — 줄인 값($0.86)에 마우스를 올리면
+export const exactMoney = (v: number) => `$${v.toFixed(6).replace(/0+$/, '').replace(/\.$/, '')}`;
+
+// 줄인 숫자(34.1만) + 실제 값 풍선 (표 칸 = 브라우저 title · 표 틀이 넘침을 자른다)
+export const Compact = ({ v }: { v: number }) => <span className="ui-num" title={count(v)}>{compact(v)}</span>;
 
 // 비용 색 = 한 칸 (보라 7). 종류 막대(1~5)와 겹치지 않게 · 개요 '모델별' 비용 막대와 같은 색 = 돈
 export const COST_COLOR = 7;
@@ -131,16 +138,31 @@ export function TopCard({ title, hint, items, others, more, metric = 'calls', em
   metric?: Metric; // 막대 기준
   empty: string;
 }) {
-  const val = (t: UsageTotals) => (metric === 'cost' ? t.cost_usd ?? 0 : metric === 'tokens' ? t.tokens : t.runs);
-  const top = Math.max(0, ...items.map((i) => val(i.row)));
   return (
     <Card as="section" aria-label={title} className="us-topcard">
       <CardHeader title={title} description={hint}
         actions={more ? <LinkButton size="sm" variant="ghost" iconEnd="arrow-right" href={more}>{C.more}</LinkButton> : undefined} />
+      <TopTable label={title} items={items} others={others} metric={metric} empty={empty} />
+    </Card>
+  );
+}
+
+// Top 표만 (카드 없이 · 개요 '단위별 추이' 카드 안) — 줄 = 이름(링크) · 호출 · 토큰 · 비용 + 이름 아래 얇은 막대(기준 비율)
+export function TopTable({ label, items, others, metric = 'calls', empty }: {
+  label: string;
+  items: TopItem[];
+  others?: UsageOthers | null;
+  metric?: Metric;
+  empty: string;
+}) {
+  const val = (t: UsageTotals) => (metric === 'cost' ? t.cost_usd ?? 0 : metric === 'tokens' ? t.tokens : t.runs);
+  const top = Math.max(0, ...items.map((i) => val(i.row)));
+  return (
+    <>
       {items.length === 0 ? (
         <p className="us-note">{empty}</p>
       ) : (
-        <table className="ui-table us-top" data-density="compact" aria-label={title}>
+        <table className="ui-table us-top" data-density="compact" aria-label={label}>
           <thead>
             <tr>
               <th scope="col">{C.col.name}</th>
@@ -168,7 +190,7 @@ export function TopCard({ title, hint, items, others, more, metric = 'calls', em
                     <span className="us-top-track" aria-hidden="true"><span style={{ width: `${pct}%` }} /></span>
                   </th>
                   <td data-align="end" className="ui-num">{count(it.row.runs)}</td>
-                  <td data-align="end" className="ui-num">{compact(it.row.tokens)}</td>
+                  <td data-align="end"><Compact v={it.row.tokens} /></td>
                   <td data-align="end"><CostCell t={it.row} /></td>
                 </tr>
               );
@@ -177,7 +199,7 @@ export function TopCard({ title, hint, items, others, more, metric = 'calls', em
         </table>
       )}
       {others && <p className="us-note">{C.others(others.count)} {C.summaryLine(count(others.runs), compact(others.tokens), money(others.cost_usd)).join(', ')}</p>}
-    </Card>
+    </>
   );
 }
 
@@ -198,4 +220,42 @@ export function rowName(group: BreakdownGroup, r: UsageRow): { name: string; sub
   if (group === 'space' && r.key === 'personal') return { name: C.personal, sub: C.personalSub };
   if (!r.key || !r.label) return { name: r.key && group === 'model' ? r.key : C.unknown, sub: undefined };
   return { name: r.label, sub: group === 'model' ? r.key : group === 'org' ? undefined : r.sub ?? undefined }; // 조직 slug 는 뜻이 없어 뺀다
+}
+
+// 비용 분해 = 토큰 종류별 비중(캐시 아닌 입력 · 생각 뺀 출력 · 생각 · 캐시 읽기 · 캐시 쓰기) + 모델별 비용(서버가 비용 순으로 자른 Top 5 막대 + 나머지).
+// 사용량 메뉴 (개요에서 옮김 · 2026-11-04 사용자). models = 같은 기간 · 거르개의 모델 묶음 (비용 순). 모델별은 비용 색 한 칸 (종류 막대와 색이 겹치지 않게)
+export function CostBreakdown({ data, models }: { data: UsageSummary; models: UsageSummary | null }) {
+  const t = data.totals;
+  const total = t.cost_usd ?? 0;
+  const byCost = (models?.groups ?? []).filter((g) => (g.cost_usd ?? 0) > 0);
+  const items: BarItem[] = byCost.map((g) => ({
+    key: g.key ?? 'unknown', label: g.label ?? g.key ?? C.unknown, value: g.cost_usd ?? 0, valueText: money(g.cost_usd),
+    aside: total ? percent((g.cost_usd ?? 0) / total) : undefined, color: COST_COLOR, href: g.key ? modelHref(g.key) : undefined,
+    icon: g.provider ? <ProviderIcon provider={g.provider} size="sm" /> : undefined,
+  }));
+  const tail = models?.others;
+  const tailCost = tail?.cost_usd ?? 0;
+  return (
+    <Card as="section" aria-label={C.cost} className="us-costcard">
+      <CardHeader title={C.cost} description={C.costHint} />
+      <div className="us-costcard-total">
+        <b className="ui-num ui-exact" data-exact={t.cost_usd === null ? undefined : C.exactCost(exactMoney(t.cost_usd))}>{money(t.cost_usd)}</b>
+        <span className="us-note">{C.kpi.cost}, {C.cacheHit} {percent(t.cache_hit_rate)}</span>
+      </div>
+      <div className="us-costcard-body">
+        <div className="us-costcard-part">
+          <p className="us-sub">{C.costKinds}</p>
+          <KindShare totals={t} cost label={C.costKinds} />
+        </div>
+        {items.length > 0 && (
+          <div className="us-costcard-part">
+            <p className="us-sub">{C.costModels} <span className="us-note">{C.costModelsHint}</span></p>
+            <BarList label={C.costModels} items={items} format={money} />
+            {tail && tailCost > 0 && <p className="us-note">{C.modelsOther(tail.count)} {money(tailCost)}</p>}
+          </div>
+        )}
+      </div>
+      {t.runs > 0 && t.cost_runs < t.ok && <p className="us-note">{C.costSub(t.ok - t.cost_runs)}</p>}
+    </Card>
+  );
 }

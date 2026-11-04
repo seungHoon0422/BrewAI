@@ -147,6 +147,21 @@ def test_usage_groups_without_series_skip_previous_and_days(make_api, h) -> None
     assert {g["key"]: g["provider"] for g in lite["groups"]} == {"fake-chat-small": "openai", "fake-chat-large": "openai"}
 
 
+def test_usage_trend_per_group_and_others(make_api, h) -> None:
+    """개요 '단위별 추이' = 묶음 줄 · 나머지마다 하루별 호출 · 토큰 · 비용 (빈 날 0 · 비용 모름 None) · 합 = 그 묶음 합계."""
+    api, *_ = setup(make_api, h)
+    body = api.client.get("/api/admin/usage", params={"group": "model", "trend": "true", "series": "false", "limit": 1}).json()
+    assert len(body["dates"]) == 7 and body["dates"][-1] == datetime.now(UTC).date().isoformat()
+    top = body["groups"][0]
+    assert top["key"] == "fake-chat-small" and top["trend"]["runs"] == [0] * 6 + [3]
+    assert sum(top["trend"]["tokens"]) == top["tokens"] and top["trend"]["cost_usd"][:6] == [None] * 6
+    assert body["others"]["trend"]["runs"] == [0] * 6 + [1] and sum(body["others"]["trend"]["tokens"]) == body["others"]["tokens"]
+    assert "trend" not in api.client.get("/api/admin/usage", params={"group": "model"}).json()["groups"][0]  # 기본 = 안 보냄
+    for group in ("org", "user", "space"):
+        rows = api.client.get("/api/admin/usage", params={"group": group, "trend": "true"}).json()["groups"]
+        assert all(sum(g["trend"]["runs"]) == g["runs"] for g in rows), group
+
+
 def test_gateway_status_summary_and_counts(make_api, h) -> None:
     api, *_ = setup(make_api, h)
     g = api.client.get("/api/admin/usage/gateway").json()

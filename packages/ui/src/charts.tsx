@@ -163,11 +163,12 @@ export function TimeSeriesChart({
               </text>
             ))}
             {area && series[0] && n > 1 && (
-              <path className="ui-chart-area" style={{ fill: vizColor(series[0].color) }}
+              <path key={series[0].values.join(',')} className="ui-chart-area" style={{ fill: vizColor(series[0].color) }}
                 d={`${pathOf(series[0].values.map((v) => v ?? 0))}L${xAt(n - 1).toFixed(1)},${yAt(0)}L${xAt(0).toFixed(1)},${yAt(0)}Z`} />
             )}
-            {series.map((s) => (
-              <path key={s.id} className="ui-chart-line" style={{ stroke: vizColor(s.color) }} d={pathOf(s.values)} />
+            {series.map((s, i) => (
+              <path key={`${s.id}:${s.values.join(',')}`} className="ui-chart-line" pathLength={1} style={{ stroke: vizColor(s.color), animationDelay: `${i * 60}ms` }}
+                d={pathOf(s.values)} />
             ))}
             {n === 1 && series.map((s) => s.values[0] !== null && (
               <circle key={s.id} className="ui-chart-dot" cx={xAt(0)} cy={yAt(s.values[0] ?? 0)} r={4} style={{ fill: vizColor(s.color) }} />
@@ -359,7 +360,7 @@ export function Sparkline({ values, height = 28, className }: { values: readonly
     <span ref={box} className={cx('ui-spark', className)} aria-hidden="true">
       {n > 0 && width > 0 && (
         <svg width={width} height={height}>
-          <path className="ui-spark-line" d={d} />
+          <path key={values.join(',')} className="ui-spark-line" pathLength={1} d={d} />
           <circle className="ui-spark-dot" cx={xAt(n - 1)} cy={yAt(values[n - 1])} r={3} />
         </svg>
       )}
@@ -384,15 +385,16 @@ export type StatTileProps = {
   trend?: readonly number[]; // 모두 0 이면 그리지 않는다
   icon?: IconLike;
   href?: string; // 누르면 그 화면 (카드 전체가 링크)
+  exact?: string; // 줄인 값(34.1만)의 실제 값 (341,234) — 마우스를 올리면 바로 값 위에 · 글로는 안 들어간다 (CSS attr)
   className?: string;
   'data-kpi'?: string;
 };
 
-export function StatTile({ label, value, delta, deltaNote, sub, trend, icon, href, className, ...rest }: StatTileProps) {
+export function StatTile({ label, value, delta, deltaNote, sub, trend, icon, href, exact, className, ...rest }: StatTileProps) {
   const inner = (
     <>
       <span className="ui-stat-label">{renderIcon(icon, 'sm')}{label}</span>
-      <span className="ui-stat-value ui-kpi-value">{value}</span>
+      <span className={cx('ui-stat-value ui-kpi-value', exact && 'ui-exact')} data-exact={exact}>{value}</span>
       {(delta || deltaNote) && (
         <span className="ui-kpi-foot">
           {delta && (

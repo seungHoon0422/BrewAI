@@ -41,8 +41,11 @@ export type UsageRow = UsageTotals & {
   kind: string | null; // 스페이스: personal | shared
   provider: string | null; // 모델
   org_id: string | null; // 스페이스가 속한 조직
+  trend?: UsageTrend;
 };
-export type UsageOthers = { count: number; runs: number; errors: number; tokens: number; cost_usd: number | null; share: number };
+// 묶음 하나의 하루별 흐름 (trend=true · dates 순 · 비용을 모르는 날 = null) — 개요 '단위별 추이'
+export type UsageTrend = { runs: number[]; tokens: number[]; cost_usd: (number | null)[] };
+export type UsageOthers = { count: number; runs: number; errors: number; tokens: number; cost_usd: number | null; share: number; trend?: UsageTrend };
 export type UsageSummary = {
   from: string;
   to: string;
@@ -53,6 +56,7 @@ export type UsageSummary = {
   series: UsageDay[];
   groups: UsageRow[];
   others: UsageOthers | null;
+  dates: string[]; // trend=true 일 때 묶음 흐름의 날짜
 };
 
 export type GatewayStatusKind = 'ok' | 'down' | 'error' | 'auth';
@@ -116,12 +120,19 @@ const GROUPS: readonly UsageGroup[] = ['day', 'org', 'space', 'user', 'model'];
 
 // series=false = 묶음 줄만 (지난 기간 · 하루별 흐름을 서버가 건너뛴다 → previous 0 · series [])
 // sort = 묶음 줄 순서 (큰 것부터) · limit 으로 자른 나머지는 others
-export type UsageQuery = { limit?: number; series?: boolean; sort?: UsageSort };
+// trend = 묶음 줄 · 나머지마다 하루별 흐름 (개요 '단위별 추이')
+export type UsageQuery = { limit?: number; series?: boolean; sort?: UsageSort; trend?: boolean };
+
+function toTrend(v: unknown): UsageTrend | undefined {
+  if (!isObj(v)) return undefined;
+  const arr = (x: unknown) => (Array.isArray(x) ? x : []);
+  return { runs: arr(v.runs).map(n0), tokens: arr(v.tokens).map(n0), cost_usd: arr(v.cost_usd).map((c) => num(c)) };
+}
 
 export async function getUsage(days: number, group: UsageGroup, filter: UsageFilter = {}, opts: UsageQuery = {}, signal?: AbortSignal): Promise<UsageSummary> {
-  const { limit = 50, series = true, sort = 'runs' } = opts;
+  const { limit = 50, series = true, sort = 'runs', trend = false } = opts;
   const q = new URLSearchParams({
-    ...windowOf(days), group, limit: String(limit), ...(series ? {} : { series: 'false' }), ...(sort === 'runs' ? {} : { sort }),
+    ...windowOf(days), group, limit: String(limit), ...(series ? {} : { series: 'false' }), ...(sort === 'runs' ? {} : { sort }), ...(trend ? { trend: 'true' } : {}),
   });
   (Object.entries(filter) as [string, string | undefined][]).forEach(([k, v]) => v && q.set(k, v));
   const d = expectObj(await call(`/api/admin/usage?${q}`, { signal }));
@@ -131,11 +142,13 @@ export async function getUsage(days: number, group: UsageGroup, filter: UsageFil
     series: objs(d.series).map((s) => ({ ...toTotals(s), date: str(s.date) })),
     groups: objs(d.groups).map((g) => ({
       ...toTotals(g), key: strOrNull(g.key), label: strOrNull(g.label), sub: strOrNull(g.sub), share: n0(g.share),
-      kind: strOrNull(g.kind), provider: strOrNull(g.provider), org_id: strOrNull(g.org_id),
+      kind: strOrNull(g.kind), provider: strOrNull(g.provider), org_id: strOrNull(g.org_id), trend: toTrend(g.trend),
     })),
     others: isObj(d.others) ? {
       count: n0(d.others.count), runs: n0(d.others.runs), errors: n0(d.others.errors), tokens: n0(d.others.tokens), cost_usd: num(d.others.cost_usd), share: n0(d.others.share),
+      trend: toTrend(d.others.trend),
     } : null,
+    dates: Array.isArray(d.dates) ? d.dates.map((x) => str(x)) : [],
   };
 }
 

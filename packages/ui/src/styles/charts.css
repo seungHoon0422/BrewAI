@@ -84,5 +84,33 @@ a.ui-kpi:hover{border-color:var(--border-strong)}
 .ui-kpi-delta[data-tone="good"]{color:var(--ok-text)}
 .ui-kpi-delta[data-tone="bad"]{color:var(--danger-text)}
 
-@media (prefers-reduced-motion:reduce){.ui-barlist-fill,.ui-share-seg{transition:none}}
+/* 움직임 — 선은 왼쪽부터 그려지고 (pathLength 1 · 대시) · 면 · 점은 뒤따라 나타나고 · 막대는 왼쪽부터 자란다. 값이 바뀌면 다시 (key = 값).
+   모션 줄이기 = 없음 */
+@keyframes ui-draw{from{stroke-dashoffset:1}to{stroke-dashoffset:0}}
+@keyframes ui-appear{from{opacity:0}}
+@keyframes ui-grow{from{transform:scaleX(0)}}
+.ui-chart-line,.ui-spark-line{stroke-dasharray:1;animation:ui-draw 900ms var(--ease-out) both}
+.ui-chart-area{animation:ui-appear 700ms var(--ease-out) 250ms both}
+.ui-spark-dot{animation:ui-appear var(--dur-base) var(--ease-out) 700ms both}
+.ui-barlist-fill{transform-origin:left center;animation:ui-grow 700ms var(--ease-out) both}
+.ui-share-seg{transform-origin:left center;animation:ui-grow 600ms var(--ease-out) both}
+.ui-barlist li:nth-child(2) .ui-barlist-fill{animation-delay:50ms}
+.ui-barlist li:nth-child(3) .ui-barlist-fill{animation-delay:100ms}
+.ui-barlist li:nth-child(4) .ui-barlist-fill{animation-delay:150ms}
+.ui-barlist li:nth-child(n+5) .ui-barlist-fill{animation-delay:200ms}
+.ui-chart-tip{animation:ui-appear var(--dur-fast) var(--ease-out)}
+
+/* 줄인 숫자의 실제 값 (data-exact) — 마우스를 올리면 바로 위에 (글자 안에 안 들어간다 = 화면 낭독 · 복사엔 줄인 값 그대로) */
+.ui-exact{position:relative}
+.ui-exact::after{content:attr(data-exact);position:absolute;left:0;bottom:calc(100% + 4px);z-index:var(--z-tooltip);padding:3px 8px;border-radius:var(--radius-md);
+  background:var(--accent);color:var(--on-accent);font-size:var(--fs-xs);font-weight:var(--fw-medium);line-height:1.4;white-space:nowrap;
+  box-shadow:var(--shadow-md);opacity:0;visibility:hidden;transform:translateY(2px);pointer-events:none;
+  transition:opacity var(--dur-fast),transform var(--dur-fast),visibility 0s linear var(--dur-fast)}
+.ui-exact:hover::after,.ui-stat:hover .ui-exact::after{opacity:1;visibility:visible;transform:none;transition-delay:0s}
+
+@media (prefers-reduced-motion:reduce){
+  .ui-barlist-fill,.ui-share-seg{transition:none}
+  .ui-chart-line,.ui-spark-line,.ui-chart-area,.ui-spark-dot,.ui-barlist-fill,.ui-share-seg,.ui-chart-tip{animation:none}
+  .ui-chart-line,.ui-spark-line{stroke-dasharray:none}
+}
 @media (forced-colors:active){.ui-chart-line{stroke:CanvasText}.ui-barlist-fill,.ui-share-seg,.ui-legend-key{forced-color-adjust:none}}
