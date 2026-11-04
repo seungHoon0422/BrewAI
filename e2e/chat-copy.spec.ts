@@ -46,8 +46,9 @@ test.describe('데스크톱: 가운뎃점 없음', () => {
     await clean(win, 'thread');
   });
 
-  test('메뉴 화면: 진행 상황 · 예약 작업 · 스킬 · 연결된 앱 · 설정', async () => {
-    const screens = [['activity', '진행 상황'], ['scheduled', '예약 작업'], ['skills', '스킬'], ['connections', '연결된 앱'], ['settings', '설정']];
+  test('메뉴 화면: 진행 상황 · 예약 작업 · 파일 · 설정 세부 메뉴 전부 (사이드바 포함)', async () => {
+    const screens = [['activity', '진행 상황'], ['scheduled', '예약 작업'], ['files', '파일'], ['settings/account', '계정'], ['settings/general', '일반'],
+      ['settings/model', '모델'], ['settings/skills', '스킬'], ['settings/connections', '연결된 앱'], ['settings/about', '앱 정보']];
     for (const [id, h1] of screens) {
       await goHash(win, `#/${id}`);
       await expectHeading(win, h1);

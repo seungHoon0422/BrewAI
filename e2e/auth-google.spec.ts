@@ -75,7 +75,7 @@ test.describe('로그인 화면 [Google로 계속]', () => {
     expect(new URL(tab.url()).searchParams.get('error')).toBe('email_unverified');
     await tab.close();
     await expect(win.locator('.auth-card').getByRole('alert')).toHaveText('Google 에서 이메일 확인을 마친 계정만 쓸 수 있어요');
-    await expect(win.getByRole('navigation', { name: '메뉴' })).toHaveCount(0);
+    await expect(win.getByRole('navigation', { name: '메뉴', exact: true })).toHaveCount(0);
     const me = await userApi(user);
     expect((await me.get<{ google: unknown }>('/api/me')).google).toBeNull();
   });
@@ -181,7 +181,7 @@ test.describe('설정 › 계정 › Google [연결] · [해제]', () => {
   test('연결 → 브라우저에서 Google → 앱에 "연결했어요" · 이메일이 달라도 지금 로그인한 사람에게', async () => {
     const gmail = uniqueEmail('linked', 'gmail.com');
     await fakeGoogle({ reset: true, email: gmail, sub: newSub() });
-    await win.getByRole('navigation', { name: '메뉴' }).getByRole('link', { name: '설정' }).click();
+    await win.getByRole('navigation', { name: '메뉴', exact: true }).getByRole('link', { name: '설정' }).click();
     await expect(googleRow()).toContainText('연결 안 됨');
     const { url, tab } = await googleRoundTrip(app, browser, () => googleRow().getByRole('button', { name: '연결' }).click());
     expect(url.searchParams.get('link')).toMatch(/^bwl_/); // 연결 표 (5분 · 1회) — 누구에게 붙일지는 서버가 안다

@@ -32,7 +32,8 @@ test('계정 칩 = 닉네임 · 메뉴: 이메일 · 설정 › 계정 · 로그
   await expect(menu).toContainText(user.email);
   await expect(menu.getByRole('menuitem')).toHaveText(['설정 › 계정', '로그아웃']);
   await menu.getByRole('menuitem', { name: '설정 › 계정' }).click();
-  await expectHeading(win, '설정');
+  await expectHeading(win, '계정');
+  await expect(win).toHaveURL(/#\/settings\/account$/);
   await expect(row('닉네임')).toContainText(user.display_name);
   await expect(row('이메일')).toContainText(user.email);
   await expect(row('이메일').getByRole('button')).toHaveCount(0); // 로그인 ID 는 바꿀 수 없다
@@ -102,7 +103,7 @@ test('비밀번호 바꾸기: 지금 비밀번호가 틀리면 안내 → 맞으
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ grant_type: 'refresh_token', refresh_token: elsewhere.refresh_token }),
   });
   expect(renew.status).toBe(401);
-  await win.getByRole('navigation', { name: '메뉴' }).getByRole('link', { name: '진행 상황' }).click();
+  await win.getByRole('navigation', { name: '메뉴', exact: true }).getByRole('link', { name: '진행 상황' }).click();
   await expectHeading(win, '진행 상황'); // 이 기기는 로그인 그대로
   const tryLogin = (password: string) =>
     fetch(`${API}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: user.email, password }) });

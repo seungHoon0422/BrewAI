@@ -12,7 +12,8 @@
 ## 메뉴
 | 앱 | 메뉴 (주소) |
 |---|---|
-| 데스크톱 | 대화 `#/chat` · 진행 상황 `#/activity` · 예약 작업 `#/scheduled` · 스킬 `#/skills` · 연결된 앱 `#/connections` · 설정 `#/settings` |
+| 데스크톱 | 레일 = 대화 `#/chat` · 진행 상황 `#/activity` · 예약 작업 `#/scheduled` · 파일 `#/files` · 설정 `#/settings` (마우스를 올리면 이름이 바로 오른쪽에) |
+| 데스크톱 설정 | 사이드바 자리 = 세부 메뉴 (2026-11-04 사용자) · 내 계정: 계정 `#/settings/account` · 일반 `#/settings/general` · AI 작업: 모델 `#/settings/model` · 스킬 `#/settings/skills` · 연결된 앱 `#/settings/connections` · 정보: 앱 정보 `#/settings/about` · 예전 `#/skills` · `#/connections` 는 새 주소로 |
 | 관리자 | 개요 · 모델 · 카탈로그 · 승인 기록 · 트레이스 · 사용자·예산 · 문서 `#/docs` · 설정 (ADR-0008) |
 
 프로토타입 레일 맨 아래 '더 보기' 자리는 '설정'으로 바꿨다.

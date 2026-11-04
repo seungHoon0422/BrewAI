@@ -49,7 +49,7 @@ export function ConnectionsScreen() {
   const cards = (list: App[]) => list.map((a) => <AppCard key={a.id} a={a} onNote={say} />);
 
   return (
-    <Page id="connections" sub={CONNECTIONS.sub}>
+    <Page id="settings/connections" sub={CONNECTIONS.sub}>
       {note && <Callout tone={note.tone} live onDismiss={() => setNote(null)} className="sec-note conn-note">{note.text}</Callout>}
       <AutoAuth value={data?.auto_auth ?? null} onError={() => say({ tone: 'danger', text: CONNECTIONS.autoAuthFailed })} />
       <Section title={CONNECTIONS.mine} extra={<>

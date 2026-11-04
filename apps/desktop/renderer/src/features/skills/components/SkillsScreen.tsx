@@ -10,7 +10,7 @@ export function SkillsScreen() {
   const tools = useSkillState((s) => s.tools);
   const list = skills.list;
   return (
-    <Page id="skills" sub={SKILLS.sub}>
+    <Page id="settings/skills" sub={SKILLS.sub}>
       <Section title={SKILLS.mine} extra={<Count n={list.length} />}>
         {list.length > 0 ? (
           <ul className="rows skills" aria-label={SKILLS.list}>

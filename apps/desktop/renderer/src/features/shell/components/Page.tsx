@@ -1,10 +1,10 @@
 // 메뉴 화면 공통 틀 (h1 = 메뉴 이름, 화면마다 하나) · 섹션 · 빈 상태 · 예시 꼬리표. 그리기는 @brewai/ui 부품.
 import type { ReactNode } from 'react';
 import { Badge, EmptyState, Icon, PageHeader, type IconLike } from '@brewai/ui';
-import { labelOf, type MenuId } from '../../../app/menu';
+import { labelOf, type RouteId } from '../../../app/menu';
 import { PAGE } from '../copy';
 
-export function Page({ id, sub, soon, children }: { id: MenuId; sub: string; soon?: boolean; children: ReactNode }) {
+export function Page({ id, sub, soon, children }: { id: RouteId; sub: string; soon?: boolean; children: ReactNode }) {
   return (
     <section className="view page ui-scroll">
       <div className="page-in">

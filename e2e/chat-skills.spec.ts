@@ -1,11 +1,11 @@
 import { test, expect, type ElectronApplication, type Page } from '@playwright/test';
 import { launchDesktop, userApi, type Client } from './auth';
-import { expectHeading, openMenu, shot } from './helpers';
+import { expectHeading, openMenu, openSettings, shot } from './helpers';
 
 // 스킬 (제품 스킬 = runtime/skills · conductor 가 읽는다 · 평소에 쓰는 문서 스킬 2개만): 스킬 메뉴 목록 → 대화에서 스킬 카드 → 사용 횟수.
 // mock 표시: [fake:skill <이름>] → use_skill (내장 도구는 없다)
 const NAV = '메뉴';
-const SKILLS = { id: 'skills', label: '스킬' };
+const SKILLS = { id: 'settings/skills', label: '스킬' }; // 설정 › 스킬
 const CHAT = { id: 'chat', label: '대화', h1: '무엇을 맡길까요?' };
 const STARTERS = ['비교표 만들기', '요약'];
 
@@ -28,7 +28,7 @@ const usedOf = async (name: string) =>
   (await api.get<{ name: string; used: number }[]>('/api/skills')).find((s) => s.name === name)?.used ?? -1;
 
 test('스킬 메뉴: 스타터 스킬 2개 (이름 · 설명 · 내장 · 사용 횟수) · 없앤 스킬 · 내장 도구 없음', async () => {
-  await openMenu(win, NAV, SKILLS);
+  await openSettings(win, SKILLS);
   await expect(skillList(win).locator('li')).toHaveCount(2);
   await expect(skillList(win).locator('li b')).toHaveText(STARTERS);
   await expect(win.locator('.sec-head .count').first()).toHaveText('2');
@@ -92,7 +92,7 @@ test('대화: 스킬 사용 카드 → 답 · 단계 = 스킬: 비교표 만들�
 });
 
 test('스킬 메뉴의 사용 횟수가 올라간다', async () => {
-  await openMenu(win, NAV, SKILLS);
+  await openSettings(win, SKILLS);
   await expect(skillRow(win, 'compare-table').locator('.used')).toHaveText(/^\d+번 사용$/);
   await expect(skillRow(win, 'summarize').locator('.used')).toHaveText(/^(아직 안 씀|\d+번 사용)$/);
 });

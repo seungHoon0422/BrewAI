@@ -1,4 +1,4 @@
-// 설정 — 계정(닉네임 · 비밀번호 · Google) · 테마(시스템 따름) · 기본 모델(허용된 모델만) · 앱 정보
+// 설정 화면 — 세부 메뉴(사이드바 SettingsNav)마다 한 화면: 계정 · 일반(테마) · 모델(허용된 모델만) · 앱 정보. 스킬 · 연결된 앱은 각 기능 화면.
 import { providerLabel } from '@brewai/ui';
 import { AccountSection } from '../../account/components/AccountSection';
 import { ModelName } from '../../models/components/ModelName';
@@ -8,14 +8,18 @@ import { Page, Row, Section } from '../../shell/components/Page';
 import { SETTINGS } from '../copy';
 import { runtimeLabel, useIsDark } from '../hooks';
 
-export function SettingsScreen() {
-  const isDark = useIsDark();
-  const model = useModelState(effectiveModel);
-  const reasoning = useModelState(effectiveReasoning);
-  const models = useModelState((s) => s.models.status);
+export function AccountScreen() {
   return (
-    <Page id="settings" sub={SETTINGS.sub}>
+    <Page id="settings/account" sub={SETTINGS.accountSub}>
       <AccountSection />
+    </Page>
+  );
+}
+
+export function GeneralScreen() {
+  const isDark = useIsDark();
+  return (
+    <Page id="settings/general" sub={SETTINGS.generalSub}>
       <Section title={SETTINGS.general}>
         <ul className="rows">
           <Row title={SETTINGS.theme} sub={SETTINGS.themeSub}>
@@ -23,6 +27,16 @@ export function SettingsScreen() {
           </Row>
         </ul>
       </Section>
+    </Page>
+  );
+}
+
+export function ModelScreen() {
+  const model = useModelState(effectiveModel);
+  const reasoning = useModelState(effectiveReasoning);
+  const models = useModelState((s) => s.models.status);
+  return (
+    <Page id="settings/model" sub={SETTINGS.modelSub}>
       <Section title={SETTINGS.model}>
         <ul className="rows">
           <Row title={SETTINGS.currentModel} sub={SETTINGS.currentModelSub}>
@@ -39,6 +53,13 @@ export function SettingsScreen() {
           </Row>
         </ul>
       </Section>
+    </Page>
+  );
+}
+
+export function AboutScreen() {
+  return (
+    <Page id="settings/about" sub={SETTINGS.aboutSub}>
       <Section title={SETTINGS.about}>
         <ul className="rows">
           <Row title={SETTINGS.version}><span className="val ui-num">{__APP_VERSION__}</span></Row>

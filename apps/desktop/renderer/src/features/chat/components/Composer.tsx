@@ -53,7 +53,7 @@ export function Composer({ input, text, onText, onSend, canSend, busy, onStop, p
     <div className="composer">
       <div className="composer-ctx">
         {scope}
-        <a href={href('connections')}>
+        <a href={href('settings/connections')}>
           <Icon name="link" size="sm" />{CHAT.connectApps}
         </a>
       </div>

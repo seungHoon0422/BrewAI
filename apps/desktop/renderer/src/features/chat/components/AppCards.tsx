@@ -41,7 +41,7 @@ function argsOf(parts: Part[], callId: string): string {
 
 const openSettings = (serverId: string) => {
   focusApp(serverId);
-  go('connections');
+  go('settings/connections');
 };
 
 function AuthCardView({ c, args, threadId, runId, active }: { c: AuthCard; args: string; threadId: string; runId: string; active: boolean }) {
@@ -132,7 +132,7 @@ function ImportCardView({ c, active }: { c: ImportCard; active: boolean }) {
         <p className="ac-body">{APP_CARD.importBody(where)}</p>
         {active && (
           <div className="ac-acts">
-            <Button size="sm" variant="ghost" onClick={() => go('connections')}>{APP_CARD.openSettings}</Button>
+            <Button size="sm" variant="ghost" onClick={() => go('settings/connections')}>{APP_CARD.openSettings}</Button>
           </div>
         )}
       </div>

@@ -41,11 +41,18 @@ export async function expectScreen(page: Page, navName: string, item: MenuItem) 
   await expect(nav(page, navName).locator('[aria-current="page"]')).toHaveCount(1);
 }
 
-// 메뉴를 눌러 그 화면으로 간다 (주소도 #/id 로 바뀐다)
+// 메뉴를 눌러 그 화면으로 간다 (주소도 #/id 로 바뀐다 · 설정은 첫 세부 메뉴 #/settings/account 로)
 export async function openMenu(page: Page, navName: string, item: MenuItem) {
   await link(page, navName, item).click();
-  await expect(page).toHaveURL(new RegExp(`#/${item.id}$`));
+  await expect(page).toHaveURL(new RegExp(`#/${item.id}(/[a-z]+)?$`));
   await expectScreen(page, navName, item);
+}
+
+// 설정 세부 메뉴 (레일 '설정' → 사이드바 '설정 메뉴' 의 그 링크). item.id = settings/<id>
+export const SETTINGS_NAV = '설정 메뉴';
+export async function openSettings(page: Page, item: MenuItem) {
+  await link(page, '메뉴', { id: 'settings', label: '설정' }).click();
+  await openMenu(page, SETTINGS_NAV, item);
 }
 
 // 해시만 바꾼다 (새로 고침 없음)

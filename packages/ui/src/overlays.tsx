@@ -233,10 +233,12 @@ export type SheetProps = ModalBase & { side?: 'right' | 'left' };
 export const Sheet = ({ side = 'right', ...rest }: SheetProps) => <Modal kind="sheet" side={side} {...rest} />;
 
 /* ── 툴팁 (마우스 · 키보드 포커스 · Esc 로 닫힘) ───────── */
-export function Tooltip({ content, children, side = 'top' }: {
+// instant = 기다리지 않고 바로 (아이콘만 있는 메뉴 레일처럼 이름이 바로 필요한 곳)
+export function Tooltip({ content, children, side = 'top', instant = false }: {
   content: ReactNode;
   children: ReactElement<{ 'aria-describedby'?: string }>;
-  side?: 'top' | 'bottom';
+  side?: 'top' | 'bottom' | 'right';
+  instant?: boolean;
 }) {
   const id = useId();
   const [hidden, setHidden] = useState(false);
@@ -244,6 +246,7 @@ export function Tooltip({ content, children, side = 'top' }: {
     <span
       className="ui-tip"
       data-side={side}
+      data-instant={flag(instant)}
       data-hidden={flag(hidden)}
       onKeyDown={(e) => e.key === 'Escape' && setHidden(true)}
       onMouseLeave={() => setHidden(false)}

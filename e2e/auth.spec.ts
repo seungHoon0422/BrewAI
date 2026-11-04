@@ -16,7 +16,7 @@ const gate = (win: Page) => ({
   server: win.locator('.auth-server'),
   error: win.locator('.auth-card').getByRole('alert'),
 });
-const rail = (win: Page) => win.getByRole('navigation', { name: '메뉴' });
+const rail = (win: Page) => win.getByRole('navigation', { name: '메뉴', exact: true });
 const chip = (win: Page) => win.locator('.account-chip'); // 사이드바 아래 (이름 = 닉네임)
 const box = (win: Page) => win.getByRole('textbox', { name: '요청 입력' });
 

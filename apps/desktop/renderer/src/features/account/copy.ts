@@ -3,7 +3,7 @@ export const ACCOUNT = {
   chip: '계정',
   settings: '설정 › 계정',
   logout: '로그아웃',
-  section: '계정',
+  section: '내 정보',
   nickname: '닉네임',
   nicknameSub: '대화, 멤버 목록 등 사람이 보이는 곳에 이 이름이 나와요',
   nicknameHint: '1~40자, 다른 사람과 같아도 돼요',

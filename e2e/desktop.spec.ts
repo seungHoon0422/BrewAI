@@ -3,23 +3,28 @@ import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { launchDesktop } from './auth';
 import { API } from './env';
-import { expectMenu, expectScreen, goHash, openMenu, shot, type MenuItem } from './helpers';
+import { SETTINGS_NAV, expectMenu, expectScreen, goHash, openMenu, shot, type MenuItem } from './helpers';
 
 // 사용자 데스크톱 앱 (Electron) 빌드본. npm run e2e 가 먼저 빌드한다. 로그인한 상태로 연다 (e2e/auth.ts)
 
-// 메뉴 계약: 레일 순서 그대로 (설정은 구분선 아래)
+// 메뉴 계약: 레일 순서 그대로 (설정은 구분선 아래 · 누르면 첫 세부 메뉴 '계정')
 const NAV = '메뉴';
 const MENU: MenuItem[] = [
   { id: 'chat', label: '대화', h1: '무엇을 맡길까요?' },
   { id: 'activity', label: '진행 상황' },
   { id: 'scheduled', label: '예약 작업' },
-  { id: 'skills', label: '스킬' },
   { id: 'files', label: '파일' },
-  { id: 'connections', label: '연결된 앱' },
-  { id: 'settings', label: '설정' },
+  { id: 'settings', label: '설정', h1: '계정' },
 ];
 const CHAT = MENU[0];
-const SETTINGS = MENU[6];
+const SETTINGS = MENU[4];
+// 설정 세부 메뉴 계약: 사이드바 자리 · 묶음(영역)마다 순서 그대로 · 스킬 · 연결된 앱은 여기 안에
+const GROUPS: { label: string; items: MenuItem[] }[] = [
+  { label: '내 계정', items: [{ id: 'settings/account', label: '계정' }, { id: 'settings/general', label: '일반' }] },
+  { label: 'AI 작업', items: [{ id: 'settings/model', label: '모델' }, { id: 'settings/skills', label: '스킬' }, { id: 'settings/connections', label: '연결된 앱' }] },
+  { label: '정보', items: [{ id: 'settings/about', label: '앱 정보' }] },
+];
+const SUBS = GROUPS.flatMap((g) => g.items);
 
 let app: ElectronApplication;
 let win: Page;
@@ -138,6 +143,62 @@ test('메뉴를 누르면 그 화면이 뜬다', async () => {
   }
 });
 
+test('레일에 마우스를 올리면 이름이 바로 (기다림 없이) 오른쪽에 뜬다', async () => {
+  const rail = win.getByRole('navigation', { name: NAV, exact: true });
+  for (const item of MENU) {
+    const a = rail.getByRole('link', { name: item.label, exact: true });
+    await a.hover();
+    const tip = win.getByRole('tooltip', { name: item.label, exact: true });
+    await expect(tip).toBeVisible({ timeout: 300 }); // 툴팁 기본 기다림(350ms)보다 짧게
+    const [box, tipBox] = [await a.boundingBox(), await tip.boundingBox()];
+    expect(tipBox!.x).toBeGreaterThan(box!.x + box!.width); // 아이콘 오른쪽
+    expect(await a.getAttribute('title')).toBeNull(); // 늦게 뜨는 브라우저 툴팁은 없다
+  }
+  // 누른 뒤 마우스를 떼면 사라진다 (마우스 포커스로 남지 않음) · 키보드 Tab 이면 뜬다
+  await rail.getByRole('link', { name: '설정', exact: true }).click();
+  await win.mouse.move(600, 400);
+  await expect(win.getByRole('tooltip')).toHaveCount(0);
+  await win.keyboard.press('Shift+Tab');
+  await expect(win.getByRole('tooltip', { name: '파일', exact: true })).toBeVisible();
+  await win.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await rail.getByRole('link', { name: '파일', exact: true }).hover();
+  await expect(win.getByRole('tooltip', { name: '파일', exact: true })).toHaveCSS('opacity', '1');
+  await win.screenshot({ path: shot('desktop-rail-tip') });
+  await win.mouse.move(600, 400);
+});
+
+test('설정 = 사이드바가 세부 메뉴로 (영역별 묶음) · 누르면 그 화면 · 대화로 가면 다시 대화 목록', async () => {
+  await openMenu(win, NAV, SETTINGS);
+  await expect(win).toHaveURL(/#\/settings\/account$/);
+  const sub = win.getByRole('navigation', { name: SETTINGS_NAV, exact: true });
+  await expect(sub.getByRole('group')).toHaveCount(GROUPS.length);
+  await expectMenu(win, SETTINGS_NAV, SUBS); // 전체 순서
+  for (const g of GROUPS) {
+    const group = sub.getByRole('group', { name: g.label, exact: true });
+    await expect(group).toContainText(g.label);
+    await expect(group.getByRole('link')).toHaveText(g.items.map((i) => i.label));
+  }
+  await expect(win.getByRole('button', { name: '새 대화' })).toHaveCount(0); // 대화 목록 대신
+  for (const item of SUBS) {
+    await openMenu(win, SETTINGS_NAV, item);
+    await expect(win.getByRole('navigation', { name: NAV, exact: true }).getByRole('link', { name: '설정' })).toHaveAttribute('aria-current', 'page');
+    await win.screenshot({ path: shot(`desktop-${item.id.replace('/', '-')}`) });
+  }
+  await openMenu(win, NAV, CHAT);
+  await expect(sub).toHaveCount(0);
+  await expect(win.getByRole('button', { name: '새 대화' })).toBeVisible();
+});
+
+test('예전 주소 #/skills · #/connections · #/settings 는 설정 안 그 화면으로', async () => {
+  for (const [hash, to, h1] of [['#/skills', 'settings/skills', '스킬'], ['#/connections', 'settings/connections', '연결된 앱'], ['#/settings', 'settings/account', '계정']]) {
+    await goHash(win, '#/chat');
+    await expectScreen(win, NAV, CHAT);
+    await goHash(win, hash);
+    await expect(win).toHaveURL(new RegExp(`#/${to}$`));
+    await expectScreen(win, SETTINGS_NAV, { id: to, label: h1 });
+  }
+});
+
 test('빈 주소·모르는 주소·관리자 주소는 대화로 간다', async () => {
   for (const hash of ['', '#/', '#/nope', '#/admin', '#/models']) {
     await goHash(win, '#/settings');
@@ -150,6 +211,11 @@ test('빈 주소·모르는 주소·관리자 주소는 대화로 간다', async
 test('어느 화면에도 관리자 문구가 없다', async () => {
   for (const item of MENU) {
     await openMenu(win, NAV, item);
+    expect(await readableText(win), item.label).not.toMatch(/관리자|모델 관리/);
+  }
+  for (const item of SUBS) {
+    await goHash(win, `#/${item.id}`);
+    await expectScreen(win, SETTINGS_NAV, item);
     expect(await readableText(win), item.label).not.toMatch(/관리자|모델 관리/);
   }
 });

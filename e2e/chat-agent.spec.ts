@@ -363,7 +363,7 @@ test.describe('기록 · 진행 상황', () => {
     // 사이드바 최근에 바로 뜬다 (진행 중 표시)
     const item = ui(win).recent.getByRole('button', { name: /진행 상황 확인/ });
     await expect(item.getByRole('img', { name: '답 쓰는 중' })).toBeVisible();
-    await win.getByRole('navigation', { name: '메뉴' }).getByRole('link', { name: '진행 상황' }).click();
+    await win.getByRole('navigation', { name: '메뉴', exact: true }).getByRole('link', { name: '진행 상황' }).click();
     await expectHeading(win, '진행 상황');
     const live = win.locator('.run-live');
     await expect(live).toHaveCount(1);

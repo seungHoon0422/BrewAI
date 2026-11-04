@@ -83,8 +83,12 @@ html:has(.ui-dialog[open],.ui-sheet[open]){overflow:hidden}
   border-radius:var(--radius-md);background:var(--accent);color:var(--on-accent);font-size:var(--fs-xs);line-height:1.4;box-shadow:var(--shadow-md);
   transform:translate(-50%,2px);opacity:0;visibility:hidden;pointer-events:none;transition:opacity var(--dur-fast),transform var(--dur-fast),visibility 0s linear var(--dur-fast)}
 .ui-tip[data-side="bottom"] .ui-tip-body{bottom:auto;top:calc(100% + 6px);transform:translate(-50%,-2px)}
-.ui-tip:hover .ui-tip-body,.ui-tip:focus-within .ui-tip-body{opacity:1;visibility:visible;transform:translate(-50%,0);transition-delay:350ms,350ms,0s}
-.ui-tip:focus-within .ui-tip-body{transition-delay:0s}
+/* 포커스 = 키보드(focus-visible)만 — 마우스로 누른 뒤 포커스가 남아도 툴팁이 계속 떠 있지 않게 */
+.ui-tip:hover .ui-tip-body,.ui-tip:has(:focus-visible) .ui-tip-body{opacity:1;visibility:visible;transform:translate(-50%,0);transition-delay:350ms,350ms,0s}
+.ui-tip:has(:focus-visible) .ui-tip-body{transition-delay:0s}
+.ui-tip[data-side="right"] .ui-tip-body{left:calc(100% + 8px);bottom:auto;top:50%;transform:translate(-2px,-50%)}
+.ui-tip[data-side="right"]:hover .ui-tip-body,.ui-tip[data-side="right"]:has(:focus-visible) .ui-tip-body{transform:translate(0,-50%)}
+.ui-tip[data-instant]:hover .ui-tip-body{transition-delay:0s}
 .ui-tip[data-hidden] .ui-tip-body{opacity:0;visibility:hidden}
 
 /* 알림 — 유리 카드 · 상태 = 앞 점 */

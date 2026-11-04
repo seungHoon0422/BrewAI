@@ -1,6 +1,11 @@
 // 설정 화면 문구 (한국어)
 export const SETTINGS = {
-  sub: '내 계정과 이 기기의 BrewAI 설정이에요.',
+  nav: '설정 메뉴', // e2e 계약 (사이드바 navigation 이름)
+  title: '설정',
+  accountSub: '로그인 ID, 닉네임, 로그인 방법이에요.',
+  generalSub: '이 기기의 BrewAI 화면 설정이에요.',
+  modelSub: '대화에 쓰는 모델과 생각 깊이예요.',
+  aboutSub: '이 앱의 버전과 실행 환경이에요.',
   general: '일반',
   theme: '테마',
   themeSub: '시스템 설정을 따라요',

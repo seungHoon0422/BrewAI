@@ -9,23 +9,26 @@ import { ConnectionsScreen } from '../features/connections/components/Connection
 import { FilesScreen } from '../features/files/components/FilesScreen';
 import { ScheduledScreen } from '../features/scheduled/components/ScheduledScreen';
 import { clearNotice, useScopeState } from '../features/scope/hooks';
-import { SettingsScreen } from '../features/settings/components/SettingsScreen';
+import { AboutScreen, AccountScreen, GeneralScreen, ModelScreen } from '../features/settings/components/SettingsScreen';
 import { Rail } from '../features/shell/components/Rail';
 import { Sidebar } from '../features/shell/components/Sidebar';
 import { Titlebar } from '../features/shell/components/Titlebar';
 import { SkillsScreen } from '../features/skills/components/SkillsScreen';
 import { boot } from './boot';
-import type { MenuId } from './menu';
+import { menuOf, type RouteId } from './menu';
 import { useRoute } from './router';
 
-const PAGES: Record<MenuId, ComponentType> = {
+const PAGES: Record<RouteId, ComponentType> = {
   chat: ChatScreen,
   activity: ActivityScreen,
   scheduled: ScheduledScreen,
-  skills: SkillsScreen,
   files: FilesScreen,
-  connections: ConnectionsScreen,
-  settings: SettingsScreen,
+  'settings/account': AccountScreen,
+  'settings/general': GeneralScreen,
+  'settings/model': ModelScreen,
+  'settings/skills': SkillsScreen,
+  'settings/connections': ConnectionsScreen,
+  'settings/about': AboutScreen,
 };
 
 export function App() {
@@ -64,8 +67,8 @@ function Workspace() {
     <div className={sidebar ? 'app' : 'app sb-hidden'}>
       <Titlebar sidebar={sidebar} toggleRef={toggleRef} onToggle={() => setSidebar((v) => !v)} />
       <div className="body">
-        <Rail route={route} />
-        <Sidebar open={sidebar} onClose={closeSidebar} onError={(title) => push({ tone: 'danger', title })}
+        <Rail current={menuOf(route)} />
+        <Sidebar open={sidebar} onClose={closeSidebar} onError={(title) => push({ tone: 'danger', title })} route={route}
           thread={route === 'chat' ? current : null} project={route === 'chat' && !current ? projectId : null} />
         <main className="main">
           <Page key={route === 'chat' ? `chat-${current ?? 'new'}-${nonce}` : route} />
