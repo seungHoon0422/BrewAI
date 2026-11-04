@@ -146,8 +146,10 @@ REASONING_LEVELS: tuple[Reasoning, ...] = ("off", "low", "high")
 # 화면의 생각 깊이 → LiteLLM reasoning_effort. '보통'(low) = medium: Claude adaptive 모델은 effort low 면 쉬운 질문에서
 # 생각을 자주 건너뛴다 (LiteLLM 1.106.2 _map_reasoning_effort → output_config.effort). 저장 값(low)은 그대로 둔다 (기록 호환)
 REASONING_EFFORT: dict[str, Literal["medium", "high"]] = {"low": "medium", "high": "high"}
-MAX_MODEL_REQUESTS = 8  # 툴 왕복 포함 한 실행의 모델 호출 상한 (무한 툴 루프 방지)
+MAX_MODEL_REQUESTS = 16  # 툴 왕복 포함 한 실행의 모델 호출 상한 (무한 툴 루프 방지 · 8 이면 Canva 같은 비동기 작업 확인에서 걸렸다)
 MAX_PROMPT_CHARS = 32_000
+REPEAT_BACKOFF_S = 2.0  # 같은 앱 도구를 같은 인자로 다시 부를 때 기다림 (2 · 4 · 8초)
+REPEAT_BACKOFF_MAX_S = 8.0
 THINKING_MAX_TOKENS = 16_000  # Anthropic thinking 은 max_tokens > budget 이어야 한다 (LiteLLM high = 4096)
 # 병렬 툴: 모델이 한 응답에 툴을 여럿 부르면 동시에 돌린다 (Pydantic AI 기본값이지만 여기서 못 박는다 · 결과는 끝나는 대로).
 # 한 실행에서 동시에 도는 툴은 MAX_PARALLEL_TOOLS 개까지 (나머지는 줄 서서 기다린다 · 기다리는 시간은 시간 제한에 안 든다).
@@ -514,6 +516,7 @@ class _AppRun:
     events: list[BaseEvent] = field(default_factory=list)
     waiting: list[str] = field(default_factory=list)
     resumed: int = 0  # 이어서 하기로 서버가 대신 돌린 호출 수 (사용량 tool_calls 에 더한다)
+    repeats: dict[str, int] = field(default_factory=dict)  # 같은 도구 · 같은 인자 호출 수 (기다림 · _AppTools.call_tool)
 
     def defer(self, call_id: str, tool_name: str, need: AuthNeeded) -> CallDeferred:
         self.pending[call_id] = need.pending(call_id, tool_name)
@@ -571,6 +574,12 @@ class _AppTools(AbstractToolset[None]):
             if isinstance(got, AuthNeeded):
                 raise self.run.defer(call_id, name, got)
             return app_return(got)
+        # 같은 도구 · 같은 인자를 거듭 부름 (비동기 작업 상태 확인 · Canva get-design-job 등) = 2 · 4 · 8초 기다렸다 (polled_too_early 루프 막기)
+        key = f"{name}:{json.dumps(tool_args, sort_keys=True, ensure_ascii=False)}"
+        seen = self.run.repeats.get(key, 0)
+        self.run.repeats[key] = seen + 1
+        if seen:
+            await asyncio.sleep(min(REPEAT_BACKOFF_S * 2 ** (seen - 1), REPEAT_BACKOFF_MAX_S))
         res, meta = await self.run.apps.call(name, tool_args, pinned=pinned_servers(ctx.messages))
         if isinstance(res, AuthNeeded):
             raise self.run.defer(call_id, name, res)
@@ -777,7 +786,8 @@ class _TeamRun:
                 m.status, m.code = "error", "member_limit"
             except Exception as e:  # 팀원 실패는 그 팀원만 (제공자 원문 · 키는 안 싣는다 = diagnose 코드만)
                 m.status, m.code = "error", tm.error_code(diagnose(e).code)
-                log.warning("team member failed: agent=%s code=%s error=%s", m.agent, m.code, type(e).__name__)
+                log.warning("team member failed: agent=%s code=%s error=%s message=%r", m.agent, m.code, type(e).__name__,
+                            dx.sanitize(str(e), 200))
             finally:
                 u = usage
                 details = u.details or {}
@@ -819,10 +829,12 @@ class _TeamTools(AbstractToolset[None]):
         m = team.roster.member(ctx.tool_call_id or "", tool_args.get("role"), tool_args.get("task"))
         # 한 응답의 delegate 수 = 지금 실행 중인 모델 응답 (병렬 실행 때 ctx.messages 의 마지막 = 그 응답 · 스파이크 확인)
         last = ctx.messages[-1] if ctx.messages else None
-        n = sum(1 for p in last.parts if isinstance(p, ToolCallPart) and p.tool_name == DELEGATE) if isinstance(last, ModelResponse) else 0
-        if n < tm.MIN_MEMBERS:
+        ids = [p.tool_call_id for p in last.parts if isinstance(p, ToolCallPart) and p.tool_name == DELEGATE] if isinstance(last, ModelResponse) else []
+        n = len(ids)
+        if n < tm.MIN_MEMBERS and not team.roster.ran:  # 처음 = 2명 이상 · 이미 팀이 있으면 1명 다시 맡기기도 된다 (실패한 팀원 재시도)
             return team.reject(m, "team_too_small")
-        if not team.roster.admit(m):
+        place = ids.index(ctx.tool_call_id) if ctx.tool_call_id in ids else 0  # 한 응답에서 몇 번째 delegate (앞 MAX_MEMBERS 개만)
+        if place >= tm.MAX_MEMBERS or not team.roster.admit(m):
             return team.reject(m, "team_full")
         return await team.run(m)
 

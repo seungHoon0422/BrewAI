@@ -16,6 +16,7 @@ from typing import Any
 
 import pytest
 
+from conductor import team as tm
 from conductor import tools as tools_mod
 from conductor.agent import HISTORY_RESULT_BYTES, compact_result
 from conductor.connectors.client import MAX_RESULT_BYTES, cap_result, estimate_tokens
@@ -358,7 +359,7 @@ def test_member_first_request_is_small(make_api, h, clock) -> None:
     assert est(member) <= MEMBER_FIRST_0, est(member)
     # system 1개 (고정 한 줄) + user = task 만 (대화 기록 · now_line 없음) · 도구 0 (앱 없음 = 글만) · 추론 끔 · max_tokens
     assert [m["role"] for m in member["messages"]] == ["system", "user"] and member["messages"][1]["content"] == MEMBER_TASK
-    assert "tools" not in member and "reasoning_effort" not in member and member["max_completion_tokens"] == 1500
+    assert "tools" not in member and "reasoning_effort" not in member and member["max_completion_tokens"] == tm.MEMBER_MAX_TOKENS
     assert member["user"] == api.me["id"]
 
     wire54 = Wire(team_plan())

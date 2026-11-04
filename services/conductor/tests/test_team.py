@@ -69,10 +69,12 @@ def test_roster_numbers_limits_and_rejects() -> None:
     assert r.member("c1", "다른 이름") is a and a.agent == "a1"  # 처음 본 쪽이 정한다 (스트림 · call_tool 같은 답)
     b, c, d = r.member("c2", "가격"), r.member("c3", ""), r.member("c4", "넷째")
     assert (b.role, c.role, d.agent) == ("가격 2", "팀원 3", "a4")
-    assert [r.admit(x) for x in (a, b, c, d)] == [True, True, True, False]  # 실행당 3명
-    assert [m.agent for m in r.ran] == ["a1", "a2", "a3"]
+    assert [r.admit(x) for x in (a, b, c, d)] == [True, True, True, True]  # 실행 전체 6명 (다시 맡기기 몫)
+    more = [r.member(f"c{i}", f"추가 {i}") for i in range(5, 8)]
+    assert [r.admit(x) for x in more] == [True, True, False]  # 7번째 = team_full
+    assert [m.agent for m in r.ran] == ["a1", "a2", "a3", "a4", "a5", "a6"]
     assert tm.rejected("team_full")["error"] == "team_full" and "2명 이상" in tm.rejected("team_too_small")["message"]
-    assert (tm.MAX_MEMBERS, tm.MIN_MEMBERS, tm.MEMBER_REQUEST_LIMIT, tm.MEMBER_TIMEOUT_S) == (3, 2, 4, 90.0)
+    assert (tm.MAX_MEMBERS, tm.MAX_MEMBERS_RUN, tm.MIN_MEMBERS, tm.MEMBER_REQUEST_LIMIT, tm.MEMBER_TIMEOUT_S) == (3, 6, 2, 4, 90.0)
 
 
 def test_member_result_is_untrusted_first_and_capped() -> None:

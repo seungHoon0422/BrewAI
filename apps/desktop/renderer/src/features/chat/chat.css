@@ -159,10 +159,15 @@
   background-size:250% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:ui-fade-in .16s ease-out,ui-shimmer 1.8s linear infinite}
 .trace-line .tm,.trace-line .chev{color:var(--text-muted);flex:none}
 .trace-line[data-phase="stopped"] .trace-txt{color:var(--text-muted)}
-.trace-panel{margin:var(--space-1-5) 0 var(--space-2-5);padding:var(--space-2-5) var(--space-3-5);border:0;border-radius:var(--radius-lg);max-width:640px;display:grid;gap:var(--space-1-5);
+.trace-panel{margin:var(--space-1-5) 0 var(--space-2-5);padding:var(--space-2-5) var(--space-3-5);border:0;border-radius:var(--radius-lg);max-width:100%;display:grid;gap:var(--space-1-5);
+  grid-template-columns:minmax(0,1fr);
   box-shadow:var(--glass-hi),var(--glass-lift);animation:ui-fade var(--dur-base) var(--ease-out)}
 .trace-panel[hidden]{display:none}
-.tp-list{list-style:none;margin:0;padding:0;display:grid;gap:var(--space-2-5)}
+/* 긴 글자(토큰 · id · 주소)가 칸을 패널 밖으로 밀지 않게: 그리드 칸 = 최소 0 · 안쪽도 0 부터 (min-width:auto = 내용 폭이라 넘쳤다) */
+.trace-panel>*,.tp-list>*,.tp-par>*,.tp-member,.tp-member-steps>*,.tp-tool{min-width:0;max-width:100%}
+.tp-tool .th{min-width:0}
+.tp-tool .th b{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tp-list{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:minmax(0,1fr);gap:var(--space-2-5)}
 .tp-foot{display:flex;flex-wrap:wrap;gap:0 var(--space-3);padding-top:var(--space-1-5);border-top:1px solid var(--border-subtle)}
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.trace-line,.trace-panel{background:var(--glass-fill),var(--surface-sunken)}}
 .tp-h{display:flex;align-items:center;gap:var(--space-1-5);margin:0 0 var(--space-1);font-size:var(--fs-xs);font-weight:var(--fw-semibold);color:var(--text-muted)}
@@ -229,12 +234,12 @@
 .tp-note[data-state="error"] .tn{color:var(--danger-text)}
 
 /* 동시에 돈 도구 묶음 = 머리 줄 · 실행 막대(모두 왼쪽 끝에서 같이 시작 · 길이 = 실행 시간) · 카드들. 왼쪽 선으로 한 묶음임을 보인다 */
-.tp-par{display:grid;gap:var(--space-1-5);padding-left:var(--space-2-5);border-left:2px solid var(--border)}
+.tp-par{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--space-1-5);padding-left:var(--space-2-5);border-left:2px solid var(--border)}
 .tp-par-h{display:flex;align-items:center;gap:var(--space-1-5);margin:0;font-size:var(--fs-xs);font-weight:var(--fw-semibold);color:var(--text-2);min-width:0}
 .tp-par-h .ui-icon{color:var(--text-muted);flex:none}
 .tp-par-meta{margin-left:var(--space-1);font-weight:var(--fw-regular);color:var(--text-muted)}
 .tp-par-list{list-style:none;margin:0;padding:0;display:grid;gap:var(--space-1-5)}
-.tp-lanes{list-style:none;margin:0 0 var(--space-0-5);padding:0;display:grid;gap:3px}
+.tp-lanes{list-style:none;margin:0 0 var(--space-0-5);padding:0;display:grid;grid-template-columns:minmax(0,1fr);gap:3px;overflow:hidden}
 .tp-lane{position:relative;height:4px;border-radius:var(--radius-pill);background:var(--surface-chip)}
 /* 막대 = 실행 시간만 (모델이 인자를 쓰는 시간은 그리지 않는다) · 전체 폭 = 묶음이 걸린 시간 */
 .tp-lane i{position:absolute;top:0;bottom:0;left:0;border-radius:inherit}
@@ -302,7 +307,7 @@
 .tp-member[data-state="done"] .tst{color:var(--ok-text)}
 .tp-member[data-state="error"] .tst{color:var(--danger-text)}
 .tp-member-why{margin:var(--space-1) 0 0 30px;font-size:var(--fs-xs);color:var(--danger-text)}
-.tp-member-steps{list-style:none;margin:var(--space-1-5) 0 0 30px;padding:0;display:grid;gap:var(--space-1)}
+.tp-member-steps{list-style:none;margin:var(--space-1-5) 0 0 30px;padding:0;display:grid;grid-template-columns:minmax(0,1fr);gap:var(--space-1)}
 .tp-member-steps .tp-tool{padding:var(--space-1) var(--space-2);background:var(--surface-sunken)}
 .tp-member-steps .tp-tool dl{display:none}
 .tp-member-steps .tp-tool .ttile{width:18px;height:18px}
@@ -318,7 +323,7 @@
 .team-head .ttl{flex:1;margin:0;font-size:inherit;font-weight:var(--fw-semibold);line-height:inherit}
 .team-sum{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-1) var(--space-2);margin:0;padding:0 var(--space-4) var(--space-2);color:var(--text-2);font-size:var(--fs-sm)}
 .team-sum .team-sum-meta{color:var(--danger-text);font-size:var(--fs-xs)}
-.team-tree{overflow:auto;min-height:0;padding:var(--space-1) var(--space-2-5) var(--space-3)}
+.team-tree{overflow-y:auto;overflow-x:hidden;min-height:0;min-width:0;padding:var(--space-1) var(--space-2-5) var(--space-3)}
 .tm-node{margin:1px 0}
 .tm-row{display:flex;align-items:center;gap:var(--space-2);width:100%;min-width:0;padding:var(--space-1-5);border:0;border-radius:var(--radius-md);background:transparent;color:inherit;font:inherit;font-size:var(--fs-sm);text-align:left}
 button.tm-row{cursor:pointer}
@@ -327,7 +332,7 @@ button.tm-row:focus-visible{outline-offset:-2px}
 .tm-row b{font-weight:var(--fw-semibold);white-space:nowrap;color:var(--text)}
 .tm-row .tm-role{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--text-muted);font-size:var(--fs-xs)}
 .tm-ico{width:20px;height:20px;border-radius:var(--radius-sm);background:var(--surface-chip);color:var(--text-2);display:grid;place-items:center;flex:none}
-.tm-row .tst{margin-left:auto;display:inline-flex;align-items:center;gap:var(--space-1);color:var(--text-muted);font-size:var(--fs-xs);white-space:nowrap}
+.tm-row .tst{margin-left:auto;flex:none;display:inline-flex;align-items:center;gap:var(--space-1);color:var(--text-muted);font-size:var(--fs-xs);white-space:nowrap}
 .tm-row .tst .tm{margin-left:var(--space-0-5)}
 .tm-node[data-state="done"]>.tm-row .tst{color:var(--ok-text)}
 .tm-node[data-state="error"]>.tm-row .tst{color:var(--danger-text)}
@@ -346,7 +351,7 @@ button.tm-row:focus-visible{outline-offset:-2px}
 .tm-tool{display:flex;align-items:center;gap:var(--space-2);padding:3px var(--space-1-5);font-size:var(--fs-xs);color:var(--text-2);min-width:0}
 .tm-tool .ti{display:grid;place-items:center;flex:none;color:var(--text-muted)}
 .tm-tool .tl{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-.tm-tool .tst{margin-left:auto;display:inline-flex;align-items:center;gap:var(--space-1);color:var(--text-muted);white-space:nowrap}
+.tm-tool .tst{margin-left:auto;flex:none;display:inline-flex;align-items:center;gap:var(--space-1);color:var(--text-muted);white-space:nowrap}
 .tm-tool[data-state="error"] .tst{color:var(--danger-text)}
 @media (prefers-reduced-motion: reduce){
   .team-panel{animation:none}

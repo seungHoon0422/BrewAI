@@ -203,6 +203,25 @@ test('앱 고르기 실패 = 사람이 읽는 문구 (모델용 지시 "사용�
   await win.screenshot({ path: shot('desktop-tools-app-missed'), animations: 'disabled' });
 });
 
+test('끊을 곳 없는 긴 글자(토큰 · id)가 와도 도구 카드는 패널 안에 (가로로 넘치지 않는다)', async () => {
+  await home(win);
+  const token = 'eyJ' + 'A1b2C3d4'.repeat(30); // 243자 한 덩어리 (실사용: Canva continuation_token)
+  const { box, send } = ui(win);
+  await box.fill(`[fake:app ${MEMO.handle} 메모] [fake:tool ${MEMO.handle}__echo {"text":"${token}"}] 긴 토큰`);
+  await send.click();
+  await idle(win);
+  const panel = await openTrace(win);
+  await expect(panel.locator('[data-kind="tool"]').first()).toBeVisible();
+  const fit = await panel.evaluate((el) => {
+    const box = el.getBoundingClientRect();
+    const cards = [...el.querySelectorAll('[data-kind="tool"]')].map((c) => c.getBoundingClientRect().right);
+    return { inside: cards.every((r) => r <= box.right + 1), noScroll: el.scrollWidth <= el.clientWidth + 1 };
+  });
+  expect(fit).toEqual({ inside: true, noScroll: true });
+  expect(await win.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await win.screenshot({ path: shot('desktop-tools-long-token'), animations: 'disabled' });
+});
+
 test('움직임 줄이기: 홈 복제본 · 말풍선 이동 없이 바로 끝 모양', async () => {
   await win.emulateMedia({ reducedMotion: 'reduce' });
   await home(win);
