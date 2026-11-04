@@ -110,8 +110,15 @@ test('병렬 도구: 앱 고르기 = 한 줄 메모 → 한 응답의 앱 도구
     await expect(cards.nth(i)).toHaveAttribute('data-state', 'done');
     await expect(cards.nth(i).locator('.tst .tm')).toHaveText(/^\d+(\.\d)?(초|ms)$/); // 묶음 안 카드 = 실행 시간 (머리 줄과 같은 뜻)
   }
-  // 입력 = 핵심 인자 값 (JSON 중괄호 · 따옴표 없이)
+  // 두 단계: 패널을 펼치면 도구는 머리 줄만 · 머리 줄을 누르면 입력 · 결과 (2026-11-04 사용자)
   const search = cards.nth(0);
+  await expect(search.locator('.tbody')).toBeHidden();
+  await expect(search.locator('button.th')).toHaveAttribute('aria-expanded', 'false');
+  await win.screenshot({ path: shot('desktop-tools-collapsed'), animations: 'disabled' });
+  await search.locator('button.th').click();
+  await expect(search.locator('button.th')).toHaveAttribute('aria-expanded', 'true');
+  await expect(search.locator('.tbody')).toBeVisible();
+  // 입력 = 핵심 인자 값 (JSON 중괄호 · 따옴표 없이)
   await expect(search.locator('[data-row="입력"] dd')).toHaveText('회의');
   await expect(search.locator('dl')).not.toContainText('{');
   // 결과 = Title/URL 기록 → 제목(링크) + 도메인 목록
@@ -183,6 +190,7 @@ test('기록에서 다시 열어도 같은 묶음 · 같은 메모 줄 (새 창 
     await expect(group).toHaveAttribute('aria-label', '동시에 2개');
     await expect(group.locator('[data-kind="tool"]')).toHaveCount(2);
     await expect(group.locator('.tp-lane')).toHaveCount(0); // 기록엔 시간이 없다
+    await group.locator('[data-kind="tool"]').first().locator('button.th').click(); // 결과 = 두 번째 단계
     await expect(group.getByRole('list', { name: '결과 목록' }).first().getByRole('listitem')).toHaveCount(3);
     const segs = await ui(fresh.win).last.locator('.trace-line .trace-txt .seg').allTextContents();
     expect(segs).toContain(`${MEMO.name} 2회`);

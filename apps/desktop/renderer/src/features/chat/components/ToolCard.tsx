@@ -11,16 +11,19 @@ import type { ToolPart } from '../model';
 import { TOOL_STATE_ICON, appNote, toolIcon, toolView } from '../tools';
 
 // took = 보여 줄 시간 글 (병렬 묶음 = 실행 시간 · 없으면 부르기 시작 ~ 결과)
+// 두 단계: 패널을 펼치면 도구는 머리 줄(이름 · 상태 · 시간)만 · 머리 줄을 누르면 입력 · 결과 · 원문 (실패는 처음부터 펼침 = 이유가 바로 보인다)
 export function ToolCard({ p, took }: { p: ToolPart; took?: string }) {
   const icon = TOOL_STATE_ICON[p.status];
   const tm = took ?? (p.ms != null ? seconds(p.ms) : '');
   const v = toolView(p);
   const [raw, setRaw] = useState(false);
+  const [open, setOpen] = useState<boolean | null>(null); // null = 기본 (실패만 펼침)
   const rawId = useId();
-  return (
-    <div className="tp-tool" data-kind="tool" data-state={p.status} data-tool={p.name} data-app={p.app?.handle} data-write={p.app?.write || undefined}
-      role="group" aria-label={p.name === 'use_skill' ? TOOL.skillGroup : p.app ? TOOL.appGroup(p.label) : TOOL.group(p.label)}>
-      <div className="th">
+  const bodyId = useId();
+  const expandable = v.rows.length > 0 || v.links.length > 0 || !!v.note || !!v.raw;
+  const shown = open ?? p.status === 'error';
+  const head = (
+    <>
         <span className="ttile" aria-hidden="true">{p.app ? <AppIcon handle={p.app.handle} name={p.app.name || p.app.handle} size="xs" /> : <Icon name={toolIcon(p)} size="sm" />}</span>
         <b title={p.name}>{p.label}</b>
         {p.app?.write && <Badge size="sm" tone="warn" className="twrite" title={TOOL.writeTitle}>{TOOL.write}</Badge>}
@@ -30,7 +33,20 @@ export function ToolCard({ p, took }: { p: ToolPart; took?: string }) {
           <span>{TOOL.state[p.status]}</span>
           {p.status !== 'running' && tm && <span className="tm ui-num">{tm}</span>}
         </span>
-      </div>
+        {expandable && <span className="tchev" aria-hidden="true"><Icon name="chevron-down" size="xs" /></span>}
+    </>
+  );
+  return (
+    <div className="tp-tool" data-kind="tool" data-state={p.status} data-tool={p.name} data-app={p.app?.handle} data-write={p.app?.write || undefined}
+      data-open={shown || undefined} role="group" aria-label={p.name === 'use_skill' ? TOOL.skillGroup : p.app ? TOOL.appGroup(p.label) : TOOL.group(p.label)}>
+      {expandable ? (
+        <button type="button" className="th" aria-expanded={shown} aria-controls={bodyId} title={shown ? TOOL.detailHide : TOOL.detailShow}
+          onClick={() => setOpen(!shown)}>{head}</button>
+      ) : (
+        <div className="th">{head}</div>
+      )}
+      {expandable && (
+      <div className="tbody" id={bodyId} hidden={!shown}>
       <dl>
         {v.rows.map((r) => (
           <div key={r.k} className={r.err ? 'err' : undefined} data-row={r.k}>
@@ -61,6 +77,8 @@ export function ToolCard({ p, took }: { p: ToolPart; took?: string }) {
         </div>
       )}
       {v.raw && <pre className="traw ui-scroll" id={rawId} hidden={!raw} aria-label={TOOL.raw}>{raw ? v.raw : ''}</pre>}
+      </div>
+      )}
     </div>
   );
 }

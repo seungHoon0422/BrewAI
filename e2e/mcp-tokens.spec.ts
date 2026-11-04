@@ -99,11 +99,13 @@ test('도구 카드: 앱 고르기 = 한 줄 메모 · MCP 도구 = 앱 이름 �
   await expect(write.locator('.th b')).toContainText(`${tracker.name}:`);
   await expect(write.locator('.ttile .app-icon')).toHaveCount(1); // 플러그 대신 앱 아이콘 (서비스 사이트 그림 · 없으면 첫 글자)
   await expect(write.locator('.ttile [data-icon="plug"]')).toHaveCount(0);
+  await write.locator('button.th').click(); // 입력 · 결과 = 두 번째 단계
   await expect(write.locator('[data-row="입력"] dd')).toHaveText(`${m3}, ENG`); // 인자 값만 (제목 먼저 · JSON 아님)
   // 앞 턴의 검색 결과 = JSON 목록 → 제목 목록 (id + 제목)
   const prev = chat(win).log.locator('.msg.agent').nth(-2);
   await prev.locator('.trace-line').click();
   const found = prev.locator(`[data-tool="${h}__search_issues"]`).first();
+  await found.locator('button.th').click();
   await expect(found.getByRole('list', { name: '결과 목록' }).getByRole('listitem')).toHaveCount(5);
   await expect(found.getByRole('list', { name: '결과 목록' }).getByRole('listitem').first()).toHaveText(/^ENG-1 /);
   // 요약 줄 = 앱 이름으로 묶은 횟수 ('앱:' 겹침 없이)

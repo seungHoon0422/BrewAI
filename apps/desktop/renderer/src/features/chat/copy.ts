@@ -188,6 +188,8 @@ export const TOOL = {
   writeTitle: '앱의 데이터를 바꾸는 도구예요',
   waitingAuth: '앱 연결을 기다려요',
   rows: { skill: '스킬', input: '입력', error: '오류', result: '결과', state: '상태', file: '파일' },
+  detailShow: '입력과 결과 보기',
+  detailHide: '접기',
   made: '만들었어요 (답 아래에서 저장)',
   skillLoaded: (lines: number | null) => `지침 불러옴${lines != null ? ` (${count(lines)}줄)` : ''}`,
   found: (n: number) => `${count(n)}개`,

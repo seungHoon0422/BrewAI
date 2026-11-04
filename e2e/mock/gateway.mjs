@@ -41,7 +41,7 @@
 //   요청 tools 에 있을 때만 (= use_app 이 공개한 뒤 · 다음 턴엔 바로) 부른다. 적은 순서대로 차례 하나씩 → 결과로 답
 //   예: '[fake:app tracker 이슈 검색] [fake:tool tracker__search_issues {"query":"버그"}]' · FAKE_GATEWAY_RECORD 로 요청 tools 를 검사
 // 에이전트 팀 (slice 06): [fake:team <역할>[><handle>][ slow][ 500], …] → 요청 tools 에 delegate 가 있으면 응답 하나에 delegate 호출 N개
-//   {role, task: '<역할> 맡기 [fake:app <handle> <역할>] [fake:read <handle>] [fake:slow] [fake:500]'} (handle · slow · 500 은 적은 것만)
+//   {role, task: '<역할> 맡기 [fake:app <handle> <역할>] [fake:read <handle>] [fake:slow] [fake:500] <긴 설명>'} (handle · slow · 500 · long 은 적은 것만)
 //   팀원 요청 (첫 system 이 '너는 BrewAI 팀원이다') = task 의 표식을 그대로 쓰고 '<역할> 결과: …' 로 답한다 (slow = 2글자씩 · 더 오래 돈다)
 //   [fake:read <handle>] → 공개된 <handle>__search_notes {query: 회의} (없으면 공개된 <handle>__ 도구 첫 번째 {})
 //   팀원 결과 {role, answer} → 총괄 답의 '<역할>: <answer 80자>' · 실패 결과 {role, error} → '<역할>: 하지 못했어요' (오류 글은 옮기지 않는다)
@@ -302,6 +302,9 @@ function sentenceFromTool(message) {
   return `도구 결과를 받았어요: ${JSON.stringify(out)}`;
 }
 
+// [fake:team 역할 long] 의 긴 일 설명 (띄어쓰기 적은 한 줄 · 실사용 여행 경비 조사)
+const LONG_TASK = '3박4일1인여행경비를항목별(항공제외현지기준:숙박3박,식비,교통,관광/입장료,기타)로조사해원화(KRW)기준저/중/고예산범위로정리하고출처를붙인다'.repeat(2);
+
 // [fake:make <kind>] → make_file 인자 (문서 스킬을 부른 뒤 = 요청 tools 에 make_file 이 있을 때만)
 const SAMPLE_FILES = {
   docx: { kind: 'docx', name: '회의록', title: '주간 회의록', blocks: [
@@ -370,7 +373,7 @@ function plannedRounds(body, question) {
   const team = question.match(/\[fake:team\s+([^\]]+)\]/);
   if (team) {
     const calls = team[1].split(',').map((item) => {
-      const m = /^(.+?)(?:>([a-z0-9_-]+))?((?:\s+(?:slow|500))*)\s*$/.exec(item.trim());
+      const m = /^(.+?)(?:>([a-z0-9_-]+))?((?:\s+(?:slow|500|long))*)\s*$/.exec(item.trim());
       if (!m) return null;
       const role = m[1].trim();
       const flags = m[3].split(/\s+/).filter(Boolean);
@@ -379,6 +382,7 @@ function plannedRounds(body, question) {
         m[2] ? `[fake:app ${m[2]} ${role}] [fake:read ${m[2]}]` : '',
         flags.includes('slow') ? '[fake:slow]' : '',
         flags.includes('500') ? '[fake:500]' : '',
+        flags.includes('long') ? LONG_TASK : '', // 실사용처럼 긴 일 설명 (상태 줄 패널 넘침 검사)
       ].filter(Boolean).join(' ');
       return { name: 'delegate', args: { role, task } };
     }).filter(Boolean);
