@@ -63,6 +63,9 @@
 .ui-input:focus-within,.ui-select:focus-within{border-color:var(--focus);box-shadow:0 0 0 1px var(--focus)}
 .ui-input input{flex:1;min-width:0;height:100%;padding:0;border:0;outline:0;background:transparent;color:var(--text);font-size:var(--fs-sm)}
 .ui-input[data-size="lg"] input{font-size:var(--fs-base)}
+/* 브라우저 자동 완성(저장된 아이디 · 비밀번호) = Chrome 이 안쪽 input 만 파랑 · 노랑으로 칠한다 → 상자 색 그대로 (inset 그림자로 덮기 · 글자색도) */
+.ui-input input:-webkit-autofill,.ui-input input:-webkit-autofill:hover,.ui-input input:-webkit-autofill:focus{
+  -webkit-box-shadow:0 0 0 1000px var(--surface) inset;-webkit-text-fill-color:var(--text);caret-color:var(--text);transition:background-color 99999s}
 .ui-input input::placeholder,.ui-textarea::placeholder{color:var(--text-muted)} /* 글 = muted (faint 는 아이콘 · 장식만 · 4.5:1) */
 .ui-input input::-webkit-search-cancel-button{cursor:pointer}
 .ui-input[data-invalid],.ui-select[data-invalid]{border-color:var(--danger)}
