@@ -69,6 +69,18 @@ export const FILES = {
   pageLoading: '쪽을 그리는 중',
   previewFailed: '미리보기를 열 수 없어요. 저장해서 열어 보세요',
   previewMore: (n: number) => `앞 ${count(n)}쪽만 보여요. 나머지는 저장해서 보세요`,
+  // 뷰어 (대화와 오른쪽 패널 사이)
+  viewer: '파일 보기',
+  viewerClose: '파일 보기 닫기',
+  viewerResize: '파일 보기 폭',
+  zoomOut: '작게',
+  zoomIn: '크게',
+  zoomFit: '폭 맞춤',
+  zoomLabel: '확대',
+  morePages: (n: number) => `${count(n)}쪽 더 보기`,
+  noPreview: (kind: string) => `${kind} 파일은 저장해서 열어 주세요`,
+  textCut: '글이 길어 앞부분만 보여요. 전체는 저장해서 보세요',
+  openLabel: (name: string) => `${name} 열기`,
   // 스페이스 '파일' 화면
   title: '파일',
   sub: '이 스페이스의 대화와 프로젝트에 올린 파일이에요.',

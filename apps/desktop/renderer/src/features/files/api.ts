@@ -126,3 +126,11 @@ export async function getFile(id: string, signal?: AbortSignal): Promise<FileIte
   if (!isObj(d)) throw new ApiError('server', 'bad_shape');
   return toFile(d);
 }
+
+// 뷰어의 뽑은 글 (Word · Excel · PowerPoint · 글) — GET /api/files/{id}/text · 조각 = 쪽 · 시트 · 슬라이드
+export type TextChunk = { label: string; text: string };
+export async function getText(id: string, signal?: AbortSignal): Promise<{ chunks: TextChunk[]; truncated: boolean }> {
+  const d = await json(`/api/files/${encodeURIComponent(id)}/text`, signal);
+  if (!isObj(d)) throw new ApiError('server', 'bad_shape');
+  return { chunks: list(d.chunks).map((c) => ({ label: str(c.label), text: str(c.text) })), truncated: d.truncated === true };
+}

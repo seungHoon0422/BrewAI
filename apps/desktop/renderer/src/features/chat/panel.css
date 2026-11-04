@@ -1,0 +1,37 @@
+/* 오른쪽 패널 (탭 진행 상황 · 파일) + 세로 경계 손잡이 (패널 · 뷰어) — 틀은 chat.css .team-panel (면 · 덮개) 그대로 · 토큰만 */
+.thread.has-side{grid-template-columns:var(--thread-cols)}
+.side-panel{position:relative;grid-template-rows:auto minmax(0,1fr)}
+.side-head{padding-left:var(--space-2)}
+.side-tabs{display:flex;align-items:center;gap:2px;flex:1;min-width:0}
+.side-tab{height:30px;padding:0 var(--space-2-5);border:0;border-radius:var(--radius-md);background:transparent;color:var(--text-muted);font:inherit;font-size:var(--fs-sm);
+  font-weight:var(--fw-medium);cursor:pointer}
+.side-tab:hover{background:var(--surface-hover);color:var(--text)}
+.side-tab[aria-selected="true"]{background:var(--surface-active);color:var(--text)}
+.side-tab:focus-visible{outline-offset:-2px}
+.side-body{display:grid;grid-template-rows:auto auto minmax(0,1fr);min-height:0;min-width:0}
+.side-panel[data-tab="files"] .side-body{grid-template-rows:minmax(0,1fr)}
+.side-empty{display:grid;justify-items:center;align-content:start;gap:var(--space-1-5);margin:0;padding:var(--space-8) var(--space-5);color:var(--text-muted);
+  font-size:var(--fs-sm);text-align:center}
+.side-empty p{margin:0}
+.side-empty b{color:var(--text-2);font-weight:var(--fw-medium)}
+.side-files{overflow-y:auto;min-height:0;padding:var(--space-1) var(--space-2) var(--space-4)}
+.side-group+.side-group{margin-top:var(--space-3)}
+.side-group h3{margin:var(--space-2) var(--space-2) var(--space-1);font-size:var(--fs-xs);font-weight:var(--fw-semibold);color:var(--text-muted)}
+.side-list{display:grid;gap:2px;margin:0;padding:0;list-style:none}
+.side-file{display:flex;align-items:center;gap:var(--space-1);min-width:0;border-radius:var(--radius-md)}
+.side-file:hover{background:var(--surface-hover)}
+.side-open{display:flex;align-items:center;gap:var(--space-2);flex:1;min-width:0;padding:var(--space-1-5) var(--space-2);border:0;border-radius:var(--radius-md);
+  background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.side-open:focus-visible{outline-offset:-2px}
+.side-ico{display:grid;place-items:center;flex:none;width:28px;height:28px;border-radius:var(--radius-md);background:var(--surface-sunken);color:var(--text-2)}
+.side-name{display:grid;min-width:0}
+.side-name b{font-size:var(--fs-sm);font-weight:var(--fw-medium);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.side-meta{font-size:var(--fs-xs);color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* 경계 손잡이 = 칸 왼쪽 끝 8px (보이는 선은 2px · 끌거나 포커스면 진하게) */
+.resizer{position:absolute;top:0;bottom:0;left:-4px;width:8px;z-index:2;cursor:col-resize;touch-action:none}
+.resizer::after{content:"";position:absolute;top:0;bottom:0;left:3px;width:2px;background:transparent;transition:background var(--dur-fast)}
+.resizer:hover::after,.resizer:focus-visible::after,.resizer:active::after{background:var(--accent)}
+.resizer:focus-visible{outline:none}
+.fv>.resizer{left:-4px}
+@media (prefers-reduced-motion:reduce){.resizer::after{transition:none}}

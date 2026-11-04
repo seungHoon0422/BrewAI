@@ -366,3 +366,14 @@ def test_designs_api_and_preview(make_api, h, clock) -> None:  # noqa: F811
     assert api.client.get("/api/designs/neon/preview.png").status_code == 404
     assert api.anon().get("/api/designs").status_code == 401
     assert api.anon().get("/api/designs/report/preview.png").status_code == 401
+
+
+def test_text_view_endpoint(make_api, h, clock) -> None:  # noqa: F811
+    """뷰어 = 뽑은 글 조각 (Word · Excel · PowerPoint · 글) · 권한 = content 와 같다 (남 = 404)."""
+    api = make(make_api, h, Wire())
+    made = dm.make({"kind": "docx", "name": "회의록", "blocks": [{"type": "paragraph", "text": "결정: 금요일 배포"}]})
+    f = api.client.put("/api/files", params={"name": made.name}, content=made.data).json()
+    body = api.client.get(f"/api/files/{f['id']}/text").json()
+    assert body["truncated"] is False and "금요일 배포" in "".join(c["text"] for c in body["chunks"]) and body["chunks"][0]["label"]
+    api.add_user("bob@brewai.test")
+    assert api.login("bob@brewai.test").get(f"/api/files/{f['id']}/text").status_code == 404

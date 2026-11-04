@@ -5,6 +5,7 @@
   GET    /api/files?space=&project=&thread=  [File + where] (볼 수 있는 것만 · space 만 = 스페이스 '파일' 화면)
   GET    /api/files/{id}                    File + labels (쪽 · 시트 · 슬라이드 이름)
   GET    /api/files/{id}/content            원본 (이미지 = 미리보기 · 그 밖 = 내려받기)
+  GET    /api/files/{id}/text              뽑은 글 {chunks: [{label, text}], truncated} = 앱 안 뷰어 (권한 = content 와 같다 · 20만 자)
   GET    /api/files/{id}/pages/{n}          PDF n 쪽(1부터) PNG = 앱 안 미리보기 서랍 (PDF 만 · 권한 = content 와 같다 · 없는 쪽 = 404)
   DELETE /api/files/{id}                    204 (올린 사람 · 프로젝트 파일 = 프로젝트 편집 권한)
   POST   /api/files/plan                    {model, files: [id]} → [{id, mode, tokens, reason}] (입력창 칩의 전달 배지)
@@ -73,6 +74,9 @@ def visible(request: Request, p: Principal, files: Files, file_id: str) -> FileR
     if f is None or not can_view(request, p, f):
         raise Denied(404, "file_not_found")
     return f
+
+
+TEXT_VIEW_CHARS = 200_000  # 뷰어가 받는 글 합 (넘으면 truncated · 나머지는 저장해서)
 
 
 def register(user: APIRouter, *, files: Files, registry: ModelRegistry) -> None:
@@ -146,6 +150,19 @@ def register(user: APIRouter, *, files: Files, registry: ModelRegistry) -> None:
             "Content-Disposition": f'{disposition}; filename="file-{quoted[:16]}"', "X-Content-Type-Options": "nosniff",
             "Cache-Control": "private, max-age=3600", "Content-Security-Policy": "default-src 'none'",
         })
+
+    @user.get("/api/files/{file_id}/text")
+    async def file_text(request: Request, file_id: str, p: Principal = Depends(require_user)) -> dict[str, Any]:
+        """뽑은 글 (쪽 · 시트 · 슬라이드 조각) = 앱 안 뷰어 (Word · Excel · PowerPoint · 글). 권한 = content 와 같다 · 합 TEXT_VIEW_CHARS 자까지."""
+        f = visible(request, p, files, file_id)
+        out_chunks: list[dict[str, str]] = []
+        left = TEXT_VIEW_CHARS
+        for c in files.chunks(f.id):
+            if left <= 0:
+                break
+            out_chunks.append({"label": c.label, "text": c.text[:left]})
+            left -= len(c.text)
+        return {"chunks": out_chunks, "truncated": left < 0}
 
     @user.get("/api/files/{file_id}/pages/{n}")
     def file_page(request: Request, file_id: str, n: int = Path(ge=1, le=10_000), p: Principal = Depends(require_user)) -> Response:

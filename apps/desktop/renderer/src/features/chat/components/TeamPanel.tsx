@@ -1,12 +1,14 @@
-// 오른쪽 '진행 상황' (slice 06 · design/prototype.html 의 팀 패널을 보고 새로 그림) — 요약 줄 · 트리(총괄 → 팀원 → 도구 줄) · 팀원 펼침.
+// 오른쪽 패널의 '진행 상황' 탭 (slice 06 · design/prototype.html 의 팀 패널을 보고 새로 그림) — 요약 줄 · 트리(총괄 → 팀원 → 도구 줄) · 팀원 펼침.
+// 패널 틀(탭 · 폭 · 닫기 · 덮개) = SidePanel.tsx · 여기 = 열림 상태(대화마다) · 고른 탭 · 팀 트리.
 // 대화에서 처음 팀이 생기면 저절로 열린다 (넓은 창만 · 좁으면 머리 토글로 덮개). 닫음은 대화마다 기억한다 (localStorage · 막혀 있어도 화면은 돈다).
 // 상태 = 글 + 아이콘 + 움직임 (색 점 없음 · TraceView 와 같은 규칙). 역할 · 할 일 = 글자로만 (마크다운 · HTML 아님).
 // 덮개 = 사람이 열면 포커스가 패널로 (토글이 덮개 밑에 숨는다) · Esc 는 문서 어디서나 · 닫으면 포커스는 토글로 (ChatScreen onClose).
-import { useEffect, useId, useRef, useState } from 'react';
-import { Badge, Icon, IconButton, Meta } from '@brewai/ui';
+import { useId, useState } from 'react';
+import { Badge, Icon, Meta } from '@brewai/ui';
 import { useMedia, useNow, useThrottled } from '../../../lib/hooks';
 import { createStore } from '../../../lib/store';
 import { TEAM, teamReason } from '../copy';
+import { SIDE } from '../panel-copy';
 import { isLive, type Answer, type Conv, type TeamMember } from '../model';
 import { hasTeam, isMemberPick, memberDone, memberFailed, teamOf } from '../trace';
 import { MemberState, memberTook, stepTook } from './TraceView';
@@ -45,7 +47,23 @@ function setPref(threadId: string, pref: Pref) {
 type Pick = { runId: string; over: string | null };
 const picks = createStore<Record<string, Pick>>({});
 let focusOnOpen: string | null = null; // 사람이 방금 연 대화 (덮개면 포커스를 패널로 · 저절로 열림 · 다시 그림엔 안 옮긴다)
+// 고른 탭 (대화마다 · 이 창에서만) — 없음 = 팀이 있으면 진행 상황 · 없으면 파일
+export type SideTab = 'team' | 'files';
+const tabs = createStore<Record<string, SideTab>>({});
+export const setSideTab = (threadId: string, tab: SideTab) => tabs.set((s) => (s[threadId] === tab ? s : { ...s, [threadId]: tab }));
+export const takeFocusOnOpen = (threadId: string) => {
+  if (focusOnOpen !== threadId) return false;
+  focusOnOpen = null;
+  return true;
+};
+// 머리의 '파일' 토글 · 파일 칩 = 파일 탭으로 연다 (팀이 없어도)
+export function openFilesPanel(threadId: string) {
+  setSideTab(threadId, 'files');
+  focusOnOpen = threadId;
+  setPref(threadId, 'open');
+}
 export function openTeamPanel(threadId: string, pick?: Pick) {
+  setSideTab(threadId, 'team');
   picks.set((s) => {
     if (!pick && !(threadId in s)) return s;
     const next = { ...s };
@@ -66,54 +84,16 @@ export function teamAnswer(conv: Conv, pick?: Pick): Answer | null {
   return conv.turns.find((t) => t.answer.runId === pick.runId && hasTeam(t.answer))?.answer ?? last;
 }
 
-// 대화 화면이 쓴다: 팀이 있나 · 열렸나 · 넓은 창(2열)인가 (새 대화 = 없음)
-export function useTeamPanel(conv: Conv | undefined) {
+// 대화 화면이 쓴다: 팀이 있나 · 열렸나 · 어느 탭 · 넓은 창(여러 열)인가 (새 대화 = 없음)
+// 열림 = 사람이 연 대화 (파일 탭은 팀이 없어도) · 팀이 처음 생긴 대화 (넓은 창 · 사람이 닫지 않았으면)
+export function useSidePanel(conv: Conv | undefined) {
   const pref = store.use((s) => (conv ? s[conv.id] : undefined));
+  const picked = tabs.use((s) => (conv ? s[conv.id] : undefined));
   const wide = useMedia(WIDE);
   const team = conv?.turns.some((t) => hasTeam(t.answer)) ?? false;
-  const open = team && (pref === 'open' || (pref === undefined && wide));
-  return { team, open, wide };
-}
-
-// onClose = 닫은 뒤 (대화 화면이 포커스를 머리 토글로 돌린다)
-export function TeamPanel({ conv, overlay, onClose }: { conv: Conv; overlay: boolean; onClose?: () => void }) {
-  const pick = picks.use((s) => s[conv.id]);
-  const a = teamAnswer(conv, pick);
-  const live = a ? isLive(a) : false;
-  const now = useNow(live);
-  const closeBtn = useRef<HTMLButtonElement>(null);
-  const close = () => {
-    closeTeamPanel(conv.id);
-    onClose?.();
-  };
-  // 덮개(좁은 창)를 사람이 열었다 = 포커스를 닫기 버튼으로 (토글 · 보내기 버튼이 덮개 밑에 있다)
-  useEffect(() => {
-    if (focusOnOpen !== conv.id) return;
-    focusOnOpen = null;
-    if (overlay) closeBtn.current?.focus();
-  }, [conv.id, overlay]);
-  // 덮개 = Esc 로 닫는다 (포커스가 패널 밖이어도 · 다른 곳이 먼저 쓴 Esc 는 건너뛴다)
-  const closeRef = useRef(close);
-  closeRef.current = close;
-  useEffect(() => {
-    if (!overlay) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || e.defaultPrevented) return;
-      e.preventDefault();
-      closeRef.current();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [overlay]);
-  return (
-    <aside className="team-panel" aria-label={TEAM.panel} data-overlay={overlay || undefined}>
-      <div className="team-head">
-        <h2 className="ttl">{TEAM.panel}</h2>
-        <IconButton ref={closeBtn} icon="close" size="sm" label={TEAM.close} onClick={close} />
-      </div>
-      {a && <TeamBody a={a} now={now} />}
-    </aside>
-  );
+  const open = !!conv && (pref === 'open' || (team && pref === undefined && wide));
+  const tab: SideTab = picked ?? (team ? 'team' : 'files');
+  return { team, open, wide, tab };
 }
 
 // 요약 줄: 일을 나누는 중 → n명이 함께 일하는 중 → n명이 함께 끝냈어요 · n명 중 k명이 끝냈어요 (+ 실패 수) · 멈춤 · 실행이 끊김
@@ -133,7 +113,15 @@ function summary(a: Answer, members: TeamMember[]): { text: string; meta: string
 const leadStatus = (a: Answer): TeamMember['status'] =>
   isLive(a) ? 'running' : a.status === 'done' ? 'done' : a.status === 'stopped' ? 'cancelled' : 'error';
 
-function TeamBody({ a, now }: { a: Answer; now: number }) {
+// 진행 상황 탭 = 패널이 보여 줄 팀 답 (고른 답 · 마지막 팀 답) · 도는 동안 시간이 흐른다
+export function TeamTab({ conv }: { conv: Conv }) {
+  const pick = picks.use((s) => s[conv.id]);
+  const a = teamAnswer(conv, pick);
+  const now = useNow(a ? isLive(a) : false);
+  return a ? <TeamBody a={a} now={now} /> : <p className="side-empty">{SIDE.noTeam}</p>;
+}
+
+export function TeamBody({ a, now }: { a: Answer; now: number }) {
   const members = teamOf(a);
   const s = summary(a, members);
   // 화면 읽기 = 2초에 한 번 (끝 · 멈춤은 바로)

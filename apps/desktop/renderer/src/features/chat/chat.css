@@ -1,7 +1,7 @@
 /* 대화 — 홈 · 입력창 · 대화 화면 · 메시지 · 답 글(마크다운) · 실패 · 답 아래 줄 · 생각/도구 상태 줄(유리) · 생각 블록 · 도구 카드. 토큰만 (ADR-0012). */
 
 /* 홈 */
-.home{display:grid;grid-template-rows:1fr auto}
+.home{display:grid;grid-template-rows:1fr auto;grid-template-columns:minmax(0,1fr)} /* 열 = 화면 폭 (없으면 입력창의 끊을 곳 없는 긴 글이 열을 2천 px 로 넓혔다) */
 .hero{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:var(--space-5);padding:var(--space-16) var(--space-6) 0}
 .hero h1{font-size:var(--fs-2xl);font-weight:var(--fw-medium);margin:0;letter-spacing:var(--tracking-display);line-height:var(--lh-tight)}
 .dock{width:min(var(--width-read),calc(100% - 64px));margin:0 auto var(--space-4)}

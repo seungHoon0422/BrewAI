@@ -36,7 +36,7 @@ test('팀 턴: 패널이 저절로 열리고 총괄 → 가격 조사 · 사양 
   await win.getByRole('button', { name: '보내기', exact: true }).click();
   const t = team(win);
   await expect(t.panel).toBeVisible({ timeout: 15_000 }); // 처음 팀이 생기면 저절로 (넓은 창 = 2열)
-  await expect(win.locator('.view.thread')).toHaveClass(/has-team/);
+  await expect(win.locator('.view.thread')).toHaveClass(/has-side/);
   await expect(t.toggle).toHaveAttribute('aria-pressed', 'true');
   await expect(t.lead.locator(':scope > .tm-row b')).toHaveText('총괄');
   await expect(t.lead.locator(':scope > .tm-row .tm-role')).toHaveText('일 나누고 확인');
@@ -131,7 +131,7 @@ test('닫기는 대화마다 기억 · 머리 토글(진행 상황 열고 닫기
   const t = team(win);
   await t.close.click();
   await expect(t.panel).toHaveCount(0);
-  await expect(win.locator('.view.thread')).not.toHaveClass(/has-team/);
+  await expect(win.locator('.view.thread')).not.toHaveClass(/has-side/);
   await expect(t.toggle).toHaveAttribute('aria-pressed', 'false');
   // 다른 화면에 갔다 와도 닫힌 채
   await win.getByRole('button', { name: '새 대화' }).click();

@@ -4,6 +4,7 @@ import { Icon, IconButton, Spinner, cx } from '@brewai/ui';
 import { thumbOf, type FileItem, type Plan } from '../api';
 import { FILES, KIND_ICON, KIND_LABEL, sizeText } from '../copy';
 import { removeDraft, type Draft } from '../hooks';
+import { openViewer } from '../viewer';
 
 function useThumb(file: FileItem | null, preview: string | null): string | null {
   const [src, setSrc] = useState<string | null>(preview);
@@ -62,18 +63,20 @@ export function DraftChips({ drafts, plans, draftKey }: { drafts: Draft[]; plans
   );
 }
 
-// 내 말풍선 아래 (보낸 첨부 · 기록에서 다시 열어도)
+// 내 말풍선 아래 (보낸 첨부 · 기록에서 다시 열어도) · 누르면 가운데 파일 뷰어
 export function SentChips({ files }: { files: FileItem[] }) {
   if (!files.length) return null;
   return (
     <ul className="fc-list fc-sent" aria-label={FILES.chips}>
       {files.map((f) => (
         <li key={f.id} className="fc" data-kind={f.kind}>
-          <Thumb file={f} preview={null} kind={f.kind} />
-          <span className="fc-body">
-            <b title={f.name}>{f.name}</b>
-            <span className="fc-meta"><span>{KIND_LABEL[f.kind]} {sizeText(f.size)}</span></span>
-          </span>
+          <button type="button" className="fc-open" aria-label={FILES.openLabel(f.name)} onClick={() => openViewer(f)}>
+            <Thumb file={f} preview={null} kind={f.kind} />
+            <span className="fc-body">
+              <b title={f.name}>{f.name}</b>
+              <span className="fc-meta"><span>{KIND_LABEL[f.kind]} {sizeText(f.size)}</span></span>
+            </span>
+          </button>
         </li>
       ))}
     </ul>

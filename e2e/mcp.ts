@@ -151,11 +151,12 @@ export function chatRecords(): Recorded[] {
 
 // ── 에이전트 팀 (slice 06) — 오른쪽 진행 상황 · 답 안 팀 묶음 손잡이 ──
 export const team = (win: Page) => {
-  const panel = win.getByRole('complementary', { name: '진행 상황' });
+  const panel = win.getByRole('complementary', { name: '오른쪽 패널' }); // 탭 진행 상황 · 파일 (팀 트리 = 진행 상황 탭)
   return {
     panel,
     toggle: win.getByRole('button', { name: '진행 상황 열고 닫기' }),
-    close: panel.getByRole('button', { name: '진행 상황 닫기' }),
+    close: panel.getByRole('button', { name: '오른쪽 패널 닫기' }),
+    tab: (name: '진행 상황' | '파일') => panel.getByRole('tab', { name }),
     summary: panel.locator('.team-sum-t'),
     lead: panel.locator('.tm-node[data-kind="lead"]'),
     members: panel.locator('.tm-node[data-kind="member"]'),

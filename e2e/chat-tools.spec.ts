@@ -212,6 +212,8 @@ test('끊을 곳 없는 긴 글자(토큰 · id)가 와도 도구 카드는 패�
   const token = 'eyJ' + 'A1b2C3d4'.repeat(30); // 243자 한 덩어리 (실사용: Canva continuation_token)
   const { box, send } = ui(win);
   await box.fill(`[fake:app ${MEMO.handle} 메모] [fake:tool ${MEMO.handle}__echo {"text":"${token}"}] 긴 토큰`);
+  // 입력창에 끊을 곳 없는 긴 글 = 홈 화면이 넓어지지 않는다 (보내기 단추가 화면 안)
+  expect(await win.locator('.view.home').evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
   await send.click();
   await idle(win);
   const panel = await openTrace(win);
