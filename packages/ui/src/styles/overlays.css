@@ -89,6 +89,8 @@ html:has(.ui-dialog[open],.ui-sheet[open]){overflow:hidden}
 .ui-tip[data-side="right"] .ui-tip-body{left:calc(100% + 8px);bottom:auto;top:50%;transform:translate(-2px,-50%)}
 .ui-tip[data-side="right"]:hover .ui-tip-body,.ui-tip[data-side="right"]:has(:focus-visible) .ui-tip-body{transform:translate(0,-50%)}
 .ui-tip[data-instant]:hover .ui-tip-body{transition-delay:0s}
+.ui-tip[data-align="start"] .ui-tip-body{left:-4px;transform:translate(0,-2px)}
+.ui-tip[data-align="start"]:hover .ui-tip-body,.ui-tip[data-align="start"]:has(:focus-visible) .ui-tip-body{transform:translate(0,0)}
 .ui-tip[data-hidden] .ui-tip-body{opacity:0;visibility:hidden}
 
 /* 알림 — 유리 카드 · 상태 = 앞 점 */

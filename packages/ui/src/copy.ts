@@ -1,6 +1,7 @@
 // 부품이 스스로 붙이는 말 (한국어 기본값). 기능 문구는 여기 두지 않는다 → features/<이름>/copy.ts (ADR-0012).
 // 부품마다 prop 으로 바꿀 수 있다 (예: <PasswordInput showLabel="…" />).
 export const UI_COPY = {
+  info: '설명',
   close: '닫기',
   loading: '불러오는 중',
   required: '필수',

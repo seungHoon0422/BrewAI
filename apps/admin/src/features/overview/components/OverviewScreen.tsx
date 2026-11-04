@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  Badge, Button, Callout, Card, CardHeader, EmptyState, Icon, LinkButton, ProviderIcon, Segmented, StatusDot, TimeSeriesChart, Toolbar, ToolbarSpacer, vizSlot,
+  Badge, Button, Callout, Card, CardHeader, EmptyState, Icon, InfoTip, LinkButton, ProviderIcon, Segmented, StatusDot, TimeSeriesChart, Toolbar, ToolbarSpacer, vizSlot,
   type ChartSeries,
 } from '@brewai/ui';
 import { hrefOf } from '../../../app/routes';
@@ -8,7 +8,7 @@ import { COMMON_COPY } from '../../../shared/copy';
 import { ago } from '../../../shared/format';
 import { modelHref } from '../../models/route';
 import type { GatewayStatus, UsageRow, UsageTrend } from '../../usage/api';
-import { TopTable, TrendPair, UsageKpis, exactMoney, rowName, topItem } from '../../usage/components/UsageParts';
+import { TopTable, UsageKpis, exactMoney, rowName, topItem } from '../../usage/components/UsageParts';
 import {
   GATEWAY_STATUS, GROUP_LABEL, METRICS, METRIC_LABEL, OVERVIEW_PERIODS, USAGE_COPY as U, USAGE_LOAD_FAILED, compact, count, dayLabel, moneyAxis, percent,
   periodLabel, rangeText, type BreakdownGroup, type Metric,
@@ -19,8 +19,8 @@ import { OVERVIEW_COPY as C, QUICK_LINKS } from '../copy';
 import { useOverview, useUnitTrend } from '../hooks';
 import '../overview.css';
 
-// 개요 = 운영자가 보는 한 장: 기간 → 숫자 카드(작은 흐름 · 지난 기간 대비 · 줄인 값은 마우스로 실제 값) → 단위별 추이(넓게: 모델 · 조직 · 사용자 · 스페이스 탭 ×
-// 호출 · 토큰 · 비용 · 다섯 + 그 밖 선 · 아래 그 단위 Top 5 표) + 호출 · 비용 흐름(좁게) → 게이트웨이 · 사람 수 → 바로 가기.
+// 개요 = 운영자가 보는 한 장: 기간 → 숫자 카드(작은 흐름 · 지난 기간 대비 · 줄인 값은 마우스로 실제 값) → 사용 현황(넓게: 모델 · 조직 · 사용자 · 스페이스 탭 ×
+// 호출 · 토큰 · 비용 · 다섯 + 그 밖 선) + 그 단위 Top 5(좁게) → 게이트웨이 · 사람 수 → 바로 가기. 설명 글 = 제목 옆 i (글을 줄인다).
 // 비용 분해는 사용량 메뉴로 (2026-11-04 사용자). 숫자만 (대화 내용 없음). 개발 진행은 문서 메뉴에만
 export default function OverviewScreen() {
   const ov = useOverview();
@@ -53,13 +53,7 @@ export default function OverviewScreen() {
           ) : (
             data && (
               <>
-                <div className="ov-split">
-                  <UnitTrend days={days} />
-                  <Card as="section" aria-label={C.trend} className="ov-trend">
-                    <CardHeader title={C.trend} description={C.trendHint} />
-                    <TrendPair data={data} height={132} />
-                  </Card>
-                </div>
+                <UsageNow days={days} />
               </>
             )
           )}
@@ -108,9 +102,10 @@ function pick(metric: Metric, t: UsageTrend | undefined): number[] {
   return metric === 'cost' ? t.cost_usd.map((v) => v ?? 0) : metric === 'tokens' ? t.tokens : t.runs;
 }
 
-// 단위별 추이 = 고른 단위의 다섯(기준 큰 순 · 서버가 자름) + 그 밖 = 하루별 선 (색 = 순위 칸 1~5 · 그 밖 = 회색) · 풍선 = 실제 값.
-// 아래 = 같은 단위 · 기준의 Top 5 표 (줄 = 한 칸 아래로 · 상세보기 = 사용량 그 묶음 · 기준 · 기간). 탭은 화면 안 상태 (주소 그대로)
-function UnitTrend({ days }: { days: number }) {
+// 사용 현황 (2026-11-04 사용자: 이름 · 설명은 i 로 · 호출과 비용 추이 카드 없앰) = 왼쪽 차트 + 오른쪽 그 단위 Top 5 · 탭 하나를 둘이 같이 본다.
+// 차트 = 고른 단위의 다섯(기준 큰 순 · 서버가 자름) + 그 밖 = 하루별 선 (색 = 순위 칸 1~5 · 그 밖 = 회색) · 풍선 = 실제 값.
+// 상세보기 = 사용량 메뉴에 같은 단위(group) · 기준(metric) · 기간 그대로. 줄 = 한 칸 아래로. 탭은 화면 안 상태 (주소 그대로)
+function UsageNow({ days }: { days: number }) {
   const [unit, setUnit] = useState<BreakdownGroup>('model');
   const [metric, setMetric] = useState<Metric>('calls');
   const load = useUnitTrend(days, unit, metric);
@@ -120,32 +115,37 @@ function UnitTrend({ days }: { days: number }) {
   const series: ChartSeries[] = groups.map((g, i) => ({ id: g.key ?? `unknown-${i}`, label: rowName(unit, g).name, values: pick(metric, g.trend), color: vizSlot(i) }));
   if (others?.trend) series.push({ id: 'others', label: C.rest(others.count), values: pick(metric, others.trend), color: 'other' });
   const cost = metric === 'cost';
+  const more = usageHref({ days, group: unit, metric });
+  const stale = load.loading && d ? '' : undefined;
   return (
-    <Card as="section" aria-label={C.unitTrend} className="ov-unit" data-unit={unit} data-metric={metric}>
-      <CardHeader title={C.unitTrend} description={C.unitHint}
-        actions={<LinkButton size="sm" variant="ghost" iconEnd="arrow-right" href={usageHref({ days, group: unit, metric })}>{U.more}</LinkButton>} />
-      <div className="ov-unit-tabs">
-        <Segmented size="sm" label={C.unitTabs} value={unit} onChange={setUnit} options={UNITS.map((u) => ({ value: u, label: GROUP_LABEL[u] }))} />
-        <Segmented size="sm" label={C.metricTabs} value={metric} onChange={setMetric} options={METRICS.map((m) => ({ value: m, label: METRIC_LABEL[m] }))} />
-      </div>
-      <div className="ov-unit-body" data-stale={load.loading && d ? '' : undefined} aria-busy={load.loading || undefined}>
-        {load.error && !d ? (
-          <p className="ov-muted" role="alert">{USAGE_LOAD_FAILED[load.error]}</p>
-        ) : !d ? (
-          <div className="ov-unit-hold" />
-        ) : groups.length === 0 ? (
-          <p className="ov-muted">{C.topEmpty}</p>
-        ) : (
-          <TimeSeriesChart label={C.unitChart(GROUP_LABEL[unit], METRIC_LABEL[metric])} x={d.dates} xLabel={dayLabel} height={200} series={series} legend
-            integer={!cost} format={cost ? exactMoney : count} axisFormat={cost ? moneyAxis : compact} />
-        )}
-        <section className="ov-unit-top" aria-label={C.top[unit]}>
-          <p className="us-sub">{C.top[unit]} <span className="ov-muted">{C.topHint}</span></p>
-          <TopTable label={C.top[unit]} items={groups.map((r) => topItem(unit, r, rowHref(unit, r, days)))} others={others} metric={metric}
-            empty={load.error && !d ? USAGE_LOAD_FAILED[load.error] : C.topEmpty} />
-        </section>
-      </div>
-    </Card>
+    <div className="ov-split" data-unit={unit} data-metric={metric}>
+      <Card as="section" aria-label={C.unitTrend} className="ov-unit">
+        <CardHeader title={C.unitTrend} info={C.unitHint}
+          actions={<LinkButton size="sm" variant="ghost" iconEnd="arrow-right" href={more}>{U.more}</LinkButton>} />
+        <div className="ov-unit-tabs">
+          <Segmented size="sm" label={C.unitTabs} value={unit} onChange={setUnit} options={UNITS.map((u) => ({ value: u, label: GROUP_LABEL[u] }))} />
+          <Segmented size="sm" label={C.metricTabs} value={metric} onChange={setMetric} options={METRICS.map((m) => ({ value: m, label: METRIC_LABEL[m] }))} />
+        </div>
+        <div className="ov-unit-body" data-stale={stale} aria-busy={load.loading || undefined}>
+          {load.error && !d ? (
+            <p className="ov-muted" role="alert">{USAGE_LOAD_FAILED[load.error]}</p>
+          ) : !d ? (
+            <div className="ov-unit-hold" />
+          ) : groups.length === 0 ? (
+            <p className="ov-muted">{C.topEmpty}</p>
+          ) : (
+            <TimeSeriesChart label={C.unitChart(GROUP_LABEL[unit], METRIC_LABEL[metric])} x={d.dates} xLabel={dayLabel} height={232} series={series} legend
+              integer={!cost} format={cost ? exactMoney : count} axisFormat={cost ? moneyAxis : compact} />
+          )}
+        </div>
+      </Card>
+      <Card as="section" aria-label={C.top[unit]} className="ov-top" data-stale={stale}>
+        <CardHeader title={C.top[unit]} info={C.topHint}
+          actions={<LinkButton size="sm" variant="ghost" iconEnd="arrow-right" href={more}>{U.more}</LinkButton>} />
+        <TopTable label={C.top[unit]} items={groups.map((r) => topItem(unit, r, rowHref(unit, r, days)))} others={others} metric={metric}
+          empty={load.error && !d ? USAGE_LOAD_FAILED[load.error] : C.topEmpty} />
+      </Card>
+    </div>
   );
 }
 
@@ -177,7 +177,7 @@ function GatewayCard({ load }: { load: Kept<GatewayStatus> }) {
       {g && (
         look.length ? (
           <div className="ov-gw-look">
-            <p className="ov-gw-cap"><b>{C.failingTitle}</b> {C.failingHint}</p>
+            <p className="ov-gw-cap"><b>{C.failingTitle}</b> <InfoTip text={C.failingHint} /></p>
             <ul className="ov-gw-list" aria-label={C.failingTitle}>
               {look.map((m) => (
                 <li key={m.id}>

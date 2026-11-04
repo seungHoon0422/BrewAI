@@ -234,11 +234,12 @@ export const Sheet = ({ side = 'right', ...rest }: SheetProps) => <Modal kind="s
 
 /* ── 툴팁 (마우스 · 키보드 포커스 · Esc 로 닫힘) ───────── */
 // instant = 기다리지 않고 바로 (아이콘만 있는 메뉴 레일처럼 이름이 바로 필요한 곳)
-export function Tooltip({ content, children, side = 'top', instant = false }: {
+export function Tooltip({ content, children, side = 'top', instant = false, align = 'center' }: {
   content: ReactNode;
   children: ReactElement<{ 'aria-describedby'?: string }>;
   side?: 'top' | 'bottom' | 'right';
   instant?: boolean;
+  align?: 'center' | 'start'; // start = 풍선 왼쪽 끝을 단추 왼쪽에 (카드 제목 옆 i 처럼 왼쪽에 여유가 없을 때)
 }) {
   const id = useId();
   const [hidden, setHidden] = useState(false);
@@ -247,6 +248,7 @@ export function Tooltip({ content, children, side = 'top', instant = false }: {
       className="ui-tip"
       data-side={side}
       data-instant={flag(instant)}
+      data-align={align === 'start' ? 'start' : undefined}
       data-hidden={flag(hidden)}
       onKeyDown={(e) => e.key === 'Escape' && setHidden(true)}
       onMouseLeave={() => setHidden(false)}
@@ -255,5 +257,14 @@ export function Tooltip({ content, children, side = 'top', instant = false }: {
       {cloneElement(children, { 'aria-describedby': cx(children.props['aria-describedby'], id) })}
       <span role="tooltip" id={id} className="ui-tip-body">{content}</span>
     </span>
+  );
+}
+
+/* ── 설명 아이콘 (i) — 카드 제목 옆 · 설명 글은 마우스 · 키보드 포커스로만 (화면 글을 줄인다) ── */
+export function InfoTip({ text, label = UI_COPY.info }: { text: ReactNode; label?: string }) {
+  return (
+    <Tooltip content={text} side="bottom" instant align="start">
+      <button type="button" className="ui-info" aria-label={label}><Icon name="info" size="xs" /></button>
+    </Tooltip>
   );
 }

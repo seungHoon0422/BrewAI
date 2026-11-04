@@ -4,6 +4,7 @@ import { useState, type ComponentPropsWithRef, type ElementType, type HTMLAttrib
 import { cx, flag } from './cx';
 import { UI_COPY } from './copy';
 import { Icon, renderIcon, type IconLike } from './icons';
+import { InfoTip } from './overlays';
 
 export type Tone = 'neutral' | 'info' | 'ok' | 'warn' | 'danger' | 'accent';
 
@@ -124,9 +125,10 @@ export function Card({ as = 'div', variant = 'outline', padding = 'md', interact
   );
 }
 
-export function CardHeader({ title, description, icon, actions, level = 3 }: {
+export function CardHeader({ title, description, info, icon, actions, level = 3 }: {
   title: ReactNode;
-  description?: ReactNode;
+  description?: ReactNode; // 늘 보이는 한 줄 (상태처럼 자주 바뀌는 것)
+  info?: ReactNode; // 제목 옆 i — 마우스를 올려야 보이는 설명 (긴 설명은 여기로)
   icon?: IconLike;
   actions?: ReactNode;
   level?: 2 | 3 | 4;
@@ -136,7 +138,11 @@ export function CardHeader({ title, description, icon, actions, level = 3 }: {
     <div className="ui-card-head">
       {icon && <span className="ui-tile">{renderIcon(icon)}</span>}
       <div className="ui-card-titles">
-        <H className="ui-card-title">{title}</H>
+        {info ? (
+          <div className="ui-card-titlerow"><H className="ui-card-title">{title}</H><InfoTip text={info} /></div>
+        ) : (
+          <H className="ui-card-title">{title}</H>
+        )}
         {description && <p className="ui-card-desc">{description}</p>}
       </div>
       {actions && <div className="ui-card-actions">{actions}</div>}

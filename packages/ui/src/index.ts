@@ -18,7 +18,7 @@ export {
 } from './inputs';
 export { Select, type SelectProps, type SelectOption } from './select';
 export {
-  Popover, Menu, Dialog, Sheet, Tooltip,
+  Popover, Menu, Dialog, Sheet, Tooltip, InfoTip,
   type PopoverProps, type MenuProps, type MenuEntry, type DialogProps, type SheetProps, type TriggerProps, type Placement, type Surface,
 } from './overlays';
 export { Toast, ToastRegion, useToastQueue, type ToastItem } from './toast';

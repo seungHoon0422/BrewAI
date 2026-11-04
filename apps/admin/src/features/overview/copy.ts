@@ -11,19 +11,16 @@ const SPACE = KIND_LABEL.space;
 export const OVERVIEW_COPY = {
   period: '기간',
   toUsage: '사용량 자세히',
-  // 흐름 (작게)
-  trend: '호출과 비용 추이',
-  trendHint: '하루별, 비용은 게이트웨이 가격 기준 추정',
-  // 단위별 추이 (E2E: region '단위별 추이' · 단위 탭 · 기준 탭 · 아래 Top 5 표 = 표 이름)
-  unitTrend: '단위별 추이',
-  unitHint: '많이 쓴 다섯과 그 밖을 하루별로, 선 위에 마우스를 올리면 실제 값',
+  // 사용 현황 (E2E: region '사용 현황' · 단위 탭 · 기준 탭 · 오른쪽 Top 5 = region · 표 이름) · 설명 = 제목 옆 i
+  unitTrend: '사용 현황',
+  unitHint: '많이 쓴 다섯과 그 밖을 하루별로 보여 줘요. 선 위에 마우스를 올리면 실제 값이 보여요. 비용은 게이트웨이 가격 기준 추정이에요.',
   unitTabs: '단위',
   metricTabs: '기준',
   unitChart: (unit: string, metric: string) => `${unit}별 ${metric} 추이`,
   rest: (n: number) => `그 밖 ${n}개`,
   // Top 5 (E2E: 표 이름)
   top: { org: `${ORG} Top 5`, user: '사용자 Top 5', model: '모델 Top 5', space: `${SPACE} Top 5` },
-  topHint: '기준 많은 순, 이름을 누르면 그 대상',
+  topHint: '고른 기준이 많은 순이에요. 이름을 누르면 그 대상의 사용량으로 가요.',
   topEmpty: '이 기간에 기록이 없어요',
   // 게이트웨이 카드 (E2E: region '게이트웨이' · data-state)
   gateway: '게이트웨이',

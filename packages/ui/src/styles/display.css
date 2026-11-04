@@ -77,6 +77,9 @@
 .ui-card-head{display:flex;align-items:flex-start;gap:var(--space-3);min-width:0}
 .ui-card-titles{flex:1;min-width:0}
 .ui-card-title{margin:0;font-size:var(--fs-base);font-weight:var(--fw-semibold);line-height:var(--lh-base)}
+.ui-card-titlerow{display:flex;align-items:center;gap:var(--space-1);min-width:0}
+.ui-info{display:inline-grid;place-items:center;width:20px;height:20px;padding:0;border:0;border-radius:var(--radius-pill);background:transparent;color:var(--text-faint);cursor:help}
+.ui-info:hover,.ui-info:focus-visible{color:var(--text-2);background:var(--surface-hover)}
 .ui-card-desc{margin:2px 0 0;font-size:var(--fs-sm);color:var(--text-muted)}
 .ui-card-actions{display:flex;align-items:center;gap:var(--space-1-5);flex:none}
 

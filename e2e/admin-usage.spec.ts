@@ -2,7 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { adminApi, userApi, type Client } from './auth';
 import { overflowX, pickOption, shot } from './helpers';
 
-// 관리자 '사용량' (usage_events · 숫자만 · 비용 분해) + 개요(작은 흐름 · 단위별 추이 + 그 단위 Top 5 → 상세보기) + 모델 자세히의 사용량 칸 + 사용자/조직/스페이스 서랍의 사용량 칸.
+// 관리자 '사용량' (usage_events · 숫자만 · 비용 분해) + 개요(사용 현황 + 그 단위 Top 5 → 상세보기) + 모델 자세히의 사용량 칸 + 사용자/조직/스페이스 서랍의 사용량 칸.
 // 캐시 토큰 = mock 게이트웨이: Anthropic(큰 모델) = 입력의 절반 읽기 + 4분의 1 쓰기 · OpenAI(작은 모델) = 30% 읽기 (e2e/mock/gateway.mjs)
 // 씨앗 = 이 스펙만의 조직 하나 (첫 관리자가 owner) · 그 조직의 공유 스페이스 하나 · 그 스페이스에서 대화 셋 (작은 모델 성공 1 · 실패 1 · 큰 모델 성공 1).
 // 같은 conductor 를 다른 스펙도 쓰므로 합계는 '이 조직으로 거른 값'만 정확히 본다 (전체 합계는 이상 · 이하로만)
@@ -108,26 +108,14 @@ test('API: 생각 토큰 · 생각 비용 · 캐시 가격 모름 = 어림 · �
   expect(one.others.cost_usd).toBeGreaterThan(0);
 });
 
-test('개요: 숫자 카드(줄인 값 = 마우스로 실제 값) · 작은 호출과 비용 흐름 · 단위별 추이(단위 탭 · 기준 탭 · 선 = 다섯 + 그 밖) + 그 단위 Top 5 → 상세보기 · 비용 분해는 사용량에 · 기간 30일 · 대화 내용 없음', async ({ page }) => {
+test('개요: 숫자 카드(줄인 값 = 마우스로 실제 값) · 사용 현황(단위 탭 · 기준 탭 · 선 = 다섯 + 그 밖 · 설명 = i) + 오른쪽 그 단위 Top 5 → 상세보기 = 단위 · 기준 그대로 · 비용 분해는 사용량에 · 기간 30일 · 대화 내용 없음', async ({ page }) => {
   await page.goto('/#/overview');
   await expect(kpi(page, 'runs')).toBeVisible();
   expect(await num(page, 'runs')).toBeGreaterThanOrEqual(3);
   for (const k of ['tokens', 'cost', 'users', 'errors']) await expect(kpi(page, k)).toBeVisible();
-  // 흐름 = 카드 하나에 작은 차트 둘 (호출 · 추정 비용 = 척도가 달라 축 하나씩). 예전 큰 차트 둘은 없다
-  const trend = page.getByRole('region', { name: '호출과 비용 추이' });
-  await expect(trend.locator('.ui-chart-plot svg')).toHaveCount(2);
-  await expect(page.getByRole('region', { name: '호출 추이' })).toHaveCount(0);
-  await expect(page.getByRole('region', { name: '토큰 추이' })).toHaveCount(0);
-  expect(Number(await trend.locator('.ui-chart-plot svg').first().getAttribute('height'))).toBeLessThanOrEqual(140);
-  // 차트 = 표 보기 (같은 값)
-  const runsChart = trend.locator('figure').first();
-  await runsChart.getByRole('button', { name: '표로 보기' }).click();
-  await expect(runsChart.getByRole('table')).toBeVisible();
-  await expect(runsChart.getByRole('table').getByRole('row')).toHaveCount(8); // 머리 + 7일
-  await runsChart.getByRole('button', { name: '차트로 보기' }).click();
-  await expect.poll(async () => Number(await runsChart.locator('.ui-chart-plot svg').getAttribute('width'))).toBeGreaterThan(100);
-  await runsChart.getByRole('group').focus();
-  await expect(runsChart.locator('[aria-live]')).toContainText('호출');
+  // 호출과 비용 추이 카드는 없앴다 (2026-11-04 사용자 · 사용 현황 + Top 5 로)
+  await expect(page.getByRole('region', { name: '호출과 비용 추이' })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: '단위별 추이' })).toHaveCount(0);
 
   // 줄인 토큰(34.1만) = 마우스를 올리면 실제 값 (글자 안에는 안 들어간다 = data-exact)
   await expect(kpi(page, 'tokens')).toHaveAttribute('data-exact', /^[\d,]+ 토큰 \(입력 [\d,]+, 출력 [\d,]+\)$/);
@@ -135,8 +123,13 @@ test('개요: 숫자 카드(줄인 값 = 마우스로 실제 값) · 작은 호�
   // 비용 분해는 개요에서 빠지고 사용량 메뉴에
   await expect(page.getByRole('region', { name: '비용 분해' })).toHaveCount(0);
 
-  // 단위별 추이 = 단위 탭(모델 기본) · 기준 탭(호출 기본) · 선 = 다섯 이하 + 그 밖 · 아래 = 그 단위 Top 5 표
-  const unit = page.getByRole('region', { name: '단위별 추이' });
+  // 사용 현황 = 단위 탭(모델 기본) · 기준 탭(호출 기본) · 선 = 다섯 이하 + 그 밖 · 오른쪽 카드 = 그 단위 Top 5 · 설명 = 제목 옆 i (마우스를 올려야)
+  const unit = page.getByRole('region', { name: '사용 현황' });
+  await expect(unit.locator('.ui-card-desc')).toHaveCount(0);
+  await expect(page.getByRole('tooltip', { name: /많이 쓴 다섯/ })).toHaveCount(0);
+  await unit.getByRole('button', { name: '설명' }).hover();
+  await expect(page.getByRole('tooltip', { name: /많이 쓴 다섯/ })).toBeVisible();
+  await page.mouse.move(5, 5);
   const units = unit.getByRole('radiogroup', { name: '단위' });
   await expect(units.getByRole('radio')).toHaveText(['모델', '조직', '사용자', '스페이스']);
   await expect(units.getByRole('radio', { name: '모델' })).toBeChecked();
@@ -152,20 +145,21 @@ test('개요: 숫자 카드(줄인 값 = 마우스로 실제 값) · 작은 호�
   for (const [tab, name, href] of [['모델', '모델 Top 5', '#/usage?days=7&group=model'], ['조직', '조직 Top 5', '#/usage?days=7'],
     ['사용자', '사용자 Top 5', '#/usage?days=7&group=user'], ['스페이스', '스페이스 Top 5', '#/usage?days=7&group=space']] as const) {
     await units.getByRole('radio', { name: tab }).click();
-    const table = unit.getByRole('table', { name });
+    const table = page.getByRole('region', { name }).getByRole('table', { name });
     await expect(table).toBeVisible();
+    await expect(page.getByRole('region', { name }).getByRole('link', { name: '상세보기' })).toHaveAttribute('href', href);
     expect(await table.locator('tbody tr').count()).toBeLessThanOrEqual(5);
     await expect(table.getByRole('columnheader')).toHaveText(['이름', '호출', '토큰', '추정 비용']);
     await expect(table.locator('tbody td').nth(1).locator('[title]')).toHaveAttribute('title', /^[\d,]+$/); // 토큰 칸 = 실제 값 풍선
     await expect(unit.getByRole('link', { name: '상세보기' })).toHaveAttribute('href', href);
   }
   await units.getByRole('radio', { name: '스페이스' }).click();
-  await expect(unit.getByRole('table', { name: '스페이스 Top 5' }).getByRole('link').filter({ hasText: SPACE })).toHaveAttribute('href', `#/usage?days=7&group=user&space=${spaceId}`);
+  await expect(page.getByRole('table', { name: '스페이스 Top 5' }).getByRole('link').filter({ hasText: SPACE })).toHaveAttribute('href', `#/usage?days=7&group=user&space=${spaceId}`);
   await units.getByRole('radio', { name: '모델' }).click();
-  await expect(unit.getByRole('table', { name: '모델 Top 5' }).getByRole('link').filter({ hasText: 'fake-chat-small' })).toHaveAttribute('href', '#/models/fake-chat-small');
+  await expect(page.getByRole('table', { name: '모델 Top 5' }).getByRole('link').filter({ hasText: 'fake-chat-small' })).toHaveAttribute('href', '#/models/fake-chat-small');
   // 기준 = 비용 → 상세보기도 비용 · 차트 풍선 = 실제 값 ($)
   await unit.getByRole('radiogroup', { name: '기준' }).getByRole('radio', { name: '비용' }).click();
-  await expect(unit).toHaveAttribute('data-metric', 'cost');
+  await expect(page.locator('.ov-split')).toHaveAttribute('data-metric', 'cost');
   await expect(unit.getByRole('link', { name: '상세보기' })).toHaveAttribute('href', '#/usage?days=7&group=model&metric=cost');
   await unit.locator('.ui-chart-plot').focus();
   await expect(unit.locator('.ui-chart-plot [aria-live]')).toContainText('$');
@@ -174,11 +168,13 @@ test('개요: 숫자 카드(줄인 값 = 마우스로 실제 값) · 작은 호�
   expect(await overflowX(page)).toBeLessThanOrEqual(0);
   await page.screenshot({ path: shot('admin-overview-usage'), fullPage: true });
 
-  // 상세보기 → 사용량이 그 묶음으로 열린다 (사용자) · 비용 분해 = 사용량 메뉴에 (토큰 종류 다섯 + 모델별 비용)
+  // 상세보기 → 사용량이 고른 단위 · 기준 · 기간 그대로 (사용자 · 토큰) · 비용 분해 = 사용량 메뉴에 (토큰 종류 다섯 + 모델별 비용)
   await units.getByRole('radio', { name: '사용자' }).click();
-  await unit.getByRole('link', { name: '상세보기' }).click();
-  await expect(page).toHaveURL(/#\/usage\?days=7&group=user$/);
+  await unit.getByRole('radiogroup', { name: '기준' }).getByRole('radio', { name: '토큰' }).click();
+  await page.getByRole('region', { name: '사용자 Top 5' }).getByRole('link', { name: '상세보기' }).click();
+  await expect(page).toHaveURL(/#\/usage\?days=7&group=user&metric=tokens$/);
   await expect(page.getByRole('radiogroup', { name: '묶음' }).getByRole('radio', { name: '사용자' })).toBeChecked();
+  await expect(page.getByRole('radiogroup', { name: '기준' }).getByRole('radio', { name: '토큰' })).toBeChecked();
   await expect(page.getByRole('radiogroup', { name: '기간' }).getByRole('radio', { name: '7일' })).toBeChecked();
   await expect(page.getByRole('table', { name: '사용자별 사용량 표' }).getByRole('row').filter({ hasText: 'e2e-admin@brewai.test' })).toBeVisible();
   // 종류 이름 = 숫자 카드의 '입력'(캐시 포함) · '출력'(생각 포함)과 다른 이름 (같은 화면에서 두 값이 한 이름으로 읽히지 않게)
@@ -191,7 +187,7 @@ test('개요: 숫자 카드(줄인 값 = 마우스로 실제 값) · 작은 호�
 
   // 조직 줄 → 사용량 (그 조직 · 스페이스 묶음)
   await page.goto('/#/overview');
-  await page.getByRole('region', { name: '단위별 추이' }).getByRole('radiogroup', { name: '단위' }).getByRole('radio', { name: '조직' }).click();
+  await page.getByRole('region', { name: '사용 현황' }).getByRole('radiogroup', { name: '단위' }).getByRole('radio', { name: '조직' }).click();
   await page.getByRole('table', { name: '조직 Top 5' }).getByRole('link').filter({ hasText: ORG }).click();
   await expect(page).toHaveURL(new RegExp(`#/usage\\?days=7&group=space&org=${orgId}$`));
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(['사용량']);
@@ -202,9 +198,8 @@ test('개요: 숫자 카드(줄인 값 = 마우스로 실제 값) · 작은 호�
   await page.goto('/#/overview');
   await page.getByRole('radiogroup', { name: '기간' }).getByRole('radio', { name: '30일' }).click();
   await expect(page).toHaveURL(/#\/overview\?days=30$/);
-  await expect(page.getByRole('region', { name: '호출과 비용 추이' }).locator('figure').first().getByRole('table').getByRole('row')).toHaveCount(31);
-  await expect(page.getByRole('region', { name: '단위별 추이' }).getByRole('link', { name: '상세보기' })).toHaveAttribute('href', '#/usage?group=model');
-  await expect(page.getByRole('region', { name: '단위별 추이' }).locator('figure').getByRole('table').getByRole('row')).toHaveCount(31);
+  await expect(page.getByRole('region', { name: '사용 현황' }).getByRole('link', { name: '상세보기' })).toHaveAttribute('href', '#/usage?group=model');
+  await expect(page.getByRole('region', { name: '사용 현황' }).locator('figure').getByRole('table').getByRole('row')).toHaveCount(31);
 });
 
 test('개요: 사람 수 · 바로 가기 = 그 메뉴로 (아직 없는 기능은 이동만)', async ({ page }) => {
@@ -238,8 +233,8 @@ test('개요: 사용 기록이 없으면 빈 안내 (게이트웨이 · 사람 �
   }));
   await page.goto('/#/overview');
   await expect(page.getByText('아직 사용 기록이 없어요')).toBeVisible();
-  await expect(page.getByRole('region', { name: '호출과 비용 추이' })).toHaveCount(0);
-  await expect(page.getByRole('region', { name: '단위별 추이' })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: '사용 현황' })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: '모델 Top 5' })).toHaveCount(0);
   await expect(page.getByRole('region', { name: '비용 분해' })).toHaveCount(0);
   await expect(page.getByRole('region', { name: '게이트웨이', exact: true })).toBeVisible();
   await expect(page.getByRole('region', { name: '사용자와 조직' })).toBeVisible();
