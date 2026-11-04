@@ -306,7 +306,7 @@ export async function runChat(opts: {
         if (!isObj(ev) || typeof ev.type !== 'string') continue;
         if (ev.type === 'RUN_ERROR') {
           const code = str(ev.code) || undefined;
-          throw new ApiError(kindOf(code), code, str(ev.detail) || undefined); // message 는 안 쓴다 (code · detail → 화면 문구)
+          throw new ApiError(kindOf(code), code, str(ev.detail) || undefined, str(ev.provider_message) || undefined); // message = 우리 문구 (code · detail → 화면) · 원문은 따로
         }
         opts.onEvent(ev);
         if (ev.type === 'RUN_FINISHED') return;

@@ -128,15 +128,54 @@ def row(kind: str, *, size: int = 1000, pages: int | None = None, tokens: int = 
 
 
 def test_plan_per_model() -> None:
-    vision_pdf, plain = fl.Caps(vision=True, pdf=True), fl.Caps(vision=False, pdf=False)
-    assert fl.plan(row("image"), vision_pdf).mode == "original"
-    assert fl.plan(row("image"), plain).row() == {"mode": "blocked", "tokens": 0, "reason": "vision_unsupported"}
+    vision_pdf, vision, plain = fl.Caps(vision=True, pdf=True), fl.Caps(vision=True, pdf=False), fl.Caps(vision=False, pdf=False)
+    assert fl.plan(row("image"), vision).mode == "original"
+    assert fl.plan(row("image"), plain).row() == {"mode": "blocked", "images": 0, "reason": "vision_unsupported"}
     assert fl.plan(row("pdf", pages=3), vision_pdf).mode == "original"
-    assert fl.plan(row("pdf", pages=3), plain).row()["mode"] == "text" and fl.plan(row("pdf", pages=3), plain).reason == "pdf_unsupported"
-    big = fl.plan(row("pdf", pages=fl.PDF_NATIVE_PAGES + 1, tokens=50_000), vision_pdf)
-    assert (big.mode, big.reason) == ("outline", "pdf_too_big") and big.tokens < fl.INLINE_TOKENS
-    assert fl.plan(row("docx", tokens=200), plain).mode == "text"
+    # PDF 를 못 받는 vision 모델 = 쪽 그림 (앞 PAGE_IMAGES 쪽) · 글만 뽑지 않는다
+    assert fl.plan(row("pdf", pages=3), vision).row() == {"mode": "pages", "images": 3, "reason": None}
+    assert fl.plan(row("pdf", pages=fl.PDF_NATIVE_PAGES + 10), vision_pdf).row()["images"] == fl.PAGE_IMAGES
+    assert fl.plan(row("pdf", pages=3), plain).row() == {"mode": "text", "images": 0, "reason": "pdf_unsupported"}
+    # 문서 속 그림 = vision 모델만 (최대 MAX_DOC_IMAGES) · 못 보는 모델 = 이유
+    assert fl.plan(row("pptx", tokens=200), vision, media=3).row() == {"mode": "text", "images": 3, "reason": None}
+    assert fl.plan(row("pptx", tokens=200), plain, media=3).reason == "vision_unsupported"
+    assert fl.plan(row("docx", tokens=200), vision, media=99).images == fl.MAX_DOC_IMAGES
     assert fl.plan(row("text", tokens=fl.INLINE_TOKENS + 1), vision_pdf).row()["reason"] == "too_long"
+
+
+def png_of(w: int, h: int) -> bytes:
+    import struct
+    import zlib as z
+    raw = b"".join(b"\x00" + b"\x80" * (w * 3) for _ in range(min(h, 2)))
+    chunk = lambda t, d: struct.pack(">I", len(d)) + t + d + struct.pack(">I", z.crc32(t + d) & 0xFFFFFFFF)  # noqa: E731
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)) + chunk(b"IDAT", z.compress(raw)) + chunk(b"IEND", b"")
+
+
+PR = 'xmlns="http://schemas.openxmlformats.org/package/2006/relationships"'
+IMG = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
+PPTX_PICS = office({
+    "ppt/presentation.xml": "<p/>",
+    "ppt/slides/slide1.xml": f"<s {A}><a:p><a:r><a:t>구조도</a:t></a:r></a:p></s>",
+    "ppt/slides/slide2.xml": f"<s {A}><a:p><a:r><a:t>둘째</a:t></a:r></a:p></s>",
+    "ppt/slides/_rels/slide1.xml.rels": f'<Relationships {PR}><Relationship Id="r1" Type="{IMG}" Target="../media/image1.png"/></Relationships>',
+    "ppt/slides/_rels/slide2.xml.rels": f'<Relationships {PR}><Relationship Id="r1" Type="{IMG}" Target="../media/huge.png"/></Relationships>',
+})
+def pptx_with_media() -> bytes:
+    buf = io.BytesIO(PPTX_PICS)
+    with zipfile.ZipFile(buf, "a", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("ppt/media/image1.png", png_of(40, 30))
+        z.writestr("ppt/media/huge.png", png_of(9000, 20))  # 한 변 8,000px 넘음 = 뺀다
+    return buf.getvalue()
+
+
+def test_office_media_and_pdf_pages() -> None:
+    media = fl.office_media(pptx_with_media(), "pptx")
+    assert [(where, mime) for where, mime, _ in media] == [("슬라이드 1", "image/png")]  # 너무 큰 그림은 빠진다
+    pages = fl.render_pages(pdf(["One", "Two", "Three"]), 2)
+    assert len(pages) == 2 and all(p.startswith(b"\x89PNG") for p in pages)
+    w, h = fl.image_size(pages[0])  # type: ignore[misc]
+    assert max(w, h) <= fl.PAGE_PX
+    assert fl.image_size(b"\xff\xd8\xff\xc0\x00\x11\x08\x00\x10\x00\x20") == (32, 16)  # JPEG SOF
 
 
 # ── API · 대화 ──
@@ -235,8 +274,26 @@ def test_attach_to_plain_model_text_pdf_and_blocked_image(make_api, h, clock) ->
     api.chat("요약해 줘", model="fake-plain", files=[doc["id"], img["id"]], thread="t-plain")
     parts = user_parts(wire.sent[0])
     texts = "\n".join(p.get("text", "") for p in parts)
-    assert "Quarterly numbers" in texts and "받을 수 없어 이름만" in texts
+    assert "Quarterly numbers" in texts and "볼 수 없어 이름만" in texts
     assert not any(p.get("type") in ("image_url", "file") for p in parts)
+
+
+def test_pdf_pages_as_images_to_vision_model_and_pptx_pictures(make_api, h, clock) -> None:
+    wire = Wire()
+    api = make(make_api, h, wire)
+    doc = upload(api.client, pdf(["Diagram page", "Second"]), "arch.pdf").json()
+    deck = upload(api.client, pptx_with_media(), "deck.pptx").json()
+    assert [p["mode"] for p in api.client.post("/api/files/plan", json={"model": "fake-chat-small", "files": [doc["id"], deck["id"]]}).json()] == ["pages", "text"]
+    api.chat("설명해 줘", model="fake-chat-small", files=[doc["id"], deck["id"]], thread="t-vis")
+    parts = user_parts(wire.sent[0])
+    images = [p for p in parts if p.get("type") == "image_url"]
+    assert len(images) == 3  # PDF 2쪽 그림 + 슬라이드 1 그림 (너무 큰 그림은 뺌)
+    texts = "\n".join(p.get("text", "") for p in parts)
+    assert "[1쪽]\nDiagram page" in texts and "[deck.pptx 슬라이드 1 그림]" in texts
+    # 다음 턴엔 그림을 다시 보내지 않는다 (이름표 한 줄)
+    api.chat("고마워", model="fake-chat-small", thread="t-vis")
+    replay = json.dumps(wire.sent[-1]["messages"], ensure_ascii=False)
+    assert "base64" not in replay and "[첨부 원본: arch.pdf 1쪽" in replay
 
 
 def test_pdf_original_to_pdf_model(make_api, h, clock) -> None:

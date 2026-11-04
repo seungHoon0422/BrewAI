@@ -140,7 +140,7 @@ class Diagnosis:
     detail: str | None  # DETAILS 중 하나 (모르면 None)
     status: int | None = None
     error_type: str | None = None
-    provider_message: str = ""  # sanitize 한 문구 (로그 전용)
+    provider_message: str = ""  # sanitize 한 문구 (로그 · 실패 카드의 원문 · 키처럼 보이는 것은 가림)
 
     def log_fields(self) -> str:
         return (

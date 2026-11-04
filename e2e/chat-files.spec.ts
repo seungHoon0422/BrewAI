@@ -46,7 +46,6 @@ const NAMES = new Set(['화면.png', '보고서.pdf', '회의.md', '메모2.txt'
 const PROJECT = `파일 프로젝트 ${Date.now().toString(36)}`;
 const chips = (win: Page) => win.locator('.composer .fc-list').getByRole('listitem');
 const chip = (win: Page, name: string) => chips(win).filter({ hasText: name });
-const badge = (win: Page, name: string) => chip(win, name).locator('.fc-mode');
 
 async function pickModel(win: Page, id: string) {
   await win.locator('.composer .mpick-btn').click();
@@ -72,7 +71,7 @@ test.afterAll(async () => {
   for (const id of made) await api.del(`/api/files/${id}`).catch(() => {});
 });
 
-test('+ 버튼으로 이미지 · PDF · 글 → 칩 3개 · 전달 배지 (이 모델: 이미지 그대로 · PDF 는 글만 뽑아서) · 토큰 수 없음', async () => {
+test('+ 버튼으로 이미지 · PDF · 글 → 칩 3개 (이름 · 종류 크기 · 썸네일만 · 보내는 방식 배지 · 토큰 수 없음)', async () => {
   await win.getByRole('button', { name: '새 대화' }).click();
   await pickModel(win, 'fake-chat-small');
   await expect(win.getByRole('button', { name: '파일 첨부' })).toBeEnabled();
@@ -83,25 +82,32 @@ test('+ 버튼으로 이미지 · PDF · 글 → 칩 3개 · 전달 배지 (이 
   ]);
   await expect(chips(win)).toHaveCount(3);
   await expect(chips(win).filter({ hasText: '올리는 중' })).toHaveCount(0, { timeout: 15_000 });
-  await expect(badge(win, '화면.png')).toHaveText('이미지 그대로');
-  await expect(badge(win, '보고서.pdf')).toHaveText('글만 뽑아서');
-  await expect(badge(win, '보고서.pdf')).toHaveAttribute('title', '이 모델은 PDF 원본을 못 받아 글로 보내요');
-  await expect(badge(win, '회의.md')).toHaveText('글만 뽑아서');
-  await expect(chip(win, '화면.png').locator('img')).toHaveAttribute('src', /^data:image\/png;base64,/); // 썸네일 = data: 주소만 (CSP)
-  await expect(win.locator('.composer .fc-sum')).toHaveText('첨부 3개'); // 토큰 수는 보이지 않는다
+  await expect(chip(win, '보고서.pdf')).toContainText('PDF');
+  await expect(win.locator('.composer .fc-mode')).toHaveCount(0); // 배지 없음
   await expect(win.locator('.composer .fc-wrap')).not.toContainText('토큰');
+  await expect(win.locator('.composer .fc-warn')).toHaveCount(0); // 이 모델은 셋 다 본다
+  await expect(chip(win, '화면.png').locator('img')).toHaveAttribute('src', /^data:image\/png;base64,/); // 썸네일 = data: 주소만 (CSP)
   expect(await separatorsOnScreen(win)).toEqual([]);
   await win.screenshot({ path: shot('desktop-files-chips'), animations: 'disabled' });
 });
 
-test('모델을 바꾸면 배지가 바로 바뀐다: PDF 원본을 받는 모델 = 보고서.pdf PDF 그대로', async () => {
-  await pickModel(win, 'fake-chat-large');
-  await expect(badge(win, '보고서.pdf')).toHaveText('PDF 그대로');
-  await expect(badge(win, '화면.png')).toHaveText('이미지 그대로');
-  await win.screenshot({ path: shot('desktop-files-chips-pdf-model'), animations: 'disabled' });
+test('PDF 를 못 받는 vision 모델 = PDF 쪽을 그림으로 그려 함께 보낸다 (글만 뽑지 않는다)', async () => {
+  await ask(win, '[fake:files] 보고서 봐 줘');
+  await idle(win);
+  // 화면.png 1 + 보고서.pdf 2쪽 그림 = 원본 이미지 3개 · PDF 원본 0 · 글 블록 = 세 파일
+  await expect(chat(win).last).toContainText('받은 첨부: 원본 이미지 3개, 원본 문서 0개, 파일 화면.png(image), 보고서.pdf(pdf), 회의.md(text)');
+  await win.getByRole('button', { name: '새 대화' }).click();
+  await win.locator('[data-testid="attach-input"]').setInputFiles([
+    { name: '화면.png', mimeType: 'image/png', buffer: PNG },
+    { name: '보고서.pdf', mimeType: 'application/pdf', buffer: pdf(['Quarterly report page one', 'Page two numbers']) },
+    { name: '회의.md', mimeType: 'text/markdown', buffer: MD },
+  ]);
+  await expect(chips(win).filter({ hasText: '올리는 중' })).toHaveCount(0, { timeout: 15_000 });
+  await expect(chips(win)).toHaveCount(3);
 });
 
-test('보내면 내 말풍선에 첨부 칩 · 모델은 원본 이미지 1 · 원본 문서 1 · 글 파일 1 을 받는다 · 입력창 칩은 빈다', async () => {
+test('PDF 를 받는 모델 = PDF 그대로 · 보내면 내 말풍선에 첨부 칩 · 입력창 칩은 빈다', async () => {
+  await pickModel(win, 'fake-chat-large');
   await ask(win, '[fake:files] 첨부 확인해 줘');
   await idle(win);
   const mine = chat(win).log.locator('.msg.user').last();
@@ -129,35 +135,35 @@ test('다음 턴엔 원본을 다시 보내지 않는다 (이름 한 줄) · 끌
   await win.screenshot({ path: shot('desktop-files-drop'), animations: 'disabled' });
   await box.dispatchEvent('drop', { dataTransfer: dt });
   await expect(chip(win, '메모2.txt')).toHaveCount(1);
-  await expect(badge(win, '메모2.txt')).toHaveText('글만 뽑아서', { timeout: 15_000 });
+  await expect(chip(win, '메모2.txt')).not.toContainText('올리는 중', { timeout: 15_000 });
   await chip(win, '메모2.txt').getByRole('button', { name: '메모2.txt 빼기' }).click();
   await expect(chips(win)).toHaveCount(0);
   // 큰 이미지 = 올리기 전에 긴 쪽 2,048px 로 (제공사 한도 밖 거절 막기 · Claude 는 한 변 8,000px 까지)
   await win.locator('[data-testid="attach-input"]').setInputFiles([{ name: '넓은.png', mimeType: 'image/png', buffer: widePng(3000, 8) }]);
-  await expect(badge(win, '넓은.png')).toHaveText('이미지 그대로', { timeout: 15_000 });
+  await expect(chip(win, '넓은.png')).not.toContainText('올리는 중', { timeout: 15_000 });
   const up = (await api.get<{ id: string; name: string }[]>('/api/files')).find((f) => f.name === '넓은.png')!;
   const png = Buffer.from(await (await api.raw('GET', `/api/files/${up.id}/content`)).arrayBuffer());
   expect(png.readUInt32BE(16)).toBe(2048);
   await chip(win, '넓은.png').getByRole('button', { name: '넓은.png 빼기' }).click();
 });
 
-test("스페이스 '파일' 메뉴: 카드 3장 · 어디에 붙었나 · 대화 칩 · 지우기 (확인)", async () => {
+test("스페이스 '파일' 메뉴: 카드 6장 (두 대화에 3장씩) · 어디에 붙었나 · 대화 칩 · 지우기 (확인)", async () => {
   await goHash(win, '#/files');
   await expectHeading(win, '파일');
   const list = win.getByRole('list', { name: '파일 목록' });
-  await expect(list.getByRole('listitem')).toHaveCount(3);
-  await expect(list.locator('li', { hasText: '보고서.pdf' })).toContainText('PDF');
-  await expect(list.locator('li', { hasText: '보고서.pdf' }).locator('.file-where')).toContainText('대화');
-  await expect(win.getByRole('group', { name: '보기' }).getByRole('button', { name: /^대화/ })).toContainText('3');
+  await expect(list.getByRole('listitem')).toHaveCount(6);
+  await expect(list.locator('li', { hasText: '보고서.pdf' }).first()).toContainText('PDF');
+  await expect(list.locator('li', { hasText: '보고서.pdf' }).first().locator('.file-where')).toContainText('대화');
+  await expect(win.getByRole('group', { name: '보기' }).getByRole('button', { name: /^대화/ })).toContainText('6');
   expect(await separatorsOnScreen(win)).toEqual([]);
   await win.screenshot({ path: shot('desktop-files-screen'), animations: 'disabled' });
   await win.emulateMedia({ colorScheme: 'dark' });
   await win.screenshot({ path: shot('desktop-files-screen-dark'), animations: 'disabled' });
   await win.emulateMedia({ colorScheme: 'light' });
-  await list.locator('li', { hasText: '회의.md' }).getByRole('button', { name: '회의.md 지우기' }).click();
+  await list.locator('li', { hasText: '회의.md' }).first().getByRole('button', { name: '회의.md 지우기' }).click();
   const dialog = win.getByRole('dialog', { name: '이 파일을 지울까요?' });
   await dialog.getByRole('button', { name: '지우기' }).click();
-  await expect(list.getByRole('listitem')).toHaveCount(2);
+  await expect(list.getByRole('listitem')).toHaveCount(5);
 });
 
 test('프로젝트 파일: 프로젝트 화면에서 올리기 → 칩 · 목록 API = 프로젝트에 붙음', async () => {

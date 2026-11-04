@@ -110,6 +110,9 @@
 .msg.fail .fmain{display:flex;flex-direction:column;gap:var(--space-0-5);min-width:0;flex:1}
 .msg.fail .ftxt{color:var(--text)}
 .msg.fail .fhint{font-size:var(--fs-sm);color:var(--text-muted);overflow-wrap:anywhere}
+/* 거절 원문 (RUN_ERROR.provider_message · 서버가 키를 가린 뒤) = 그대로 · 고정폭 · 줄바꿈 */
+.msg.fail .fraw{display:block;margin-top:var(--space-1-5);padding:var(--space-2) var(--space-2-5);border-radius:var(--radius-md);background:var(--surface-sunken);
+  font-family:var(--font-mono);font-size:var(--fs-xs);line-height:var(--lh-base);color:var(--text-2);white-space:pre-wrap;overflow-wrap:anywhere;user-select:text}
 .msg.fail .fmodel{display:flex;flex-wrap:wrap;gap:0 var(--space-2-5);font-size:var(--fs-xs);color:var(--text-muted);font-family:var(--font-mono);overflow-wrap:anywhere}
 .msg.fail .facts{display:flex;gap:var(--space-2);flex:none;flex-wrap:wrap}
 

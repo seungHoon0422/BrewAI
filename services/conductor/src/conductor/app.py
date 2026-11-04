@@ -80,7 +80,7 @@ from .connectors.session import Connectors
 from .connectors.ssrf import redact_text
 from .connectors.vault import Vault
 from .diagnose import MODEL_HEALTH_CODES
-from .files import Attachment, Caps, FileError, FileRow, Files, file_line, plan
+from .files import Attachment, Caps, FileError, FileRow, Files, file_line
 from .gateway import GatewayCatalogPort, GatewayError, LiteLLMCatalog
 from .models import ExposureRow, ModelChoice, ModelPatchError, ModelRegistry
 from .providers import provider_label
@@ -343,8 +343,8 @@ def _check_files(files: Files, req: ChatRequest, user_id: str, space_id: str, ch
         f = files.get(fid)
         if f is None or f.owner_user_id != user_id or f.space_id != space_id or f.project_id is not None or f.thread_id not in (None, req.thread_id):
             raise ChatRequestError(400, "bad_files")  # 남의 파일 · 다른 곳 파일 = 이유를 알려 주지 않는다
-        d = plan(f, caps)
-        out.append(Attachment(f, d, files.text_of(f, d), files.data(f) if d.mode == "original" else None))
+        d = files.plan(f, caps)
+        out.append(Attachment(f, d, files.parts(f, d)))
     return tuple(out)
 
 

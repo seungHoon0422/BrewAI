@@ -283,7 +283,9 @@ class _EventStream(AGUIEventStream):
         log.warning("chat run failed: %s error=%s", d.log_fields(), type(error).__name__)
         async for event in super().on_error(error):
             if isinstance(event, RunErrorEvent):
-                extra = {"detail": d.detail} if d.detail else {}
+                extra: dict[str, Any] = {"detail": d.detail} if d.detail else {}
+                if d.provider_message:  # 모델 · 게이트웨이가 준 거절 원문 (키처럼 보이는 것은 가림 · 300자) = 화면에 그대로 보인다
+                    extra["provider_message"] = d.provider_message
                 event = RunErrorEvent(message=PUBLIC_ERRORS[d.code], code=d.code, timestamp=event.timestamp, **extra)
             yield event
 
@@ -454,10 +456,12 @@ def with_files(last: UserMessage, prompt: str, attachments: Sequence[Any]) -> Us
     """이번 질문 + 첨부: 글 블록(<file …>) · 원본(이미지 · PDF 를 받는 모델 = Image/DocumentInputContent → Pydantic AI BinaryContent)."""
     parts: list[Any] = [TextInputContent(text=prompt)] if prompt else []
     for a in attachments:
-        parts.append(TextInputContent(text=a.text))
-        if a.data is not None:
-            src = InputContentDataSource(value=base64.b64encode(a.data).decode(), mime_type=a.file.mime)
-            parts.append(ImageInputContent(source=src) if a.file.kind == "image" else DocumentInputContent(source=src))
+        for p in a.parts:  # ("text", 글) · ("image" | "document", mime, 바이트, 이름표) — 글과 그림이 쪽 순서대로 섞인다
+            if p[0] == "text":
+                parts.append(TextInputContent(text=p[1]))
+                continue
+            src = InputContentDataSource(value=base64.b64encode(p[2]).decode(), mime_type=p[1])
+            parts.append(ImageInputContent(source=src) if p[0] == "image" else DocumentInputContent(source=src))
     return UserMessage(id=last.id, content=parts)
 
 
@@ -1538,7 +1542,7 @@ class ChatRuntime:
         def on_complete(result: Any) -> None:
             new = result.all_messages()[len(history):]  # 이번 질문 + 이번 답 (툴 왕복 포함)
             if scope.attachments:
-                new = strip_originals(new, [a.file.name for a in scope.attachments if a.data is not None])
+                new = strip_originals(new, [label for a in scope.attachments for label in a.binaries])
             activity.messages = ModelMessagesTypeAdapter.dump_json(new).decode()
             u = result.usage
             # 생각 토큰: OpenAI 형식 completion_tokens_details.reasoning_tokens (LiteLLM 이 Anthropic thinking 글자로 센다).

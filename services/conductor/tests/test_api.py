@@ -192,7 +192,12 @@ def test_run_error_is_diagnosed_and_sanitized(make_api, h, caplog, status, error
     events = h.sse_events(res.text)
     assert h.types(events) == ["RUN_STARTED", "CUSTOM", "RUN_ERROR"]
     assert (events[-1]["code"], events[-1].get("detail")) == (code, detail)
-    assert "sk-test-secret" not in res.text and "Missing" not in res.text  # eval 제약: 비밀 노출 0 · provider 문구도 화면엔 안 감
+    assert "sk-test-secret" not in res.text  # eval 제약: 비밀 노출 0
+    # 거절 원문은 화면에 그대로 (2026-11-04 사용자) · 키처럼 보이는 것은 가린 뒤 · 300자
+    from conductor import diagnose as dx
+
+    shown = events[-1]["provider_message"]
+    assert shown == dx.sanitize(f"{message} Received API Key = sk-test-secret-0000 Bearer sk-test-secret-0000") and len(shown) <= 300
     run = api.client.get("/api/runs").json()[0]
     assert run["status"] == "error" and run["error_code"] == code
     # 로그 한 줄 = status · type · 가린 provider 문구 (키 · 해시 없음, 300자까지)

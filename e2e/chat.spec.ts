@@ -15,7 +15,7 @@ async function launch(apiUrl = API) {
 // copy.ts 는 돌릴 때만 읽는다 (chat-think.spec 의 trace 와 같은 이유 · e2e tsc 가 renderer 경로를 안 읽는다)
 const COPY_MODULE = '../apps/desktop/renderer/src/features/chat/copy';
 type CopyMod = {
-  failureCopy: (detail: string | null, reasoning: string) => { text: string; hint: string; reasoningOff?: boolean } | undefined;
+  failureCopy: (detail: string | null, reasoning: string) => { text: string; hint: string } | undefined;
   modelNames: (label: string, id: string) => string[];
 };
 
@@ -93,8 +93,10 @@ test.describe('conductor 켜짐', () => {
     await expect(alert.locator('.ftxt')).toHaveText('이 모델의 API 키가 설정돼 있지 않아요');
     await expect(alert.locator('.fhint')).toContainText('LiteLLM 관리 화면 › Models › 이 모델의 Credential 키 확인');
     await expect(alert.locator('.fmodel span')).toHaveText(['fake-chat-small']); // 어느 모델인지 (이름 = 게이트웨이 id 면 한 번만)
-    await expect(alert).not.toContainText('Missing'); // provider 문구는 화면에 안 온다 (conductor 로그에만)
-    await expect(alert.getByRole('button', { name: '생각 끄고 다시' })).toHaveCount(0); // 키 문제 = 생각과 무관
+    // 거절 원문 = 그대로 보인다 (서버가 키처럼 보이는 것을 가린 뒤) · 생각 끄라는 단추는 없다
+    await expect(alert.locator('.fraw')).toContainText('Missing Anthropic API Key');
+    await expect(alert).not.toContainText('sk-');
+    await expect(alert.getByRole('button', { name: '생각 끄고 다시' })).toHaveCount(0);
     await win.screenshot({ path: shot('desktop-error-hint'), animations: 'disabled' });
   });
 
@@ -120,7 +122,7 @@ test.describe('conductor 켜짐', () => {
     expect(runs.slice(0, 4).map((r) => r.error_code)).toEqual(['provider_rejected', 'provider_rejected', 'gateway_auth_failed', 'provider_auth_failed']);
   });
 
-  test('생각을 켠 실행의 생각 설정 거절 = 그 안내 + "생각 끄고 다시" → 끈 실행은 생각 탓으로 말하지 않는다', async () => {
+  test('생각을 켠 실행의 생각 설정 거절 = 그 안내 + 거절 원문 · "생각 끄고 다시" 단추는 없다 (원인은 원문이 말한다)', async () => {
     const menu = win.getByRole('dialog', { name: '모델과 생각 깊이' });
     await ui(win).model.click();
     await menu.locator('[role="option"][data-model="fake-chat-large"]').click(); // 생각 되는 모델
@@ -132,13 +134,12 @@ test.describe('conductor 켜짐', () => {
       const alert = ui(win).log.getByRole('alert');
       await expect(alert).toHaveAttribute('data-detail', 'reasoning_unsupported', { timeout: 15_000 });
       await expect(alert.locator('.ftxt')).toHaveText('이 모델이 생각 깊이 설정을 받지 않아요');
-      await expect(alert.locator('.fhint')).toHaveText('생각 깊이를 끄기로 바꾸고 다시 시도해 주세요');
+      await expect(alert.locator('.fraw')).toContainText('this model does not support thinking');
       await expect(alert.locator('.fmodel span')).toHaveCount(1); // 이름 = id (mock) = 한 번만
-      await alert.getByRole('button', { name: '생각 끄고 다시' }).click();
-      // 끄고 다시 = 생각 칸 없이 같은 질문 → mock 은 같은 문구로 또 거절 = 이번엔 일반 거절 (생각 탓 아님 · 단추 없음)
-      await expect(alert).toHaveAttribute('data-detail', 'provider_bad_request', { timeout: 15_000 });
-      await expect(alert.locator('.ftxt')).toHaveText('모델이 요청을 거절했어요');
       await expect(alert.getByRole('button', { name: '생각 끄고 다시' })).toHaveCount(0);
+      await expect(alert.getByRole('button', { name: '다시 시도' })).toBeVisible();
+      await win.locator('.msgs').evaluate((el) => el.scrollTo(0, el.scrollHeight));
+      await win.screenshot({ path: shot('desktop-error-raw'), animations: 'disabled' });
     } finally {
       await ui(win).model.click();
       await menu.getByRole('radiogroup', { name: '생각 깊이' }).getByRole('radio', { name: '끄기', exact: true }).click();
@@ -149,10 +150,9 @@ test.describe('conductor 켜짐', () => {
 
   test('실패 카드 문구 고르기: 생각 끔 + 생각 설정 거절 = 모델 설정 문제 (관리자에게) · 모델 이름은 겹치지 않게', async () => {
     const { failureCopy, modelNames } = (await import(COPY_MODULE)) as CopyMod;
-    expect(failureCopy('reasoning_unsupported', 'off')).toEqual({ text: '모델 설정 문제로 거절됐어요', hint: '관리자에게 알려 주세요', reasoningOff: false });
-    expect(failureCopy('reasoning_unsupported', 'low')).toEqual({ text: '이 모델이 생각 깊이 설정을 받지 않아요', hint: '생각 깊이를 끄기로 바꾸고 다시 시도해 주세요', reasoningOff: true });
-    expect(failureCopy('provider_bad_request', 'off')?.reasoningOff).toBeFalsy(); // 생각 탓이 아닌 거절 = 생각 끄고 다시 없음
-    expect(failureCopy('provider_bad_request', 'low')?.reasoningOff).toBeFalsy();
+    expect(failureCopy('reasoning_unsupported', 'off')).toEqual({ text: '모델 설정 문제로 거절됐어요', hint: '관리자에게 알려 주세요' });
+    expect(failureCopy('reasoning_unsupported', 'low')).toEqual({ text: '이 모델이 생각 깊이 설정을 받지 않아요', hint: 'LiteLLM 의 이 모델 정보(생각 지원)를 확인해 주세요' });
+    expect(failureCopy('provider_bad_request', 'low')?.hint).not.toContain('생각'); // 생각을 끄라고 권하지 않는다
     expect(failureCopy('image_rejected', 'low')?.text).toBe('이미지가 너무 커서 모델이 받지 않았어요');
     expect(failureCopy('provider_key_missing', 'off')?.text).toBe('이 모델의 API 키가 설정돼 있지 않아요'); // 생각과 상관없는 것 = 그대로
     expect(failureCopy('constructor', 'off')).toBeUndefined();

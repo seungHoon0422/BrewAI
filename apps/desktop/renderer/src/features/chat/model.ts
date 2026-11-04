@@ -57,6 +57,7 @@ export type Answer = {
   status: AnswerStatus;
   failure: Failure | null;
   failureDetail: string | null; // RUN_ERROR.detail (copy.ts DETAIL)
+  failureRaw?: string | null; // RUN_ERROR.provider_message = 거절 원문 (실패 카드에 그대로)
   parts: Part[];
   steps: Step[];
   model: ModelTag | null;

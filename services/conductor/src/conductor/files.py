@@ -12,10 +12,13 @@ from __future__ import annotations
 
 import hashlib
 import io
+import posixpath
 import re
 import secrets
+import struct
 import unicodedata
 import zipfile
+import zlib
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -26,7 +29,8 @@ from .connectors.client import estimate_tokens
 from .store import Store, now_iso
 
 Kind = Literal["image", "pdf", "text", "docx", "xlsx", "pptx"]
-Mode = Literal["original", "text", "outline", "blocked"]
+Mode = Literal["original", "pages", "text", "outline", "blocked"]
+Part = tuple[Any, ...]  # ("text", 글) · ("image" | "document", mime, 바이트, 이름표)
 
 MAX_BYTES = 25 * 1024 * 1024  # 파일 하나
 IMAGE_MAX = 5 * 1024 * 1024  # 이미지 원본 (제공사 한도 안쪽)
@@ -42,6 +46,10 @@ NAME_MAX = 120
 ZIP_MAX_UNCOMPRESSED = 100 * 1024 * 1024
 ZIP_MAX_ENTRIES = 2_000
 MAX_FILES_PER_MESSAGE = 10
+PAGE_IMAGES = 20  # PDF 를 그림으로 보낼 때 앞 몇 쪽까지 (나머지는 read_file)
+PAGE_PX = 1_400  # 쪽 그림의 긴 쪽 (제공사가 어차피 1,568 · 2,048 로 줄인다)
+MAX_DOC_IMAGES = 20  # 문서 속 그림 (docx · pptx) 한 파일에서
+MAX_SIDE = 8_000  # 제공사 한도 (Claude = 한 변 8,000px) · 넘는 그림은 보내지 않는다
 
 MIME: dict[Kind, str] = {
     "pdf": "application/pdf", "text": "text/plain",
@@ -253,6 +261,9 @@ def _pptx(z: zipfile.ZipFile) -> list[Chunk]:
 
 
 # ── 전달 계획 ──
+# 문서 속 그림까지 모델이 보게 (글만 뽑으면 도표 · 그림 · 스크린샷이 빠진다):
+#   PDF  = PDF 를 받는 모델 → 원본 · 이미지를 보는 모델 → 쪽을 그림으로 그려 글과 함께 (앞 PAGE_IMAGES 쪽 · 나머지는 read_file) · 그 밖 = 글
+#   Office (docx · pptx) = 글 + 파일 안의 그림 (이미지를 보는 모델만 · 슬라이드 · 쪽 순서) · xlsx = 글(표)
 @dataclass(frozen=True)
 class Caps:
     vision: bool
@@ -262,28 +273,137 @@ class Caps:
 @dataclass(frozen=True)
 class Delivery:
     mode: Mode
-    tokens: int  # 이번 턴 요청에 실리는 대략 토큰 (원본 이미지 · PDF 는 제공사 계산이라 어림)
-    reason: str | None = None  # blocked · text 로 바뀐 이유 (vision_unsupported · pdf_unsupported · pdf_too_big · too_long)
+    images: int = 0  # 함께 보내는 그림 수 (쪽 그림 · 문서 속 그림)
+    reason: str | None = None  # blocked · 글로 바뀐 이유 (vision_unsupported · pdf_unsupported · too_long)
 
     def row(self) -> dict[str, Any]:
-        return {"mode": self.mode, "tokens": self.tokens, "reason": self.reason}
+        return {"mode": self.mode, "images": self.images, "reason": self.reason}
 
 
-def _image_tokens(size: int) -> int:
-    return 1_600 if size > 300_000 else 800  # 제공사마다 다름 (해상도 기준) · 칩의 '어림' 표시용
-
-
-def plan(f: FileRow, caps: Caps) -> Delivery:
+def plan(f: FileRow, caps: Caps, media: int = 0) -> Delivery:
+    """media = 문서 속 그림 수 (Files.media · docx · pptx)."""
     if f.kind == "image":
-        return Delivery("original", _image_tokens(f.size)) if caps.vision else Delivery("blocked", 0, "vision_unsupported")
-    if f.kind == "pdf" and caps.pdf and (f.pages or 0) <= PDF_NATIVE_PAGES and f.size <= PDF_NATIVE_BYTES:
-        return Delivery("original", max(f.text_tokens, (f.pages or 1) * 600))
-    reason = None
+        return Delivery("original", 1) if caps.vision else Delivery("blocked", 0, "vision_unsupported")
     if f.kind == "pdf":
-        reason = "pdf_too_big" if caps.pdf else "pdf_unsupported"
+        if caps.pdf and (f.pages or 0) <= PDF_NATIVE_PAGES and f.size <= PDF_NATIVE_BYTES:
+            return Delivery("original", 0)
+        if caps.vision:
+            return Delivery("pages", min(f.pages or 0, PAGE_IMAGES))
+        return Delivery("text" if f.text_tokens <= INLINE_TOKENS else "outline", 0, "pdf_unsupported")
+    shown = min(media, MAX_DOC_IMAGES) if caps.vision and f.kind in ("docx", "pptx") else 0
+    reason = "vision_unsupported" if media and not caps.vision else None
     if f.text_tokens <= INLINE_TOKENS:
-        return Delivery("text", f.text_tokens + 20, reason)
-    return Delivery("outline", min(f.text_tokens, OUTLINE_CHARS // 2) + 80, reason or "too_long")  # 앞부분 + 목차
+        return Delivery("text", shown, reason)
+    return Delivery("outline", shown, reason or "too_long")  # 앞부분 + 목차 (+ 그림)
+
+
+# ── 그림 (PDF 쪽 그리기 · 문서 속 그림 꺼내기) ──
+def _png(width: int, height: int, stride: int, rgb: bytes) -> bytes:
+    """RGB 줄 → PNG (표준 zlib 만 · 필터 없음)."""
+    rows = b"".join(b"\x00" + rgb[y * stride : y * stride + width * 3] for y in range(height))
+
+    def chunk(tag: bytes, body: bytes) -> bytes:
+        return struct.pack(">I", len(body)) + tag + body + struct.pack(">I", zlib.crc32(tag + body) & 0xFFFFFFFF)
+
+    head = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", head) + chunk(b"IDAT", zlib.compress(rows, 6)) + chunk(b"IEND", b"")
+
+
+def render_pages(data: bytes, count: int) -> list[bytes]:
+    """PDF 앞 count 쪽 → PNG (긴 쪽 PAGE_PX · 흰 바탕). 못 그리면 그 쪽은 건너뛴다."""
+    import pypdfium2 as pdfium  # PDF 를 그릴 때만
+
+    out: list[bytes] = []
+    try:
+        doc = pdfium.PdfDocument(data)
+    except pdfium.PdfiumError:
+        return out
+    try:
+        for i in range(min(count, len(doc))):
+            page = doc[i]
+            try:
+                w, h = page.get_size()
+                scale = min(2.0, PAGE_PX / max(w, h, 1))
+                bm = page.render(scale=scale, rev_byteorder=True)
+                if bm.n_channels == 3:
+                    out.append(_png(bm.width, bm.height, bm.stride, bytes(bm.buffer)))
+                bm.close()
+            except pdfium.PdfiumError:
+                continue
+            finally:
+                page.close()
+    finally:
+        doc.close()
+    return out
+
+
+def image_size(data: bytes) -> tuple[int, int] | None:
+    """png · gif · jpeg 의 가로 · 세로 (앞 바이트만 · 모르면 None)."""
+    if data.startswith(b"\x89PNG") and len(data) >= 24:
+        return struct.unpack(">II", data[16:24])
+    if data[:6] in (b"GIF87a", b"GIF89a") and len(data) >= 10:
+        return struct.unpack("<HH", data[6:10])
+    if data.startswith(b"\xff\xd8"):
+        i = 2
+        while i + 9 <= len(data):
+            if data[i] != 0xFF:
+                i += 1
+                continue
+            marker = data[i + 1]
+            if marker in (0xC0, 0xC1, 0xC2):
+                h, w = struct.unpack(">HH", data[i + 5 : i + 9])
+                return w, h
+            i += 2 + struct.unpack(">H", data[i + 2 : i + 4])[0]
+    return None
+
+
+def _usable_image(data: bytes) -> str | None:
+    """문서 속 그림을 모델에 보내도 되나 → mime. 형식(png · jpeg · gif · webp) · 5MB · 한 변 MAX_SIDE 를 넘으면 None (제공사 거절)."""
+    try:
+        kind, mime = sniff(data[:64])
+    except FileError:
+        return None
+    if kind != "image" or len(data) > IMAGE_MAX:
+        return None
+    size = image_size(data)
+    return mime if size is None or max(size) <= MAX_SIDE else None
+
+
+def office_media(data: bytes, kind: Kind) -> list[tuple[str, str, bytes]]:
+    """docx · pptx 안의 그림 → [(어디 · 슬라이드 n / 문서), mime, 바이트] 순서대로. 쓸 수 없는 그림(emf · 너무 큼)은 뺀다."""
+    z = _zip(data)
+    names = set(z.namelist())
+    out: list[tuple[str, str, bytes]] = []
+    if kind == "pptx":
+        slides = sorted((n for n in names if re.fullmatch(r"ppt/slides/slide\d+\.xml", n)), key=lambda n: int(re.search(r"(\d+)\.xml$", n).group(1)))  # type: ignore[union-attr]
+        for i, slide in enumerate(slides):
+            rels = _xml(z, slide.replace("slides/", "slides/_rels/") + ".rels")
+            for r in rels if rels is not None else ():
+                target = r.get("Target", "")
+                if r.get("Type", "").endswith("/image") and target:
+                    path = posixpath.normpath(posixpath.join("ppt/slides", target))
+                    if path in names:
+                        blob = z.read(path)
+                        mime = _usable_image(blob)
+                        if mime:
+                            out.append((f"슬라이드 {i + 1}", mime, blob))
+    elif kind == "docx":
+        rels = _xml(z, "word/_rels/document.xml.rels")
+        order = {r.get("Id"): r.get("Target", "") for r in (rels if rels is not None else ()) if r.get("Type", "").endswith("/image")}
+        doc = _xml(z, "word/document.xml")
+        seen: list[str] = []
+        for el in doc.iter() if doc is not None else ():
+            rid = next((v for k, v in el.attrib.items() if k.endswith("}embed")), None)
+            if rid in order and order[rid] not in seen:
+                seen.append(order[rid])
+        for target in seen:
+            path = posixpath.normpath(posixpath.join("word", target))
+            if path in names:
+                blob = z.read(path)
+                mime = _usable_image(blob)
+                if mime:
+                    out.append(("문서", mime, blob))
+    return out
 
 
 # ── 저장소 ──
@@ -321,6 +441,7 @@ class Files:
     def __init__(self, store: Store, root: Path) -> None:
         self.store = store
         self.root = root
+        self._media: dict[str, list[tuple[str, str, bytes]]] = {}  # sha256 → 문서 속 그림
 
     def _path(self, sha: str) -> Path:
         return self.root / sha[:2] / sha
@@ -410,20 +531,51 @@ class Files:
         return [Chunk(r["label"], r["text"]) for r in self.store.query("SELECT label, text FROM file_chunks WHERE file_id = ? ORDER BY idx", (file_id,))]
 
     # ── 모델에 싣기 ──
-    def text_of(self, f: FileRow, d: Delivery) -> str:
-        """글 · 앞부분 블록 (모델이 받는 값 · 데이터이지 지시가 아니다). 원본 · 못 보냄 = 이름 한 줄."""
+    def media(self, f: FileRow) -> list[tuple[str, str, bytes]]:
+        """docx · pptx 안의 그림 (같은 내용 = 한 번만 꺼낸다 · 앱이 켜 있는 동안)."""
+        if f.kind not in ("docx", "pptx"):
+            return []
+        hit = self._media.get(f.sha256)
+        if hit is None:
+            try:
+                hit = office_media(self.data(f), f.kind)
+            except FileError:
+                hit = []
+            self._media[f.sha256] = hit
+        return hit
+
+    def plan(self, f: FileRow, caps: Caps) -> Delivery:
+        return plan(f, caps, len(self.media(f)))
+
+    def parts(self, f: FileRow, d: Delivery) -> tuple[Part, ...]:
+        """모델이 받는 조각 (글 = 자료이지 지시가 아니다): 머리 줄 · 글(또는 앞부분 + 목차) · 그림(원본 · 쪽 그림 · 문서 속 그림)."""
         head = f'<file id="{f.id}" name="{_attr(f.name)}" kind="{f.kind}"{f" pages=\"{f.pages}\"" if f.pages else ""}>'
         if d.mode == "blocked":
-            return f"{head}\n(이 모델은 이 파일을 받을 수 없어 이름만 전한다)\n</file>"
+            return (("text", f"{head}\n(이 모델은 이 파일을 볼 수 없어 이름만 전한다)\n</file>"),)
         if d.mode == "original":
-            return f"{head}\n(원본을 함께 보낸다)\n</file>"
+            kind = "image" if f.kind == "image" else "document"
+            return (("text", f"{head}\n(파일을 그대로 함께 보낸다)\n</file>"), (kind, f.mime, self.data(f), f.name))
         chunks = self.chunks(f.id)
+        if d.mode == "pages":  # 쪽마다 글 + 그 쪽 그림 (앞 PAGE_IMAGES 쪽) → 나머지는 목차 + read_file
+            out: list[Part] = [("text", f"{head}\n쪽마다 그림과 뽑은 글을 함께 보낸다.")]
+            for k, png in enumerate(render_pages(self.data(f), d.images)):
+                text = chunks[k].text if k < len(chunks) else ""
+                out += [("text", f"[{k + 1}쪽]\n{text}"), ("image", "image/png", png, f"{f.name} {k + 1}쪽")]
+            rest = chunks[d.images:]
+            tail = f"\n… {d.images + 1}쪽부터는 read_file 로 쪽 · 검색어를 골라 읽는다 (목차: {', '.join(c.label for c in rest[:40])})" if rest else ""
+            out.append(("text", f"{tail}\n</file>"))
+            return tuple(out)
         if d.mode == "text":
             body = "\n\n".join(f"[{c.label}]\n{c.text}" if len(chunks) > 1 else c.text for c in chunks)
-            return f"{head}\n{body}\n</file>"
-        toc = ", ".join(c.label for c in chunks[:40]) + (f" 외 {len(chunks) - 40}개" if len(chunks) > 40 else "")
-        first = "\n\n".join(c.text for c in chunks)[:OUTLINE_CHARS]
-        return f"{head}\n목차: {toc}\n앞부분:\n{first}\n… (나머지는 read_file 로 쪽 · 검색어를 골라 읽는다)\n</file>"
+        else:
+            toc = ", ".join(c.label for c in chunks[:40]) + (f" 외 {len(chunks) - 40}개" if len(chunks) > 40 else "")
+            body = f"목차: {toc}\n앞부분:\n{chr(10).join(c.text for c in chunks)[:OUTLINE_CHARS]}\n… (나머지는 read_file 로 쪽 · 검색어를 골라 읽는다)"
+        pics = self.media(f)[: d.images]
+        note = f"\n(파일 안 그림 {len(pics)}개를 아래에 함께 보낸다)" if pics else ("\n(파일 안 그림은 이 모델이 볼 수 없어 뺐다)" if d.reason == "vision_unsupported" else "")
+        out = [("text", f"{head}\n{body}{note}\n</file>")]
+        for where, mime, blob in pics:
+            out += [("text", f"[{f.name} {where} 그림]"), ("image", mime, blob, f"{f.name} {where} 그림")]
+        return tuple(out)
 
     def read(self, f: FileRow, *, page: str | int | None = None, query: str | None = None) -> dict[str, Any]:
         """read_file 결과: page = 조각 이름('3쪽' · '시트 매출' · 숫자) · query = 들어 있는 조각 (최대 3개) · 둘 다 없음 = 처음부터. 8,000자."""
@@ -458,8 +610,12 @@ class Attachment:
 
     file: FileRow
     delivery: Delivery
-    text: str  # <file …> 블록 (글 · 앞부분 · 원본 안내)
-    data: bytes | None = None  # 원본 (이미지 · PDF 를 받는 모델)
+    parts: tuple[Part, ...]  # ("text", 글) · ("image" | "document", mime, 바이트, 이름표)
+
+    @property
+    def binaries(self) -> list[str]:
+        """원본 · 그림 조각의 이름표 (저장 전에 이름 한 줄로 바꿀 때 · 순서 그대로)."""
+        return [p[3] for p in self.parts if p[0] != "text"]
 
 
 READ_FILE = "read_file"

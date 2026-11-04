@@ -13,8 +13,9 @@ export type Failure =
   | 'offline' | 'gateway' | 'config' | 'no_models' | 'model_gone' | 'busy' | 'too_long' | 'run_limit' | 'not_found' | 'cut' | 'server'
   | 'auth' | 'forbidden' | 'conflict';
 // detail = 왜 안 됐는지 (RUN_ERROR.detail · conductor diagnose.py DETAILS) → 화면 문구 + 고치는 곳 (features/chat/copy.ts DETAIL)
+// raw = 모델 · 게이트웨이가 준 거절 원문 (RUN_ERROR.provider_message · 서버가 키를 가린 뒤) = 실패 카드에 그대로
 export class ApiError extends Error {
-  constructor(readonly kind: Failure, readonly code?: string, readonly detail?: string) {
+  constructor(readonly kind: Failure, readonly code?: string, readonly detail?: string, readonly raw?: string) {
     super(code ?? kind);
   }
 }

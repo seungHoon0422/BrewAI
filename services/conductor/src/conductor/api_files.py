@@ -23,7 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from .auth.accounts import Principal
 from .auth.http import accounts_of, directory_of, guard_of, require_user
 from .auth.policy import Denied
-from .files import MAX_BYTES, MAX_FILES_PER_MESSAGE, Caps, FileError, FileRow, Files, plan
+from .files import MAX_BYTES, MAX_FILES_PER_MESSAGE, Caps, FileError, FileRow, Files
 from .models import ModelRegistry
 
 
@@ -158,7 +158,7 @@ def register(user: APIRouter, *, files: Files, registry: ModelRegistry) -> None:
     async def plan_files(request: Request, body: PlanIn, p: Principal = Depends(require_user)) -> list[dict[str, Any]]:
         await registry.refresh()
         caps = caps_of(registry, body.model)
-        return [{"id": f.id} | plan(f, caps).row() for f in (visible(request, p, files, fid) for fid in body.files)]
+        return [{"id": f.id} | files.plan(f, caps).row() for f in (visible(request, p, files, fid) for fid in body.files)]
 
 
 def file_error_response(e: FileError) -> JSONResponse:

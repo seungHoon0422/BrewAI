@@ -54,7 +54,7 @@ export const FILES = {
   total: (n: number) => `첨부 ${n}개`,
   resized: '긴 쪽을 2,048px로 줄여 올렸어요',
   chips: '첨부한 파일',
-  blockedWarn: '이 모델이 받을 수 없는 파일이 있어요. 이름만 전해져요',
+  cantSee: '이 모델은 볼 수 없어요',
   // 스페이스 '파일' 화면
   title: '파일',
   sub: '이 스페이스의 대화와 프로젝트에 올린 파일이에요.',

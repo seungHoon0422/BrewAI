@@ -4,7 +4,7 @@ import { Button, StatusDot, providerLabel } from '@brewai/ui';
 import { seconds } from '../../../lib/format';
 import { ModelName } from '../../models/components/ModelName';
 import { CHAT, FAILURE_TEXT, failureCopy, joinParts, modelNames } from '../copy';
-import { retry, retryWithoutReasoning } from '../hooks';
+import { retry } from '../hooks';
 import { Markdown } from '../markdown/render';
 import { isLive, type Answer, type Turn } from '../model';
 import { hasTeam, thought, usedTools } from '../trace';
@@ -51,8 +51,8 @@ export function AnswerView({ turn, latest, threadId, teamRun = null }: { turn: T
 
 const failText = (a: Answer) => failureCopy(a.failureDetail, a.reasoning)?.text || (a.failure ? FAILURE_TEXT[a.failure] : '');
 
-// 실패 = 한 줄(왜) + 고치는 곳(hint) + 어느 모델(이름 · 게이트웨이 id · 같으면 하나) + 다시 시도 (생각 때문이면 '생각 끄고 다시'도)
-// 문구는 이번 실행의 생각 깊이로 (생각을 안 실은 실행 = 생각 탓으로 말하지 않는다 · copy.ts failureCopy)
+// 실패 = 한 줄(왜) + 고치는 곳(hint) + 거절 원문(모델 · 게이트웨이가 준 그대로 · 키는 서버가 가림) + 어느 모델 + 다시 시도
+// 생각을 끄라고 권하지 않는다 (원인은 원문이 말한다 · 2026-11-04)
 function Failed({ a, threadId }: { a: Answer; threadId: string }) {
   const d = failureCopy(a.failureDetail, a.reasoning);
   return (
@@ -61,12 +61,10 @@ function Failed({ a, threadId }: { a: Answer; threadId: string }) {
       <span className="fmain">
         <span className="ftxt">{failText(a)}</span>
         {d && <span className="fhint">{d.hint}</span>}
+        {a.failureRaw && <code className="fraw">{a.failureRaw}</code>}
         {a.model && d && <span className="fmodel">{modelNames(a.model.label, a.model.id).map((n) => <span key={n}>{n}</span>)}</span>}
       </span>
       <span className="facts">
-        {d?.reasoningOff && a.reasoning !== 'off' && (
-          <Button onClick={() => retryWithoutReasoning(threadId)}>{CHAT.retryNoThink}</Button>
-        )}
         <Button onClick={() => retry(threadId)}>{CHAT.retry}</Button>
       </span>
     </div>

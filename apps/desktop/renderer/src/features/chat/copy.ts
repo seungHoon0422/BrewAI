@@ -24,9 +24,8 @@ export const FAILURE_TEXT: Record<Failure, string> = {
 };
 
 // 왜 안 됐는지 (RUN_ERROR.detail) → 한 줄 + 고치는 곳. 모르는 detail 이면 FAILURE_TEXT 그대로.
-// reasoningOff = 생각을 끄고 다시 하면 될 수 있다 (버튼 '생각 끄고 다시')
-// whenOff = 생각을 안 실은 실행 (생각 깊이 끄기 · 생각 못 하는 모델)의 문구 — 이미 꺼져 있는데 '끄기로 바꾸라'고 하지 않는다 (failureCopy)
-type DetailCopy = { text: string; hint: string; reasoningOff?: boolean; whenOff?: { text: string; hint: string } };
+// whenOff = 생각을 안 실은 실행 (생각 깊이 끄기 · 생각 못 하는 모델)의 문구. 생각을 끄라고 권하지 않는다 (원인 = 카드의 거절 원문)
+type DetailCopy = { text: string; hint: string; whenOff?: { text: string; hint: string } };
 export const DETAIL: Record<string, DetailCopy> = {
   provider_key_missing: {
     text: '이 모델의 API 키가 설정돼 있지 않아요',
@@ -42,8 +41,7 @@ export const DETAIL: Record<string, DetailCopy> = {
   },
   reasoning_unsupported: {
     text: '이 모델이 생각 깊이 설정을 받지 않아요',
-    hint: '생각 깊이를 끄기로 바꾸고 다시 시도해 주세요',
-    reasoningOff: true,
+    hint: 'LiteLLM 의 이 모델 정보(생각 지원)를 확인해 주세요',
     whenOff: { text: '모델 설정 문제로 거절됐어요', hint: '관리자에게 알려 주세요' }, // E2E
   },
   // 생각 칸 이름이 문구에 없는 거절 = 생각 탓이 아니다 → '생각 끄고 다시' 를 권하지 않는다
@@ -83,7 +81,7 @@ export function failureCopy(detail: string | null | undefined, reasoning: string
   const d = detailText(detail);
   if (!d) return undefined;
   const { whenOff, ...rest } = d;
-  return reasoning === 'off' && whenOff ? { ...whenOff, reasoningOff: false } : rest;
+  return reasoning === 'off' && whenOff ? whenOff : rest;
 }
 
 // 실패 카드의 모델 = 표시 이름 · 게이트웨이 id (같으면 한 번만 · 'GPT-6 Luna  GPT-6 Luna' 처럼 겹치지 않게)
@@ -296,7 +294,6 @@ export const CHAT = {
   historyGone: '대화를 찾지 못했어요. 지워졌을 수 있어요',
   historyFailed: (why: string) => `대화 기록을 불러오지 못했어요: ${why}`,
   retry: '다시 시도',
-  retryNoThink: '생각 끄고 다시',
   input: '요청 입력',
   attach: '파일 첨부',
   attachSoon: '파일 첨부 (준비 중)',

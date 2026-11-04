@@ -11,7 +11,7 @@ import { titleOf } from '../../lib/format';
 import { createStore, loading, type Loadable } from '../../lib/store';
 import { currentMe } from '../auth/hooks';
 import { appById, appLabels, cancelConnect, changeAutoAuth, connectApp, isReady, loadApps } from '../connections/hooks';
-import { currentModel, currentReasoning, loadModels, pickReasoning } from '../models/hooks';
+import { currentModel, currentReasoning, loadModels } from '../models/hooks';
 import { projectById } from '../projects/hooks';
 import { currentProjectId, currentSpace, currentSpaceId, watchScope } from '../scope/hooks';
 import { loadSkills, skillLabels, toolLabels } from '../skills/hooks';
@@ -38,6 +38,7 @@ export const useCurrentConv = () => store.use((s) => (s.current ? s.convs[s.curr
 export const useConvBusy = () => store.use((s) => convBusy(s, s.current));
 
 const detailOf = (e: unknown): string | null => (e instanceof ApiError && e.detail ? e.detail : null);
+const rawOf = (e: unknown): string | null => (e instanceof ApiError && e.raw ? e.raw : null);
 
 // ── 최근 대화 (지금 스페이스) — 마지막 요청만 반영 (읽는 사이 스페이스가 바뀌면 앞 응답은 버린다) ──
 let seq = 0;
@@ -243,11 +244,6 @@ export function retry(threadId: string) {
   void start(threadId, answer);
 }
 
-// 생각(추론) 설정 때문에 거절됐을 때: 이 기기의 생각 깊이를 끄고 같은 질문을 다시
-export function retryWithoutReasoning(threadId: string) {
-  pickReasoning('off');
-  retry(threadId);
-}
 
 // 멈춘 직후엔 서버가 아직 끊김을 모를 수 있다 (409 thread_busy) → 그 대화에 한해 잠깐 기다렸다 다시 보낸다
 const stoppedAt = new Map<string, number>();
@@ -318,7 +314,7 @@ async function start(threadId: string, answer: Answer) {
     const failureDetail = stopped ? null : detailOf(e) ?? (code && RESUME_CODES.has(code) ? code : null);
     patchAnswer(threadId, answer.runId, (a) => ({
       ...closeOpen(a, stopped ? 'cancelled' : 'error'),
-      status: stopped ? 'stopped' : 'failed', failure, failureDetail, durationMs: elapsed(a),
+      status: stopped ? 'stopped' : 'failed', failure, failureDetail, failureRaw: stopped ? null : rawOf(e), durationMs: elapsed(a),
     }));
     if (failure === 'model_gone' || failure === 'no_models') void loadModels(); // 숨겨진 모델 → 목록 새로
   } finally {
