@@ -24,6 +24,17 @@
 .fc-made-list{margin:var(--space-2) 0 var(--space-1)}
 .fc-made{max-width:360px;padding-right:var(--space-1-5);background:var(--surface)}
 .fc-ok{display:inline-flex;align-items:center;gap:var(--space-1);color:var(--ok-text)}
+.fc-open{display:flex;align-items:center;gap:var(--space-2);flex:1;min-width:0;padding:0;border:0;border-radius:var(--radius-md);background:transparent;
+  color:inherit;font:inherit;text-align:left;cursor:pointer}
+.fc-open:hover b{text-decoration:underline}
+.fc-open:focus-visible{outline-offset:2px}
+/* 미리보기 서랍 — 쪽 그림을 위에서부터 (흰 종이 · 옅은 테두리) */
+.pv-pages{display:grid;gap:var(--space-3);margin:0;padding:0;list-style:none}
+.pv-page{display:block;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);overflow:hidden}
+.pv-page img{display:block;width:100%;height:auto}
+.pv-wait{display:flex;align-items:center;justify-content:center;gap:var(--space-2);min-height:160px;background:var(--surface-sunken);color:var(--text-muted);font-size:var(--fs-sm)}
+.pv-note{margin:0;color:var(--text-muted);font-size:var(--fs-sm)}
+.pv-sheet .ui-modal-foot{align-items:center;gap:var(--space-2)}
 .fc-warn{display:inline-flex;align-items:center;gap:var(--space-1);color:var(--warn-text)}
 
 /* 내 말풍선: 칩 줄 위 · 말풍선 아래 (오른쪽 정렬) */

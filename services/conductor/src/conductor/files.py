@@ -48,6 +48,7 @@ ZIP_MAX_ENTRIES = 2_000
 MAX_FILES_PER_MESSAGE = 10
 PAGE_IMAGES = 20  # PDF 를 그림으로 보낼 때 앞 몇 쪽까지 (나머지는 read_file)
 PAGE_PX = 1_400  # 쪽 그림의 긴 쪽 (제공사가 어차피 1,568 · 2,048 로 줄인다)
+PAGE_CACHE = 64  # 미리보기 쪽 그림을 기억하는 장 수 (1,400px PNG ≈ 100~300KB)
 MAX_DOC_IMAGES = 20  # 문서 속 그림 (docx · pptx) 한 파일에서
 MAX_SIDE = 8_000  # 제공사 한도 (Claude = 한 변 8,000px) · 넘는 그림은 보내지 않는다
 
@@ -309,8 +310,8 @@ def _png(width: int, height: int, stride: int, rgb: bytes) -> bytes:
     return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", head) + chunk(b"IDAT", zlib.compress(rows, 6)) + chunk(b"IEND", b"")
 
 
-def render_pages(data: bytes, count: int) -> list[bytes]:
-    """PDF 앞 count 쪽 → PNG (긴 쪽 PAGE_PX · 흰 바탕). 못 그리면 그 쪽은 건너뛴다."""
+def render_pages(data: bytes, count: int, *, start: int = 0) -> list[bytes]:
+    """PDF 의 start 쪽부터 count 쪽 → PNG (긴 쪽 PAGE_PX · 흰 바탕). 못 그리면 그 쪽은 건너뛴다."""
     import pypdfium2 as pdfium  # PDF 를 그릴 때만
 
     out: list[bytes] = []
@@ -319,7 +320,7 @@ def render_pages(data: bytes, count: int) -> list[bytes]:
     except pdfium.PdfiumError:
         return out
     try:
-        for i in range(min(count, len(doc))):
+        for i in range(max(0, start), min(start + count, len(doc))):
             page = doc[i]
             try:
                 w, h = page.get_size()
@@ -442,6 +443,7 @@ class Files:
         self.store = store
         self.root = root
         self._media: dict[str, list[tuple[str, str, bytes]]] = {}  # sha256 → 문서 속 그림
+        self._pages: dict[tuple[str, int], bytes] = {}  # (sha256, 쪽) → 미리보기 PNG (오래된 것부터 버림)
 
     def _path(self, sha: str) -> Path:
         return self.root / sha[:2] / sha
@@ -534,6 +536,22 @@ class Files:
 
     def chunks(self, file_id: str) -> list[Chunk]:
         return [Chunk(r["label"], r["text"]) for r in self.store.query("SELECT label, text FROM file_chunks WHERE file_id = ? ORDER BY idx", (file_id,))]
+
+    def page_png(self, f: FileRow, n: int) -> bytes | None:
+        """PDF 의 n 쪽 (1부터) 그림 — 미리보기 서랍 (GET /api/files/{id}/pages/{n}). 같은 내용 · 같은 쪽 = 한 번만 그린다 (앱이 켜 있는 동안 PAGE_CACHE 장)."""
+        if f.kind != "pdf" or n < 1 or (f.pages is not None and n > f.pages):
+            return None
+        key = (f.sha256, n)
+        hit = self._pages.get(key)
+        if hit is None:
+            got = render_pages(self.data(f), 1, start=n - 1)
+            if not got:
+                return None
+            hit = got[0]
+            self._pages[key] = hit
+            while len(self._pages) > PAGE_CACHE:
+                self._pages.pop(next(iter(self._pages)))
+        return hit
 
     # ── 모델에 싣기 ──
     def media(self, f: FileRow) -> list[tuple[str, str, bytes]]:

@@ -15,6 +15,7 @@ dependencies = [
     "cryptography==50.0.2",                   # 2026-09-30 · MCP 인증정보 AES-GCM (connectors/vault.py · ADR-0013) · 직접 고정
     "pypdf==6.21.2",                          # 2026-10-21 · PDF 글 뽑기 (files.py · ADR-0015) · 순수 파이썬 · 필수 전이 의존성 없음
     "pypdfium2==5.14.0",                      # 2026-10-04 · PDF 쪽 → 이미지 (PDF 를 못 받는 vision 모델 · files.py · ADR-0015) · BSD-3 / Apache-2.0 · 전이 의존성 없음
+    "fonttools==4.67.0",                      # 2026-10-14 · MIT · PDF 만들기의 한글 글꼴 부분 집합 (docmake.py · runtime/fonts 나눔고딕) · 필수 전이 의존성 없음
 ]
 
 [build-system]

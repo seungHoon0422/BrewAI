@@ -381,6 +381,7 @@ export function sampleGroups(apps: readonly Sample[], first: string | null): Sam
       { label: 'Word 회의록', prompt: '오늘 회의 내용을 회의록 Word 파일로 만들어 줘. 안건은 신제품 출시 일정, 결정은 12월 첫 주 출시, 할 일은 민지가 공지 작성(금요일까지), 준호가 QA(목요일까지)야' },
       { label: 'Excel 예산표', prompt: '팀 회식 예산을 엑셀 파일로 만들어 줘. 항목은 식사 40만원, 음료 12만원, 이동 8만원이고 맨 아래 합계는 수식으로 넣어 줘' },
       { label: 'PPT 발표 자료', prompt: '신입 교육용 발표 자료를 피피티로 5장 만들어 줘. 회사 소개, 일하는 방식, 도구, 첫 주 할 일, 질문 순서로' },
+      { label: 'PDF 보고서', prompt: '재택근무의 장점과 단점을 표로 정리한 한 쪽짜리 보고서를 PDF로 만들어 줘' },
     ] },
     { title: '앱 도구', items: apps, empty: SAMPLE.noApp },
     { title: '동시 실행', items: [

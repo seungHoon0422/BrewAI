@@ -30,7 +30,7 @@
 //   [fake:md-big] → 다른 마크다운 답을 120글자씩 크게 (큰 조각으로 보내는 provider 흉내: 첫 조각도 펼쳐지는지 · 칸 안 <br> · 줄 넘는 굵게)
 //   [fake:think] → reasoning_effort 없이도 생각 조각 · [fake:system] → 답 끝에 ', 지침: <system 메시지 마지막 줄>' (프로젝트 지침이 모델까지 갔는지)
 //   툴 (적은 순서대로 하나씩 부른다 · 요청 tools 에 있을 때만 · 내장 툴은 없다 = 스킬 · MCP 앱만): [fake:skill <이름>] → use_skill
-//   문서 만들기 (slice 08): [fake:make docx|xlsx|pptx|md|csv] → make_file {견본} (문서 스킬을 부른 뒤에만 tools 에 있다 · 예 '[fake:skill word-doc] [fake:make docx]')
+//   문서 만들기 (slice 08): [fake:make docx|xlsx|pptx|pdf|md|csv] → make_file {견본} (문서 스킬을 부른 뒤에만 tools 에 있다 · 예 '[fake:skill word-doc] [fake:make docx]')
 //   병렬 (한 응답에 tool_calls 여럿 = conductor 가 동시에 돌린다 · 앱 도구가 공개된 뒤): [fake:parallel] → 공개된 앱 도구 중
 //   <앱>__search_notes {query: 회의} + <앱>__list_notes {} (없으면 공개된 앱 도구 앞 두 개 {}) 를 한 번에
 //   · [fake:parallel <이름> {json}, <이름> {json}] → 적은 도구들을 한 번에. 예: '[fake:app notes 메모] [fake:parallel]' (e2e/mock/mcp.mjs 의 notes)
@@ -309,6 +309,9 @@ const SAMPLE_FILES = {
     { type: 'table', rows: [['할 일', '담당'], ['배포 공지', '민지']] }] },
   xlsx: { kind: 'xlsx', name: '예산표', sheets: [{ name: '예산', rows: [['항목', '금액'], ['서버', 120], ['합계', '=SUM(B2:B2)']] }] },
   pptx: { kind: 'pptx', name: '발표', title: '3분기 실적', subtitle: '영업팀', slides: [{ title: '핵심', bullets: ['매출 12% 증가'] }] },
+  pdf: { kind: 'pdf', name: '요약 보고서', title: 'OpenTelemetry 요약', blocks: [
+    { type: 'heading', text: '핵심', level: 1 }, { type: 'paragraph', text: '계측은 **OTel API 로 한 번**만 한다.' },
+    { type: 'table', rows: [['항목', '내용'], ['교체', 'exporter 만 바꿈']] }, { type: 'pagebreak' }, { type: 'paragraph', text: '둘째 쪽' }] },
   md: { kind: 'md', name: '노트', blocks: [{ type: 'paragraph', text: '메모' }] },
   csv: { kind: 'csv', name: '목록', sheets: [{ rows: [['이름'], ['가']] }] },
 };
@@ -326,7 +329,7 @@ function plannedRounds(body, question) {
   const found = [];
   const one = (at, name, args) => found.push({ at, calls: [{ name, args }] });
   for (const m of question.matchAll(/\[fake:skill\s+([a-z0-9-]+)\]/g)) one(m.index, 'use_skill', { need: m[1], name: m[1] });
-  for (const m of question.matchAll(/\[fake:make\s+(docx|xlsx|pptx|md|csv)\]/g)) one(m.index, 'make_file', SAMPLE_FILES[m[1]]);
+  for (const m of question.matchAll(/\[fake:make\s+(docx|xlsx|pptx|pdf|md|csv)\]/g)) one(m.index, 'make_file', SAMPLE_FILES[m[1]]);
   const parallel = question.match(/\[fake:parallel(?:\s+([^\]]+))?\]/);
   if (parallel) {
     let calls = [];

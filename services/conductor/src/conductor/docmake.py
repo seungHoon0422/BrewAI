@@ -1,10 +1,10 @@
-"""make_file = 모델이 준 구조(JSON) → docx · xlsx · pptx · md · csv 바이트 (slice 08 · 표준 zipfile + XML · 의존성 없음).
+"""make_file = 모델이 준 구조(JSON) → docx · xlsx · pptx · pdf · md · csv 바이트 (slice 08 · 표준 zipfile + XML · pdf = pdfmake.py + fontTools).
 
 모델은 모양만 준다 (제목 · 제목 수준 · 문단 · 목록 · 표 · 시트 · 슬라이드). 글꼴 · 여백 · 표 테두리 = 여기서 정한 한 벌 (한글 = 맑은 고딕).
 같은 입력 = 같은 바이트 (zip 시각 고정 · 만든 시각 안 넣음) → 파일 저장소가 sha256 으로 한 번만 둔다.
 안전: 글은 XML 이스케이프 + XML 에 못 넣는 제어 문자 제거 · 크기 상한(블록 · 행 · 열 · 슬라이드 · 글자) · xlsx 수식 = 허용 함수만
 (DDE · 외부 참조 · HYPERLINK 없음 → 그 밖은 글로) · csv = '=' '+' '-' '@' 로 시작하는 글 앞에 ' (CSV 수식 주입).
-PDF 는 없다 (한글 글꼴 · 변환 = 다음 단계 샌드박스의 'PDF 로 내보내기').
+PDF = docx 와 같은 blocks → pdfmake.py (A4 · 나눔고딕 부분 집합 · 줄 나눔 · 표) · 같은 입력 = 같은 바이트.
 """
 
 from __future__ import annotations
@@ -18,8 +18,10 @@ from dataclasses import dataclass
 from typing import Any, Literal
 from xml.sax.saxutils import escape as _esc
 
-Kind = Literal["docx", "xlsx", "pptx", "md", "csv"]
-KINDS: tuple[Kind, ...] = ("docx", "xlsx", "pptx", "md", "csv")
+from . import pdfmake as pm
+
+Kind = Literal["docx", "xlsx", "pptx", "pdf", "md", "csv"]
+KINDS: tuple[Kind, ...] = ("docx", "xlsx", "pptx", "pdf", "md", "csv")
 MAX_BLOCKS = 2_000
 MAX_ROWS = 5_000
 MAX_COLS = 50
@@ -45,6 +47,7 @@ MIME: dict[Kind, str] = {
     "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "pdf": "application/pdf",
     "md": "text/markdown",
     "csv": "text/csv",
 }
@@ -52,8 +55,8 @@ MIME: dict[Kind, str] = {
 # 도구 정의 (문서 스킬을 불렀을 때만 도구 배열에 실린다 · agent._SkillGatedTools)
 MAKE_FILE = "make_file"
 MAKE_FILE_DESC = (
-    "Word(docx) · Excel(xlsx) · PowerPoint(pptx) · md · csv 파일을 만들어 이 대화에 붙인다. 모양만 준다 (글꼴 · 여백 · 테두리는 서버가). "
-    "docx · md = blocks · xlsx · csv = sheets (첫 행 = 머리) · pptx = title/subtitle(표지) + slides. 글 안 **굵게** 가능 · 목록 항목 앞 공백 2칸 = 한 단계 안쪽. "
+    "Word(docx) · Excel(xlsx) · PowerPoint(pptx) · PDF · md · csv 파일을 만들어 이 대화에 붙인다. 모양만 준다 (글꼴 · 여백 · 테두리는 서버가). "
+    "docx · pdf · md = blocks · xlsx · csv = sheets (첫 행 = 머리) · pptx = title/subtitle(표지) + slides. 글 안 **굵게** 가능 · 목록 항목 앞 공백 2칸 = 한 단계 안쪽. "
     "만든 파일은 답 아래 칩으로 저절로 보인다 (주소 · 경로를 적지 않는다)."
 )
 _CELLS = {"type": "array", "items": {"type": "array", "items": {"type": "string"}}}
@@ -711,7 +714,54 @@ def _csv(spec: dict[str, Any], b: _Budget) -> bytes:
     return ("\ufeff" + buf.getvalue()).encode("utf-8")  # BOM = Excel 이 한글을 바로 읽는다
 
 
-_WRITERS = {"docx": _docx, "xlsx": _xlsx, "pptx": _pptx, "md": _md, "csv": _csv}
+def _pdf(spec: dict[str, Any], b: _Budget) -> bytes:
+    """docx 와 같은 blocks → pdfmake 블록 (번호 목록 = 단계마다 1. · a. · i.) → PDF."""
+    out: list[pm.Block] = []
+    title = b.text(spec.get("title"))
+    if title:
+        out.append(("title", _runs(title)))
+    for blk in _list(spec.get("blocks"), "blocks", MAX_BLOCKS):
+        if not isinstance(blk, dict):
+            raise MakeError("bad_shape", "blocks 의 칸은 객체여야 한다")
+        t = blk.get("type")
+        if t == "heading":
+            level = blk.get("level") if isinstance(blk.get("level"), int) else 1
+            out.append(("heading", min(max(level, 1), 3), _runs(b.text(blk.get("text")))))
+        elif t == "paragraph":
+            out.append(("para", _runs(b.text(blk.get("text")))))
+        elif t in ("bullets", "numbered"):
+            counts = [0, 0, 0]
+            for item in _list(blk.get("items"), "items", MAX_ITEMS):
+                lvl, text = _indent(b.text(item))
+                counts[lvl] += 1
+                for deeper in range(lvl + 1, 3):
+                    counts[deeper] = 0
+                marker = ("•", "◦", "–")[lvl] if t == "bullets" else _number(counts[lvl], lvl)
+                out.append(("item", lvl, marker, _runs(text)))
+        elif t == "table":
+            rows = _rows(blk.get("rows"), b)
+            if rows:
+                out.append(("table", [[c if isinstance(c, str) else _num_text(c) for c in r] for r in rows]))
+        elif t == "pagebreak":
+            out.append(("pagebreak",))
+        else:
+            raise MakeError("bad_block", f"모르는 block type '{str(t)[:20]}' (heading · paragraph · bullets · numbered · table · pagebreak)")
+    try:
+        return pm.render(out, title=title or str(spec.get("name") or ""))
+    except pm.PdfError as e:
+        raise MakeError(e.code, e.message) from e
+
+
+def _number(n: int, lvl: int) -> str:
+    if lvl == 0:
+        return f"{n}."
+    if lvl == 1:
+        return f"{chr(96 + min(n, 26))}."
+    roman = ("i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x")
+    return f"{roman[n - 1] if n <= len(roman) else n}."
+
+
+_WRITERS = {"docx": _docx, "xlsx": _xlsx, "pptx": _pptx, "pdf": _pdf, "md": _md, "csv": _csv}
 
 
 def make(spec: Any) -> Made:
@@ -720,7 +770,7 @@ def make(spec: Any) -> Made:
         raise MakeError("bad_shape", "인자는 객체여야 한다")
     kind = spec.get("kind")
     if kind not in KINDS:
-        raise MakeError("bad_kind", f"kind 는 {', '.join(KINDS)} 중 하나 (PDF 는 아직 없다)")
+        raise MakeError("bad_kind", f"kind 는 {', '.join(KINDS)} 중 하나")
     b = _Budget()
     raw = b.text(spec.get("name")).strip() or b.text(spec.get("title")).strip() or "문서"
     stem = re.sub(r'[\\/:*?"<>|\x00-\x1f]+', " ", raw).strip().removesuffix(f".{kind}").strip()[:80] or "문서"

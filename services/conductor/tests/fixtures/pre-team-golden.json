@@ -7,7 +7,7 @@
     "messages": [
      {
       "role": "system",
-      "content": "너는 BrewAI 에이전트다. 한국어로 짧고 정확하게 답한다. 서로 상관없는 도구 호출은 한 응답에 같이 부른다.\n스킬 5개 (비교표 만들기, Excel 표, 발표 자료, 요약, Word 문서): 맞을 것 같으면 먼저 use_skill {need}"
+      "content": "너는 BrewAI 에이전트다. 한국어로 짧고 정확하게 답한다. 서로 상관없는 도구 호출은 한 응답에 같이 부른다.\n스킬 6개 (비교표 만들기, Excel 표, PDF 문서, 발표 자료, 요약, Word 문서): 맞을 것 같으면 먼저 use_skill {need}"
      },
      {
       "role": "user",
@@ -77,6 +77,7 @@
       "skills": [
        "compare-table",
        "excel-sheet",
+       "pdf-doc",
        "ppt-deck",
        "summarize",
        "word-doc"
@@ -154,7 +155,7 @@
     "messages": [
      {
       "role": "system",
-      "content": "너는 BrewAI 에이전트다. 한국어로 짧고 정확하게 답한다. 서로 상관없는 도구 호출은 한 응답에 같이 부른다.\n스킬 5개 (비교표 만들기, Excel 표, 발표 자료, 요약, Word 문서): 맞을 것 같으면 먼저 use_skill {need}"
+      "content": "너는 BrewAI 에이전트다. 한국어로 짧고 정확하게 답한다. 서로 상관없는 도구 호출은 한 응답에 같이 부른다.\n스킬 6개 (비교표 만들기, Excel 표, PDF 문서, 발표 자료, 요약, Word 문서): 맞을 것 같으면 먼저 use_skill {need}"
      },
      {
       "role": "system",
@@ -250,6 +251,7 @@
       "skills": [
        "compare-table",
        "excel-sheet",
+       "pdf-doc",
        "ppt-deck",
        "summarize",
        "word-doc"
@@ -382,7 +384,7 @@
     "messages": [
      {
       "role": "system",
-      "content": "너는 BrewAI 에이전트다. 한국어로 짧고 정확하게 답한다. 서로 상관없는 도구 호출은 한 응답에 같이 부른다.\n스킬 5개 (비교표 만들기, Excel 표, 발표 자료, 요약, Word 문서): 맞을 것 같으면 먼저 use_skill {need}"
+      "content": "너는 BrewAI 에이전트다. 한국어로 짧고 정확하게 답한다. 서로 상관없는 도구 호출은 한 응답에 같이 부른다.\n스킬 6개 (비교표 만들기, Excel 표, PDF 문서, 발표 자료, 요약, Word 문서): 맞을 것 같으면 먼저 use_skill {need}"
      },
      {
       "role": "system",
@@ -457,7 +459,7 @@
     "messages": [
      {
       "role": "system",
-      "content": "너는 BrewAI 에이전트다. 한국어로 짧고 정확하게 답한다. 서로 상관없는 도구 호출은 한 응답에 같이 부른다.\n스킬 5개 (비교표 만들기, Excel 표, 발표 자료, 요약, Word 문서): 맞을 것 같으면 먼저 use_skill {need}"
+      "content": "너는 BrewAI 에이전트다. 한국어로 짧고 정확하게 답한다. 서로 상관없는 도구 호출은 한 응답에 같이 부른다.\n스킬 6개 (비교표 만들기, Excel 표, PDF 문서, 발표 자료, 요약, Word 문서): 맞을 것 같으면 먼저 use_skill {need}"
      },
      {
       "role": "system",
@@ -544,7 +546,7 @@
     "messages": [
      {
       "role": "system",
-      "content": "너는 BrewAI 에이전트다. 한국어로 짧고 정확하게 답한다. 서로 상관없는 도구 호출은 한 응답에 같이 부른다.\n스킬 5개 (비교표 만들기, Excel 표, 발표 자료, 요약, Word 문서): 맞을 것 같으면 먼저 use_skill {need}"
+      "content": "너는 BrewAI 에이전트다. 한국어로 짧고 정확하게 답한다. 서로 상관없는 도구 호출은 한 응답에 같이 부른다.\n스킬 6개 (비교표 만들기, Excel 표, PDF 문서, 발표 자료, 요약, Word 문서): 맞을 것 같으면 먼저 use_skill {need}"
      },
      {
       "role": "system",
@@ -694,7 +696,7 @@
     "messages": [
      {
       "role": "system",
-      "content": "너는 BrewAI 에이전트다. 한국어로 짧고 정확하게 답한다. 서로 상관없는 도구 호출은 한 응답에 같이 부른다.\n스킬 5개 (비교표 만들기, Excel 표, 발표 자료, 요약, Word 문서): 맞을 것 같으면 먼저 use_skill {need}"
+      "content": "너는 BrewAI 에이전트다. 한국어로 짧고 정확하게 답한다. 서로 상관없는 도구 호출은 한 응답에 같이 부른다.\n스킬 6개 (비교표 만들기, Excel 표, PDF 문서, 발표 자료, 요약, Word 문서): 맞을 것 같으면 먼저 use_skill {need}"
      },
      {
       "role": "system",
@@ -863,7 +865,7 @@
     "messages": [
      {
       "role": "system",
-      "content": "너는 BrewAI 에이전트다. 한국어로 짧고 정확하게 답한다. 서로 상관없는 도구 호출은 한 응답에 같이 부른다.\n스킬 5개 (비교표 만들기, Excel 표, 발표 자료, 요약, Word 문서): 맞을 것 같으면 먼저 use_skill {need}"
+      "content": "너는 BrewAI 에이전트다. 한국어로 짧고 정확하게 답한다. 서로 상관없는 도구 호출은 한 응답에 같이 부른다.\n스킬 6개 (비교표 만들기, Excel 표, PDF 문서, 발표 자료, 요약, Word 문서): 맞을 것 같으면 먼저 use_skill {need}"
      },
      {
       "role": "system",
@@ -1065,6 +1067,7 @@
       "skills": [
        "compare-table",
        "excel-sheet",
+       "pdf-doc",
        "ppt-deck",
        "summarize",
        "word-doc"
@@ -1159,6 +1162,7 @@
       "skills": [
        "compare-table",
        "excel-sheet",
+       "pdf-doc",
        "ppt-deck",
        "summarize",
        "word-doc"
@@ -1374,6 +1378,7 @@
       "skills": [
        "compare-table",
        "excel-sheet",
+       "pdf-doc",
        "ppt-deck",
        "summarize",
        "word-doc"
@@ -1615,7 +1620,7 @@
     "messages": [
      {
       "role": "system",
-      "content": "너는 BrewAI 에이전트다. 한국어로 짧고 정확하게 답한다. 서로 상관없는 도구 호출은 한 응답에 같이 부른다.\n스킬 5개 (비교표 만들기, Excel 표, 발표 자료, 요약, Word 문서): 맞을 것 같으면 먼저 use_skill {need}"
+      "content": "너는 BrewAI 에이전트다. 한국어로 짧고 정확하게 답한다. 서로 상관없는 도구 호출은 한 응답에 같이 부른다.\n스킬 6개 (비교표 만들기, Excel 표, PDF 문서, 발표 자료, 요약, Word 문서): 맞을 것 같으면 먼저 use_skill {need}"
      },
      {
       "role": "system",
@@ -1690,7 +1695,7 @@
     "messages": [
      {
       "role": "system",
-      "content": "너는 BrewAI 에이전트다. 한국어로 짧고 정확하게 답한다. 서로 상관없는 도구 호출은 한 응답에 같이 부른다.\n스킬 5개 (비교표 만들기, Excel 표, 발표 자료, 요약, Word 문서): 맞을 것 같으면 먼저 use_skill {need}"
+      "content": "너는 BrewAI 에이전트다. 한국어로 짧고 정확하게 답한다. 서로 상관없는 도구 호출은 한 응답에 같이 부른다.\n스킬 6개 (비교표 만들기, Excel 표, PDF 문서, 발표 자료, 요약, Word 문서): 맞을 것 같으면 먼저 use_skill {need}"
      },
      {
       "role": "system",
@@ -1828,7 +1833,7 @@
     "messages": [
      {
       "role": "system",
-      "content": "너는 BrewAI 에이전트다. 한국어로 짧고 정확하게 답한다. 서로 상관없는 도구 호출은 한 응답에 같이 부른다.\n스킬 5개 (비교표 만들기, Excel 표, 발표 자료, 요약, Word 문서): 맞을 것 같으면 먼저 use_skill {need}"
+      "content": "너는 BrewAI 에이전트다. 한국어로 짧고 정확하게 답한다. 서로 상관없는 도구 호출은 한 응답에 같이 부른다.\n스킬 6개 (비교표 만들기, Excel 표, PDF 문서, 발표 자료, 요약, Word 문서): 맞을 것 같으면 먼저 use_skill {need}"
      },
      {
       "role": "system",
@@ -2019,6 +2024,7 @@
       "skills": [
        "compare-table",
        "excel-sheet",
+       "pdf-doc",
        "ppt-deck",
        "summarize",
        "word-doc"
@@ -2161,8 +2167,8 @@
     {
      "type": "TOOL_CALL_RESULT",
      "messageId": "<uuid>",
-     "toolCallId": "call_2_0",
-     "content": "{\"source\":\"notes\",\"untrusted\":true,\"result\":\"하나\"}",
+     "toolCallId": "call_2_1",
+     "content": "{\"source\":\"notes\",\"untrusted\":true,\"result\":\"둘\"}",
      "role": "tool"
     },
     {
@@ -2172,8 +2178,8 @@
     {
      "type": "TOOL_CALL_RESULT",
      "messageId": "<uuid>",
-     "toolCallId": "call_2_1",
-     "content": "{\"source\":\"notes\",\"untrusted\":true,\"result\":\"둘\"}",
+     "toolCallId": "call_2_0",
+     "content": "{\"source\":\"notes\",\"untrusted\":true,\"result\":\"하나\"}",
      "role": "tool"
     },
     {

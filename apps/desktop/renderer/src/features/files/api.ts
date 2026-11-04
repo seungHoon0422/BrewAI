@@ -105,3 +105,24 @@ export async function saveFile(f: { id: string; name: string }): Promise<SaveRes
     return { ok: false, code: 'write_failed' };
   }
 }
+
+// 미리보기 서랍 (PDF 쪽 그림 · GET /api/files/{id}/pages/{n} · 1부터) = data: 주소 (CSP img-src 'self' data:) · 앱이 켜 있는 동안 한 번만
+const pages = new Map<string, Promise<string | null>>();
+export function pageOf(id: string, n: number): Promise<string | null> {
+  const key = `${id}:${n}`;
+  let p = pages.get(key);
+  if (!p) {
+    p = call(`/api/files/${encodeURIComponent(id)}/pages/${n}`).then((r) => r.blob()).then((b) => dataUrl(b)).catch(() => {
+      pages.delete(key);
+      return null;
+    });
+    pages.set(key, p);
+  }
+  return p;
+}
+
+export async function getFile(id: string, signal?: AbortSignal): Promise<FileItem> {
+  const d = await json(`/api/files/${encodeURIComponent(id)}`, signal);
+  if (!isObj(d)) throw new ApiError('server', 'bad_shape');
+  return toFile(d);
+}

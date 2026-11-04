@@ -85,7 +85,7 @@ test('모델 화면에 가격·컨텍스트·provider 입력칸이 없다', asyn
   await expect(page.getByRole('button', { name: REGISTER }).or(page.getByRole('link', { name: REGISTER }))).toHaveCount(0);
 });
 
-test('카탈로그 › Skill: runtime/skills 스타터 5개 (읽기 전용 · 버전 = sha256 앞 12자) · 첫 탭 = MCP 서버 (admin-mcp.spec)', async ({ page }) => {
+test('카탈로그 › Skill: runtime/skills 스타터 6개 (읽기 전용 · 버전 = sha256 앞 12자) · 첫 탭 = MCP 서버 (admin-mcp.spec)', async ({ page }) => {
   await page.goto('/#/catalog');
   const tabs = page.getByRole('tablist', { name: '카탈로그 종류' });
   await expect(tabs.getByRole('tab')).toHaveText(['MCP 서버', '사용자 추가 서버', 'Skill']);
@@ -96,7 +96,7 @@ test('카탈로그 › Skill: runtime/skills 스타터 5개 (읽기 전용 · �
   const rows = table.locator('tbody tr');
   // 기대값 = 레포의 runtime/skills 폴더 (하드코딩 아님)
   const dirs = fs.readdirSync(path.join(ROOT, 'runtime', 'skills'), { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort();
-  expect(dirs).toEqual(['compare-table', 'excel-sheet', 'ppt-deck', 'summarize', 'word-doc']); // 글 스킬 2 + 문서 파일 스킬 3 (slice 08)
+  expect(dirs).toEqual(['compare-table', 'excel-sheet', 'pdf-doc', 'ppt-deck', 'summarize', 'word-doc']); // 글 스킬 2 + 문서 파일 스킬 4 (slice 08)
   await expect(rows).toHaveCount(dirs.length);
   expect(await rows.evaluateAll((trs) => trs.map((tr) => tr.getAttribute('data-skill')))).toEqual(dirs);
   const summarize = table.locator('tr[data-skill="summarize"]');
@@ -104,7 +104,7 @@ test('카탈로그 › Skill: runtime/skills 스타터 5개 (읽기 전용 · �
   await expect(summarize.locator('.skn .chip')).toHaveText('내장');
   await expect(summarize).toContainText('runtime/skills');
   await expect(summarize.locator('.ver')).toHaveText(/^[0-9a-f]{12}$/);
-  await expect(rows.locator('.skt')).toHaveText(['—', 'make_file', 'make_file', '—', 'make_file']); // 문서 스킬 = 부르면 make_file 이 실린다
+  await expect(rows.locator('.skt')).toHaveText(['—', 'make_file', 'make_file', 'make_file', '—', 'make_file']); // 문서 스킬 = 부르면 make_file 이 실린다
   await expect(page.getByRole('tabpanel')).toContainText('새 스킬 저장과 등록(격리 → 테스트 → 승인)은 P5');
   // 읽기 전용: 바꾸는 입력칸 · 버튼 없음
   await expect(page.getByRole('tabpanel').getByRole('textbox')).toHaveCount(0);

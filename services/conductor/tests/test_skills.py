@@ -20,8 +20,8 @@ from conductor.skills import MAX_SKILL_BYTES, SkillError, load_skills, parse_ski
 from conductor.tools import SKILL_TOOLS, ToolSpec
 
 KNOWN = ["calculator", "unit_convert", "count_chars"]  # known_tools 검사용 이름 (내장 툴은 없다 · 꽂은 툴 이름을 준다고 치고)
-STARTERS = ["compare-table", "excel-sheet", "ppt-deck", "summarize", "word-doc"]  # 평소 쓰는 글 스킬 2 + 문서 파일 스킬 3 (slice 08)
-DOC_SKILLS = {"excel-sheet", "ppt-deck", "word-doc"}  # tools: [make_file]
+STARTERS = ["compare-table", "excel-sheet", "pdf-doc", "ppt-deck", "summarize", "word-doc"]  # 평소 쓰는 글 스킬 2 + 문서 파일 스킬 4 (slice 08)
+DOC_SKILLS = {"excel-sheet", "pdf-doc", "ppt-deck", "word-doc"}  # tools: [make_file]
 
 
 def count_chars(text: str) -> dict[str, Any]:
@@ -64,7 +64,7 @@ def test_starter_skills_load_cleanly(h) -> None:
         for gone in ("text_stats", "unit_convert", "calculator", "current_time", "date_calc"):
             assert gone not in s.body
     # 시스템 프롬프트 = 한 줄 (스킬 수 + 화면 이름 · 이름 순 · 설명 · 본문 없음) · 도구 스키마 = need (스킬 이름 enum 없음 = 스킬이 늘어도 그대로)
-    assert reg.prompt() == "\n스킬 5개 (비교표 만들기, Excel 표, 발표 자료, 요약, Word 문서): 맞을 것 같으면 먼저 use_skill {need}"
+    assert reg.prompt() == "\n스킬 6개 (비교표 만들기, Excel 표, PDF 문서, 발표 자료, 요약, Word 문서): 맞을 것 같으면 먼저 use_skill {need}"
     schema = reg.tool().schema  # type: ignore[union-attr]
     assert list(schema["properties"]) == ["need", "name"] and schema["required"] == ["need"] and "enum" not in json.dumps(schema)
 
@@ -83,7 +83,8 @@ def test_prompt_and_schema_stay_small_as_skills_grow(tmp_path: Path) -> None:
 @pytest.mark.parametrize(("need", "want"), [
     ("분기 보고서를 워드로", "word-doc"), ("회의록 docx 로", "word-doc"), ("엑셀 파일로 정리해 줘", "excel-sheet"), ("csv 로 뽑아 줘", "excel-sheet"),
     ("스프레드시트", "excel-sheet"), ("피피티 만들어 줘", "ppt-deck"), ("PPT 슬라이드", "ppt-deck"), ("발표 자료", "ppt-deck"),
-    ("이 글 요약해 줘", "summarize"), ("세 제품 비교", "compare-table"),
+    ("이 글 요약해 줘", "summarize"), ("세 제품 비교", "compare-table"), ("pdf로 만들어줘", "pdf-doc"), ("PDF로 내보내기", "pdf-doc"),
+    ("pdf로 만들어달라니까?", "pdf-doc"), ("인쇄용 문서", "pdf-doc"),
 ])
 def test_use_skill_finds_by_need(h, need: str, want: str) -> None:
     out = load_skills(h.SKILLS_DIR, known_tools=SKILL_TOOLS).tool().function(need)  # type: ignore[union-attr]
@@ -94,7 +95,7 @@ def test_use_skill_finds_by_need(h, need: str, want: str) -> None:
 def test_use_skill_no_match_lists_names(h) -> None:
     tool = load_skills(h.SKILLS_DIR).tool()
     out = tool.function("날씨 알려 줘")  # type: ignore[union-attr]
-    assert out["error"] == "no_skill" and out["available"][0] == "compare-table 비교표 만들기" and len(out["available"]) == 5
+    assert out["error"] == "no_skill" and out["available"][0] == "compare-table 비교표 만들기" and len(out["available"]) == 6
     assert tool.function("", name="summarize")["name"] == "summarize"  # type: ignore[union-attr]  # 이름을 알면 (예전 기록)
 
 
@@ -234,7 +235,7 @@ def test_chat_uses_a_skill_with_skill_step(make_api, h) -> None:
     assert "instructions" not in card["result"] and card["result"]["label"] == "요약" and card["result"]["lines"] > 3  # 화면엔 본문 안 보냄
     assert parts[1]["name"] == "count_chars" and parts[1]["result"]["characters"] == 5
     used = {s["name"]: s["used"] for s in api.client.get("/api/skills").json()}
-    assert used == {"compare-table": 0, "excel-sheet": 0, "ppt-deck": 0, "summarize": 1, "word-doc": 0}
+    assert used == {"compare-table": 0, "excel-sheet": 0, "pdf-doc": 0, "ppt-deck": 0, "summarize": 1, "word-doc": 0}
     api.chat("한 번 더 요약")
     assert {s["name"]: s["used"] for s in api.client.get("/api/skills").json()}["summarize"] == 2
 

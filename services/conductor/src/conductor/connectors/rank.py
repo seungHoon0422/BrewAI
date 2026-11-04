@@ -44,6 +44,7 @@ KO_EN: dict[str, tuple[str, ...]] = {
     "상태": ("status", "state"), "라벨": ("label",), "태그": ("tag", "label"), "마일스톤": ("milestone",), "사이클": ("cycle",),
     "풀리퀘": ("pull", "request"), "커밋": ("commit",), "브랜치": ("branch",), "데이터베이스": ("database",),
     "워드": ("word", "docx"), "엑셀": ("excel", "xlsx", "spreadsheet"), "스프레드시트": ("spreadsheet", "xlsx"), "시트": ("sheet",),
+    "내보내": ("export", "pdf"), "인쇄": ("print", "pdf"), "피디에프": ("pdf",),
     "발표": ("presentation", "pptx", "slide"), "피피티": ("pptx", "presentation"), "슬라이드": ("slide", "pptx"), "보고서": ("report",),
 }
 _WRITE_INTENT = ("만들", "생성", "추가", "작성", "등록", "올려", "수정", "고쳐", "바꿔", "변경", "삭제", "지워", "닫", "보내", "보관", "업데이트",

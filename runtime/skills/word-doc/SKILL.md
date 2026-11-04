@@ -24,4 +24,4 @@ tools: [make_file]
 
 ## 하지 않는 것
 - 글꼴, 색, 여백은 정하지 않는다 (서버가 한 벌로 맞춘다).
-- PDF 는 아직 만들 수 없다. PDF 를 원하면 docx 로 만들고 Word 에서 PDF 로 저장하라고 한 줄 안내한다.
+- PDF 를 원하면 Word 가 아니라 make_file kind=pdf 로 만든다 (같은 blocks · PDF 문서 스킬).

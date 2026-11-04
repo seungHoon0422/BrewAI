@@ -62,6 +62,13 @@ export const FILES = {
   saving: '저장하는 중',
   saved: '저장했어요',
   saveFailed: (code: string) => (code === 'gone' ? '지워진 파일이에요' : code === 'cancelled' ? '' : '저장하지 못했어요'),
+  preview: '미리보기',
+  previewLabel: (name: string) => `${name} 미리보기`,
+  pagesCount: (n: number) => `${count(n)}쪽`,
+  pageAlt: (n: number) => `${count(n)}쪽`,
+  pageLoading: '쪽을 그리는 중',
+  previewFailed: '미리보기를 열 수 없어요. 저장해서 열어 보세요',
+  previewMore: (n: number) => `앞 ${count(n)}쪽만 보여요. 나머지는 저장해서 보세요`,
   // 스페이스 '파일' 화면
   title: '파일',
   sub: '이 스페이스의 대화와 프로젝트에 올린 파일이에요.',

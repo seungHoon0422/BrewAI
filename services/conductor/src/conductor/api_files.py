@@ -5,6 +5,7 @@
   GET    /api/files?space=&project=&thread=  [File + where] (볼 수 있는 것만 · space 만 = 스페이스 '파일' 화면)
   GET    /api/files/{id}                    File + labels (쪽 · 시트 · 슬라이드 이름)
   GET    /api/files/{id}/content            원본 (이미지 = 미리보기 · 그 밖 = 내려받기)
+  GET    /api/files/{id}/pages/{n}          PDF n 쪽(1부터) PNG = 앱 안 미리보기 서랍 (PDF 만 · 권한 = content 와 같다 · 없는 쪽 = 404)
   DELETE /api/files/{id}                    204 (올린 사람 · 프로젝트 파일 = 프로젝트 편집 권한)
   POST   /api/files/plan                    {model, files: [id]} → [{id, mode, tokens, reason}] (입력창 칩의 전달 배지)
 File  = {id, name, kind, mime, size, pages, text_tokens, space_id, project_id, thread_id, run_id, owner_user_id, created_at, owner_name?}
@@ -16,7 +17,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Path, Query, Request
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -144,6 +145,17 @@ def register(user: APIRouter, *, files: Files, registry: ModelRegistry) -> None:
         return Response(files.data(f), media_type=f.mime, headers={
             "Content-Disposition": f'{disposition}; filename="file-{quoted[:16]}"', "X-Content-Type-Options": "nosniff",
             "Cache-Control": "private, max-age=3600", "Content-Security-Policy": "default-src 'none'",
+        })
+
+    @user.get("/api/files/{file_id}/pages/{n}")
+    def file_page(request: Request, file_id: str, n: int = Path(ge=1, le=10_000), p: Principal = Depends(require_user)) -> Response:
+        """def (async 아님) = 쪽 그리기(pypdfium2)가 스레드풀에서 → 채팅 스트림을 막지 않는다."""
+        f = visible(request, p, files, file_id)
+        png = files.page_png(f, n)
+        if png is None:
+            raise FileError("page_not_found", 404)
+        return Response(png, media_type="image/png", headers={
+            "X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=3600", "Content-Security-Policy": "default-src 'none'",
         })
 
     @user.delete("/api/files/{file_id}", status_code=204)

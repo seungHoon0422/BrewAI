@@ -86,6 +86,29 @@ test('Excel · PowerPoint 도 같은 길 · 다시 열어도 칩이 남는다', 
   await expect(win.locator('.msg.agent').getByRole('list', { name: '만든 파일' }).getByRole('listitem')).toHaveCount(3, { timeout: 15_000 });
 });
 
+test('PDF: 문서 스킬 → make_file pdf → 칩을 누르면 앱 안 미리보기 (쪽 그림) → 저장', async () => {
+  await ask(win, '이 내용 pdf로 만들어 줘 [fake:skill pdf-doc] [fake:make pdf]');
+  await idle(win);
+  const chip = made(win).filter({ hasText: '요약 보고서.pdf' });
+  await expect(chip.locator('.fc-meta')).toHaveText(/^PDF \d+KB$/);
+  await chip.getByRole('button', { name: '요약 보고서.pdf 미리보기' }).click();
+  const sheet = win.getByRole('dialog', { name: '요약 보고서.pdf' });
+  await expect(sheet).toContainText('PDF 2쪽');
+  const pages = sheet.getByRole('list', { name: '미리보기' }).locator('img');
+  await expect(pages).toHaveCount(2, { timeout: 15_000 });
+  await expect(pages.first()).toHaveAttribute('src', /^data:image\/png;base64,/);
+  expect(await pages.first().evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(500);
+  await win.screenshot({ path: shot('desktop-make-pdf-preview'), animations: 'disabled' });
+  await sheet.getByRole('button', { name: '요약 보고서.pdf 저장' }).click();
+  await expect(sheet.getByRole('status')).toContainText('저장했어요');
+  const saved = path.join(SAVE_DIR, '요약 보고서.pdf');
+  await expect.poll(() => fs.existsSync(saved)).toBe(true);
+  expect(fs.readFileSync(saved).subarray(0, 5).toString()).toBe('%PDF-');
+  await win.keyboard.press('Escape');
+  await expect(sheet).toHaveCount(0);
+  for (const f of await api.get<{ id: string; name: string }[]>('/api/files')) if (f.name === '요약 보고서.pdf') ids.push(f.id);
+});
+
 test('지워진 파일을 저장하면 "지워진 파일이에요"', async () => {
   const xlsx = (await api.get<{ id: string; name: string }[]>('/api/files')).find((f) => f.name === '예산표.xlsx')!;
   await api.del(`/api/files/${xlsx.id}`);

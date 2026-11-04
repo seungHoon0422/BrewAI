@@ -13,6 +13,7 @@ import pytest
 
 from conductor import docmake as dm
 from conductor import files as fl
+from conductor import pdfmake as pm
 from conductor.skills import load_skills
 from conductor.tools import SKILL_TOOLS
 
@@ -92,7 +93,7 @@ def test_md_and_csv() -> None:
 
 
 @pytest.mark.parametrize(("spec", "code"), [
-    ({"kind": "pdf", "name": "x"}, "bad_kind"), ("x", "bad_shape"), ({"kind": "docx", "name": "x", "blocks": [{"type": "video"}]}, "bad_block"),
+    ({"kind": "hwp", "name": "x"}, "bad_kind"), ("x", "bad_shape"), ({"kind": "pdf", "name": "x", "blocks": [{"type": "video"}]}, "bad_block"), ({"kind": "docx", "name": "x", "blocks": [{"type": "video"}]}, "bad_block"),
     ({"kind": "docx", "name": "x", "blocks": "글"}, "bad_shape"), ({"kind": "xlsx", "name": "x"}, "empty"), ({"kind": "pptx", "name": "x"}, "empty"),
     ({"kind": "pptx", "name": "x", "slides": [{"title": str(i)} for i in range(dm.MAX_SLIDES + 1)]}, "too_large"),
     ({"kind": "xlsx", "name": "x", "sheets": [{"rows": [["a"] * (dm.MAX_COLS + 1)]}]}, "too_large"),
@@ -161,14 +162,14 @@ def test_make_file_errors_go_back_to_the_model(make_api, h, clock) -> None:  # n
         if n == 1:
             return ("tools", [("use_skill", {"need": "발표 자료"})])
         if n == 2:
-            return ("tools", [("make_file", {"kind": "pdf", "name": "x"})])
-        return ("text", "PDF 는 아직 안 돼요")
+            return ("tools", [("make_file", {"kind": "hwp", "name": "x"})])
+        return ("text", "한글 파일은 안 돼요")
 
     wire = Wire(plan)
     api = make(make_api, h, wire)
-    events = api.chat("발표 PDF 로", thread="t-bad")
+    events = api.chat("발표 hwp 로", thread="t-bad")
     result = json.loads([e for e in events if e["type"] == "TOOL_CALL_RESULT"][-1]["content"])
-    assert result["error"] == "bad_kind" and "PDF" in result["message"]
+    assert result["error"] == "bad_kind" and "pdf" in result["message"]
     assert api.client.get("/api/files").json() == []
 
 
@@ -177,3 +178,94 @@ def test_plain_skill_does_not_open_make_file(make_api, h, clock) -> None:  # noq
     api = make(make_api, h, wire)
     api.chat("요약해 줘")
     assert names(wire.sent[1]) == ["use_skill"]  # 요약 스킬은 tools 가 없다
+
+
+# ── PDF (pdfmake.py · 나눔고딕 부분 집합) ──
+
+PDF = {"kind": "pdf", "name": "OTel 요약", "title": "OpenTelemetry 현황", "blocks": [
+    {"type": "heading", "text": "핵심", "level": 1},
+    {"type": "paragraph", "text": "계측은 **OTel API 로 한 번**만 한다. " + "한글은글자사이에서나뉜다" * 8 + " a-very-long-latin-word-" * 6},
+    {"type": "bullets", "items": ["기여자 12,000명", "  회사 2,800곳"]}, {"type": "numbered", "items": ["첫째", "  안쪽", "둘째"]},
+    {"type": "table", "rows": [["항목", "값"], ["교체 비용", "exporter 만 바꿈, 앱 코드는 그대로 둔다"], ["가격", 1200.5]]},
+    {"type": "pagebreak"}, {"type": "paragraph", "text": "둘째 쪽 <특수> & \"따옴표\" 😀"},
+]}
+FONT_SHA = {"NanumGothic-Regular.ttf": "76f45ef4a6bcff344c837c95a7dcc26e017e38b5846d5ae0cdcb5b86be2e2d31",
+            "NanumGothic-Bold.ttf": "f96298f9fb18e364d2370f4c3ce948ac67a2b61af992d7234bc15c42b033c674"}
+
+
+def test_bundled_fonts_are_the_recorded_ones() -> None:
+    import hashlib
+
+    for name, sha in FONT_SHA.items():
+        assert hashlib.sha256((pm.FONTS_DIR / name).read_bytes()).hexdigest() == sha, name  # runtime/fonts/README.md 와 같게
+    assert (pm.FONTS_DIR / "OFL.txt").is_file()
+
+
+def test_pdf_is_valid_korean_text_reads_back_and_is_deterministic() -> None:
+    import pypdf
+
+    made = dm.make(PDF)
+    assert made.name == "OTel 요약.pdf" and made.mime == "application/pdf" and made.data.startswith(b"%PDF-1.7")
+    reader = pypdf.PdfReader(io.BytesIO(made.data), strict=True)
+    assert len(reader.pages) == 2 and reader.metadata.title == "OpenTelemetry 현황"
+    parsed = fl.parse(made.data)  # 우리 파일 읽기와 같은 길 = 다음 턴 read_file
+    text = "\n".join(c.text for c in parsed.chunks)
+    assert parsed.kind == "pdf" and parsed.pages == 2
+    for m in ("OpenTelemetry 현황", "핵심", "OTel API 로 한 번", "• 기여자 12,000명", "a. 안쪽", "2. 둘째", "exporter 만 바꿈", "1200.5", "<특수> & \"따옴표\""):
+        assert m in text, m
+    assert "😀" not in text and "?" in text  # 글꼴에 없는 글자 = ?
+    assert dm.make(PDF).data == made.data  # 같은 입력 = 같은 바이트 (시각 · 무작위 id 없음)
+    assert fl.render_pages(made.data, 2)  # pypdfium2 도 그린다
+
+
+def test_pdf_embeds_only_used_glyphs() -> None:
+    made = dm.make({"kind": "pdf", "name": "작은", "blocks": [{"type": "paragraph", "text": "가나다 abc"}]})
+    font_size = (pm.FONTS_DIR / "NanumGothic-Regular.ttf").stat().st_size
+    assert len(made.data) < font_size / 10  # 부분 집합 (원본 2MB 를 통째로 넣지 않는다)
+    assert b"/FontFile2" in made.data and b"/Identity-H" in made.data and b"/ToUnicode" in made.data
+
+
+def test_pdf_long_table_repeats_header_and_wraps_lines() -> None:
+    rows = [["번호", "설명"]] + [[str(i), "긴 설명 " * 30] for i in range(60)]
+    made = dm.make({"kind": "pdf", "name": "긴 표", "blocks": [{"type": "table", "rows": rows}]})
+    parsed = fl.parse(made.data)
+    assert parsed.pages and parsed.pages > 3
+    assert all(c.text.lstrip().startswith("번호") for c in parsed.chunks[1:])  # 다음 쪽에 머리 행을 다시
+    lines = pm.wrap([("가" * 200, False)], 100, 10, {"r": pm._font("r"), "b": pm._font("b")})
+    assert len(lines) > 10 and all(len(line) for line in lines)
+
+
+def test_pdf_page_limit() -> None:
+    with pytest.raises(dm.MakeError) as e:
+        dm.make({"kind": "pdf", "name": "x", "blocks": [{"type": "pagebreak"}] * (pm.MAX_PAGES + 1)})
+    assert e.value.code == "too_large"
+
+
+def test_pdf_preview_pages_endpoint(make_api, h, clock) -> None:  # noqa: F811
+    spec = dict(PDF)
+
+    def plan(body: dict[str, Any], n: int) -> tuple[str, Any]:
+        if n == 1:
+            return ("tools", [("use_skill", {"need": "pdf로 만들어줘"})])
+        if n == 2:
+            return ("tools", [("make_file", spec)])
+        return ("text", "PDF 를 만들었어요")
+
+    wire = Wire(plan)
+    api = make(make_api, h, wire)
+    events = api.chat("이거 pdf로 만들어줘", thread="t-pdf")
+    assert [e["stepName"] for e in events if e["type"] == "STEP_STARTED"] == ["skill:pdf-doc", "tool:make_file", "writing"]
+    f = json.loads([e for e in events if e["type"] == "TOOL_CALL_RESULT"][-1]["content"])["file"]
+    assert f["kind"] == "pdf" and f["name"] == "OTel 요약.pdf"
+    assert api.client.get(f"/api/files/{f['id']}").json()["pages"] == 2
+    page = api.client.get(f"/api/files/{f['id']}/pages/1")
+    assert page.status_code == 200 and page.headers["content-type"] == "image/png" and page.content.startswith(b"\x89PNG")
+    assert api.client.get(f"/api/files/{f['id']}/pages/2").status_code == 200
+    assert api.client.get(f"/api/files/{f['id']}/pages/3").json() == {"detail": "page_not_found"}
+    assert api.client.get(f"/api/files/{f['id']}/pages/0").status_code == 422
+    # 남 = 못 본다 (404 · 있는지 숨김) · PDF 가 아닌 파일 = 쪽 없음
+    api.add_user("eve@brewai.test")
+    eve = api.login("eve@brewai.test")
+    assert eve.get(f"/api/files/{f['id']}/pages/1").status_code == 404
+    docx = api.client.put("/api/files", params={"name": "a.docx"}, content=dm.make(DOC).data).json()
+    assert api.client.get(f"/api/files/{docx['id']}/pages/1").status_code == 404
