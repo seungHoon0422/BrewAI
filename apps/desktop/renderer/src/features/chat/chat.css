@@ -316,6 +316,7 @@ button.th:focus-visible{outline-offset:2px}
 .tp-team-open{margin-left:auto;flex:none;border:0;background:transparent;padding:0;color:var(--text-muted);font:inherit;font-weight:var(--fw-regular);cursor:pointer;text-decoration:underline;text-underline-offset:2px}
 .tp-team-open:hover{color:var(--text-2)}
 .tp-member .th{flex-wrap:nowrap}
+.tp-member-steps[hidden]{display:none}
 .tp-member .tp-member-task{min-width:0;flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--text-muted);font-size:var(--fs-xs)}
 .tp-member[data-state="done"] .tst{color:var(--ok-text)}
 .tp-member[data-state="error"] .tst{color:var(--danger-text)}

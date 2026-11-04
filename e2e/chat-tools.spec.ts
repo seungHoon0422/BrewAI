@@ -137,12 +137,8 @@ test('병렬 도구: 앱 고르기 = 한 줄 메모 → 한 응답의 앱 도구
   await search.getByRole('button', { name: '원문 접기' }).click();
   await expect(search.locator('.traw')).toBeHidden();
 
-  await expect(group.locator('.tp-par-meta .ui-meta-item')).toHaveText([/^실행 \d/, /^ ?하나씩이면 \d/]);
-  // 머리 줄 '하나씩이면' = 카드 시간의 합 (같은 뜻 · 반올림 차이만)
-  const ms = (t: string) => (t.endsWith('ms') ? Number(t.slice(0, -2)) : Number(t.replace('초', '')) * 1000);
-  const sum = (await cards.locator('.tst .tm').allTextContents()).reduce((n, t) => n + ms(t), 0);
-  const serial = ms((await group.locator('.tp-par-meta .ui-meta-item').nth(1).textContent())!.replace(/^ ?하나씩이면 /, ''));
-  expect(Math.abs(sum - serial)).toBeLessThanOrEqual(Math.max(3, serial * 0.1));
+  await expect(group.locator('.tp-par-meta .ui-meta-item')).toHaveText([/^실행 \d/]); // '하나씩이면' 은 없앴다 (2026-11-04 사용자)
+  await expect(group).not.toContainText('하나씩이면');
   // 실행 막대(그렸다면) = 모두 같은 왼쪽 끝에서 시작 (모델이 인자를 쓰는 엇갈린 칸은 없다)
   await expect(group.locator('.tp-lane .call')).toHaveCount(0);
   const starts = await group.locator('.tp-lane .run').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().left)));

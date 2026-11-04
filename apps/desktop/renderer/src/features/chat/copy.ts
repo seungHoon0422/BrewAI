@@ -236,7 +236,6 @@ export const TOOL = {
   parallel: (n: number) => `동시에 ${n}개`,
   parallelRunning: (n: number) => `${n}개 실행 중`,
   wall: (t: string) => `실행 ${t}`,
-  serial: (t: string) => `하나씩이면 ${t}`,
   lanes: '도구마다 실행한 시간', // 시간 막대 (화면 읽기 이름 · 모두 같은 때 시작)
 } as const;
 
@@ -269,6 +268,8 @@ export const TEAM = {
   lead: '총괄',
   leadRole: '일 나누고 확인',
   tools: (role: string) => `${role} 도구 사용`,
+  stepsShow: (n: number) => `쓴 도구 ${n}개 보기`,
+  stepsHide: '접기',
   details: (role: string) => `${role} 자세히`,
   state: { waiting: '대기', running: '작업 중', done: '완료', error: '실패', cancelled: '멈춤', waiting_user: '내 확인 필요' },
   // 팀원 펼침

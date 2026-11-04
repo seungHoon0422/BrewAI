@@ -170,14 +170,14 @@ function TracePanel({ a, now, onTeam }: { a: Answer; now: number; onTeam?: () =>
   );
 }
 
-// 동시에 돈 도구 묶음 = 머리 줄('동시에 3개' · 걸린 시간 · 하나씩이면) + 실행 막대(모두 같은 때 시작 · 길이 = 실행 시간) + 카드들
-// 시간은 모두 실행 시간 (모델이 인자를 다 쓴 뒤 ~ 결과) = 머리 줄 '하나씩이면' = 카드 시간의 합
+// 동시에 돈 도구 묶음 = 머리 줄('동시에 3개' · 걸린 시간) + 실행 막대(모두 같은 때 시작 · 길이 = 실행 시간) + 카드들
+// 시간은 모두 실행 시간 (모델이 인자를 다 쓴 뒤 ~ 결과) · '하나씩이면' 은 없앴다 (2026-11-04 사용자: 글이 많다)
 function ParallelGroup({ g, now }: { g: ToolGroup; now: number }) {
   const n = g.tools.length;
   const timing = groupTiming(g, now);
   const running = g.tools.filter((p) => p.status === 'running').length;
   const meta = running > 0 ? [TOOL.parallelRunning(running)]
-    : timing?.done ? [TOOL.wall(shortDuration(timing.wall)), TOOL.serial(shortDuration(timing.sum))] : [];
+    : timing?.done ? [TOOL.wall(shortDuration(timing.wall))] : [];
   return (
     <section className="tp-par" data-kind="parallel" data-count={n} data-running={running > 0} role="group" aria-label={TOOL.parallel(n)}>
       <h4 className="tp-par-h">
@@ -202,7 +202,7 @@ function ParallelGroup({ g, now }: { g: ToolGroup; now: number }) {
   );
 }
 
-// 팀 묶음 = 병렬 묶음과 같은 모양: 머리 줄('팀원 2명이 나눠서' · 시간 · 오른쪽에서 보기) + 팀원마다 막대 + 팀원 줄 (역할 · 할 일 · 상태)
+// 팀 묶음 = 머리 줄('팀원 2명이 나눠서' · 시간 · 오른쪽에서 보기) + 팀원 줄 (역할 · 할 일 · 상태 · 누르면 그 팀원의 도구) — 실행 막대는 없앴다 (2026-11-04 사용자)
 // 그 아래 팀원이 쓴 도구 (앱 고르기 = 한 줄 메모 · 앱 도구 = 카드 머리 줄). 거절된 호출(한 명뿐 · 자리 없음) = 평범한 도구 카드
 function TeamGroup({ g, team, now, onTeam }: { g: ToolGroup; team: TeamMember[]; now: number; onTeam?: () => void }) {
   const rows = g.tools.map((p) => ({ p, m: team.find((x) => x.callId === p.id && !x.code?.startsWith('team_')) }));
@@ -214,7 +214,7 @@ function TeamGroup({ g, team, now, onTeam }: { g: ToolGroup; team: TeamMember[];
   const timing = groupTiming({ batch: g.batch, tools: members.map((r) => r.p) }, now);
   const running = members.filter((r) => r.m && !memberDone(r.m)).length;
   const meta = running > 0 ? [TEAM.running(running)]
-    : timing?.done ? [TOOL.wall(shortDuration(timing.wall)), TOOL.serial(shortDuration(timing.sum))] : [];
+    : timing?.done ? [TOOL.wall(shortDuration(timing.wall))] : [];
   return (
     <section className="tp-par tp-team" data-kind="team" data-count={n} data-running={running > 0} role="group" aria-label={TEAM.group(n)}>
       <h4 className="tp-par-h">
@@ -223,16 +223,6 @@ function TeamGroup({ g, team, now, onTeam }: { g: ToolGroup; team: TeamMember[];
         <Meta className="tp-par-meta ui-num" items={meta} />
         {onTeam && <button type="button" className="tp-team-open" onClick={onTeam}>{TEAM.openPanel}</button>}
       </h4>
-      {timing && timing.lanes.length > 0 && (
-        <ol className="tp-lanes" aria-label={TOOL.lanes}>
-          {timing.lanes.map((l, i) => (
-            <li key={l.id} className="tp-lane" data-running={l.running} aria-label={members[i].m?.role ?? members[i].p.label}
-              style={{ '--to': l.to.toFixed(4) } as CSSProperties}>
-              <i className="run" aria-hidden="true" />
-            </li>
-          ))}
-        </ol>
-      )}
       <ol className="tp-par-list">
         {rows.map(({ p, m }) => (
           <li key={p.id}>{m ? <MemberBlock m={m} now={now} /> : <ToolCard p={p} />}</li>
@@ -261,18 +251,31 @@ export const memberTook = (m: TeamMember, now: number) =>
 export const stepTook = (s: MemberStep, now: number) =>
   s.status === 'running' ? (s.at ? seconds(now - s.at) : '') : s.durationMs == null ? '' : shortDuration(s.durationMs);
 
+// 팀원 줄을 누르면 그 팀원이 쓴 도구 (처음엔 접힘 = 팀원 여럿이 한눈에 · 실패 이유는 늘 보인다)
 function MemberBlock({ m, now }: { m: TeamMember; now: number }) {
+  const [open, setOpen] = useState(false);
+  const stepsId = useId();
+  const has = m.steps.length > 0;
+  const head = (
+    <>
+      <span className="ttile" aria-hidden="true"><Icon name="user" size="sm" /></span>
+      <b title={m.role}>{m.role}</b>
+      <span className="tp-member-task" title={m.task}>{m.task}</span>
+      <MemberState status={m.status} took={memberTook(m, now)} />
+      {has && <span className="tchev" aria-hidden="true"><Icon name="chevron-down" size="xs" /></span>}
+    </>
+  );
   return (
-    <div className="tp-tool tp-member" data-kind="member" data-agent={m.agent} data-state={m.status} role="group" aria-label={m.role}>
-      <div className="th">
-        <span className="ttile" aria-hidden="true"><Icon name="user" size="sm" /></span>
-        <b title={m.role}>{m.role}</b>
-        <span className="tp-member-task" title={m.task}>{m.task}</span>
-        <MemberState status={m.status} took={memberTook(m, now)} />
-      </div>
+    <div className="tp-tool tp-member" data-kind="member" data-agent={m.agent} data-state={m.status} data-open={(has && open) || undefined} role="group" aria-label={m.role}>
+      {has ? (
+        <button type="button" className="th" aria-expanded={open} aria-controls={stepsId} title={open ? TEAM.stepsHide : TEAM.stepsShow(m.steps.length)}
+          onClick={() => setOpen((x) => !x)}>{head}</button>
+      ) : (
+        <div className="th">{head}</div>
+      )}
       {memberFailed(m) && <p className="tp-member-why">{teamReason(m.code)}</p>}
-      {m.steps.length > 0 && (
-        <ol className="tp-member-steps" aria-label={TEAM.tools(m.role)}>
+      {has && (
+        <ol className="tp-member-steps" id={stepsId} hidden={!open} aria-label={TEAM.tools(m.role)}>
           {m.steps.map((st) => (
             <li key={st.id}>{isMemberPick(st) ? <MemberPick s={st} /> : <ToolCard p={stepPart(st)} took={stepTook(st, now) || undefined} />}</li>
           ))}

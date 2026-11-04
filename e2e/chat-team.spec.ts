@@ -94,8 +94,16 @@ test('팀원 펼침: 맡은 일 · 모델 · 받은 도구(칩) · 사용량 / �
   const group = trace.locator('[data-kind="team"]');
   await expect(group).toHaveAttribute('aria-label', '팀원 2명이 나눠서');
   await expect(group.locator('[data-kind="member"] > .th b')).toHaveText(['가격 조사', '사양 조사']);
-  await expect(group.locator('[data-kind="member"][data-agent="a1"] [data-kind="tool"]')).toHaveCount(1);
-  await expect(group.locator('[data-kind="member"][data-agent="a1"] [data-kind="member-pick"]')).toHaveCount(1);
+  // 실행 막대 · '하나씩이면' 없음 · 팀원 줄은 접힘 → 누르면 그 팀원의 도구 (2026-11-04 사용자)
+  await expect(group.locator('.tp-lane')).toHaveCount(0);
+  await expect(group).not.toContainText('하나씩이면');
+  const a1 = group.locator('[data-kind="member"][data-agent="a1"]');
+  await expect(a1.locator('.tp-member-steps')).toBeHidden();
+  await a1.locator('button.th').click();
+  await expect(a1.locator('button.th')).toHaveAttribute('aria-expanded', 'true');
+  await expect(a1.locator('[data-kind="tool"]')).toBeVisible();
+  await expect(a1.locator('[data-kind="tool"]')).toHaveCount(1);
+  await expect(a1.locator('[data-kind="member-pick"]')).toHaveCount(1);
   await expect(group.getByRole('button', { name: '오른쪽에서 보기' })).toBeVisible();
   await win.screenshot({ path: shot('desktop-team-trace'), animations: 'disabled' });
   // 화면 글에 가운뎃점 없음 (copy-rule)
@@ -208,6 +216,7 @@ test('팀원의 긴 일 설명(task)이 와도 상태 줄 패널 밖으로 넘�
   await idle(win);
   const panel = await openTrace(win);
   await expect(panel.locator('[data-kind="member"]')).toHaveCount(3);
+  for (const b of await panel.locator('[data-kind="member"] > button.th').all()) await b.click(); // 펼친 모양도 패널 안
   await expect(panel.locator('.tp-member-steps [data-kind="tool"]').first()).toBeVisible();
   const fit = await panel.evaluate((el) => {
     const box = el.getBoundingClientRect();
