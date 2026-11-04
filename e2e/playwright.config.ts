@@ -100,6 +100,8 @@ export default defineConfig({
         CONDUCTOR_ADMIN_URL: ADMIN_URL,
         // MCP (ADR-0013): 가짜 MCP 가 http://127.0.0.1 → loopback 허용 (E2E 전용) · 금고 키 = E2E 고정값
         CONDUCTOR_MCP_ALLOW_LOOPBACK: '1',
+        // 링크 미리보기 = 가짜 사이트 (https://preview.brewai.test → 가짜 MCP 서버의 /page/og · loopback 허용일 때만 쓰인다)
+        CONDUCTOR_LINK_PREVIEW_HOSTS: `preview.brewai.test=${MCP}`,
         // 추천 서버 = 가짜 MCP 주소만 든 파일 (진짜 목록의 실제 서비스 주소로 나가지 않게)
         CONDUCTOR_MCP_PRESETS: path.join(ROOT, 'e2e', 'mock', 'mcp-presets.json'),
         CONDUCTOR_SECRET_KEY: MCP_SECRET_KEY,

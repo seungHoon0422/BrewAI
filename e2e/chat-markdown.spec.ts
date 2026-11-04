@@ -413,3 +413,37 @@ test.describe('데스크톱: 답 글 · 생각/도구 · 모델 메뉴', () => {
     }
   });
 });
+
+// 링크 (2026-11-04 사용자: 주소를 늘어놓지 말고 썸네일 + 제목) — 답 글 안 = 글 + 사이트 이름 · 맨 주소 = 사이트 이름만 · 답 아래 = 미리보기 카드
+// 가짜 사이트 = https://preview.brewai.test (conductor 가 가짜 MCP 서버 /page/og 로 · CONDUCTOR_LINK_PREVIEW_HOSTS) · 없는 쪽 = 카드 없음
+test.describe('데스크톱: 링크 = 짧은 이름 + 미리보기 카드', () => {
+  let app: ElectronApplication;
+  let win: Page;
+  test.beforeAll(async () => {
+    test.setTimeout(120_000);
+    ({ app, win } = await launch());
+  });
+  test.afterAll(async () => app?.close());
+
+  test('답 안 링크 = 글 + 사이트 이름 (주소 글자 없음) · 아래 카드 = 썸네일 + 제목 + 설명 + 사이트 · 못 만든 링크는 카드 없음', async () => {
+    await ask(win, '[문서](https://preview.brewai.test/page/og) 와 https://preview.brewai.test/page/none 봐 줘');
+    const answer = ui(win).last;
+    await expect(answer).toHaveAttribute('aria-busy', 'false', { timeout: 20_000 });
+    const named = answer.locator('.md.txt a.md-link', { hasText: '문서' });
+    await expect(named).toHaveAttribute('href', 'https://preview.brewai.test/page/og');
+    await expect(named.locator('.md-link-host')).toHaveText('preview.brewai.test');
+    const bare = answer.locator('.md.txt a.md-link[href="https://preview.brewai.test/page/none"]');
+    await expect(bare).toHaveText('preview.brewai.test'); // 맨 주소 = 사이트 이름만
+    await expect(answer.locator('.md.txt')).not.toContainText('https://');
+    const cards = answer.getByRole('list', { name: '답에 나온 링크' }).locator('.lk-card[data-state="ready"]');
+    await expect(cards).toHaveCount(1, { timeout: 10_000 });
+    const card = cards.first();
+    await expect(card.locator('.lk-title')).toHaveText('OpenTelemetry 졸업 요약');
+    await expect(card.locator('.lk-desc')).toHaveText('계측은 OTel API 로 한 번만 하면 돼요');
+    await expect(card.locator('.lk-site')).toHaveText('미리보기 견본, preview.brewai.test');
+    await expect(card.locator('.lk-thumb img')).toHaveAttribute('src', /^data:image\/png;base64,/);
+    await expect(card.getByRole('link')).toHaveAttribute('href', 'https://preview.brewai.test/page/og');
+    await expect(answer.locator('.lk-card[data-state="loading"]')).toHaveCount(0); // 없는 쪽 카드 = 뼈대도 남지 않는다
+    await win.screenshot({ path: shot('desktop-link-cards'), animations: 'disabled' });
+  });
+});

@@ -11,6 +11,7 @@
                                        (마지막 연결 결과. error 여도 목록에 남고 고를 수 있다 — 화면은 경고만)
   GET    /api/tools                  conductor 툴 [{name, label, description}] (내장 툴은 없다 · 스킬이 있으면 use_skill · 문서 스킬이 있으면 make_file · MCP 앱 도구는 앱마다)
   GET    /api/skills                 제품 스킬 (runtime/skills) [{name, label, description, tools, builtin, used}] (단계 skill:<name>)
+  GET    /api/links/preview?url=     링크 미리보기 카드 {url, title, description, site, image} · /api/links/image/{sha} 그림 (api_links.py · SSRF 검사)
   GET    /api/designs                문서 디자인 4종 [{id, label, description, colors}] · /api/designs/{id}/preview.png 견본 (api_designs.py)
   POST   /api/chat                   AG-UI RunAgentInput → AG-UI SSE (agent.py 머리말 = 이벤트 순서)
                                      forwardedProps.spaceId · projectId = 새 대화만 (없으면 내 스페이스) · 기존 대화는 DB 값
@@ -67,7 +68,7 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from . import api_admin, api_auth, api_designs, api_files, api_mcp, api_spaces
+from . import api_admin, api_auth, api_designs, api_files, api_links, api_mcp, api_spaces
 from .api_files import file_error_response
 from .agent import ChatRequest, ChatRequestError, ChatRuntime, RunScope, render_run
 from .auth import policy
@@ -87,6 +88,7 @@ from .models import ExposureRow, ModelChoice, ModelPatchError, ModelRegistry
 from .providers import provider_label
 from .scopes import Crumb, Scopes, describe
 from .settings import Settings, load_settings
+from .linkpreview import LinkPreviewer, parse_hosts
 from .skills import load_skills
 from . import docmake as dm
 from .tools import SKILL_TOOLS, tool_label
@@ -369,8 +371,10 @@ def create_app(
     store: Store | None = None,
     google: GoogleOIDC | None = None,
     mcp_transport: Any = None,  # 테스트 = httpx2.MockTransport (가짜 MCP · OAuth 서버) · 기본 = SSRF 검사한 진짜 연결
+    links: LinkPreviewer | None = None,  # 링크 미리보기 (테스트 = MockTransport 를 단 것) · 기본 = SSRF 검사한 진짜 연결
 ) -> FastAPI:
     settings = settings or load_settings()
+    links = links or LinkPreviewer(allow_loopback=settings.mcp_loopback_ok, hosts=parse_hosts(settings.link_preview_hosts))
     catalog = catalog or LiteLLMCatalog(settings.gateway_url, settings.gateway_key, ttl_s=settings.catalog_ttl_s)
     runtime = runtime or ChatRuntime(
         gateway_url=settings.gateway_url,
@@ -451,6 +455,7 @@ def create_app(
     app.state.guard = guard
     app.state.connectors = connectors
     app.state.files = files
+    app.state.links = links
 
     # 라우터 3개 = 인증 3종류. 경로는 반드시 이 중 하나에 (app 에 직접 붙이지 않는다 · /healthz 만 예외)
     public = APIRouter()
@@ -759,6 +764,7 @@ def create_app(
     api_spaces.register(user)
     api_files.register(user, files=files, registry=registry)
     api_designs.register(user)
+    api_links.register(user, links=links)
     api_admin.register(admin)
     api_mcp.register(public, user, admin, settings=settings, connectors=connectors)
     for router in (public, user, admin):

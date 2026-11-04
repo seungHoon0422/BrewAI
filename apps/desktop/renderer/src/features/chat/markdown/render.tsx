@@ -14,6 +14,16 @@ export type UiBlock = { placeholder?: (info: string) => ReactNode; render: (body
 export const UI_BLOCKS: Record<string, UiBlock> = {};
 const uiBlock = (info: string | undefined) => (info ? UI_BLOCKS[info.split(/\s+/)[0]] : undefined);
 
+// 링크 글이 주소 모양인가 (자동 링크 · 'www.' · 'example.com/…')
+const RAW_URL = /^(?:https?:\/\/|www\.)\S+$|^[a-z0-9-]+(?:\.[a-z0-9-]+)+\/\S*$/i;
+export const hostOf = (href: string): string => {
+  try {
+    return new URL(href).hostname.replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+};
+
 const FADE_BLOCKS = 2; // 끝에서 몇 블록까지 낱말 떠오름 (앞 블록은 다 보인 글 → 평범한 글자)
 
 export function Markdown({ id, text, live = false, smooth = live, className }: {
@@ -146,10 +156,17 @@ function span(t: Token, c: Ctx): ReactNode {
     case 'br':
       return <br />;
     case 'link': {
+      // 주소 글자를 그대로 늘어놓지 않는다: 글이 주소 자체(자동 링크 · www.…)면 사이트 이름만 · 아니면 글 + 옅은 사이트 이름 (전체 주소 = 마우스)
       const l = t as Tokens.Link;
-      const body = inline(l.tokens, c);
-      if (!/^https:\/\//i.test(l.href)) return <span className="md-link-off">{body}</span>;
-      return <a href={l.href} target="_blank" rel="noopener noreferrer" title={l.title ?? l.href}>{body}</a>;
+      if (!/^https:\/\//i.test(l.href)) return <span className="md-link-off">{inline(l.tokens, c)}</span>;
+      const host = hostOf(l.href);
+      const bare = RAW_URL.test(l.text.trim());
+      return (
+        <a className="md-link" href={l.href} target="_blank" rel="noopener noreferrer" title={l.title ?? l.href} data-host={host || undefined}>
+          {bare ? host || l.href : inline(l.tokens, c)}
+          {!bare && host && <span className="md-link-host">{host}</span>}
+        </a>
+      );
     }
     case 'image':
       return <span className="md-img">{(t as Tokens.Image).text}</span>; // 바깥 이미지는 불러오지 않는다 (CSP)

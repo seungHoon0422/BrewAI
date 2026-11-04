@@ -1,0 +1,16 @@
+/* 링크 (2026-11-04) — 답 글 안 링크 = 글 + 옅은 사이트 이름 (주소 글자 없음) · 답 아래 링크 카드 = 썸네일 + 제목 + 설명 한 줄 + 사이트. 토큰만. */
+.md-link-host{margin-left:var(--space-1);padding:0 5px;border-radius:var(--radius-sm);background:var(--surface-chip);color:var(--text-muted);
+  font-size:var(--fs-xs);text-decoration:none;display:inline-block;line-height:1.5;vertical-align:1px}
+
+.lk-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:var(--space-2);list-style:none;margin:var(--space-2) 0 var(--space-1);padding:0;min-width:0}
+.lk-card{min-width:0}
+.lk-card>a,.lk-card[data-state="loading"]{display:flex;align-items:center;gap:var(--space-2-5);min-width:0;padding:var(--space-2);border:1px solid var(--border);
+  border-radius:var(--radius-lg);background:var(--surface);color:var(--text);text-decoration:none;transition:border-color var(--dur-fast),background var(--dur-fast)}
+.lk-card>a:hover{border-color:var(--border-strong);background:var(--surface-hover)}
+.lk-card>a:focus-visible{outline-offset:2px}
+.lk-thumb{flex:none;display:grid;place-items:center;width:56px;height:56px;overflow:hidden;border-radius:var(--radius-md);background:var(--surface-sunken);color:var(--text-muted)}
+.lk-thumb img{width:100%;height:100%;object-fit:cover}
+.lk-body{display:grid;gap:1px;min-width:0;flex:1}
+.lk-title{font-size:var(--fs-sm);font-weight:var(--fw-medium);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lk-desc,.lk-site{font-size:var(--fs-xs);color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lk-site{color:var(--text-faint)}

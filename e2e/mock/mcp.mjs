@@ -463,12 +463,28 @@ function favicon(req, res) {
   res.end(body);
 }
 
+// 링크 미리보기 견본 페이지 (og:title · description · site_name · image = 상대 주소)
+function ogPage(res) {
+  const html = '<!doctype html><html><head><meta charset="utf-8"><title>예비 제목</title>'
+    + '<meta property="og:title" content="OpenTelemetry 졸업 요약"><meta property="og:description" content="계측은 OTel API 로 한 번만 하면 돼요">'
+    + '<meta property="og:site_name" content="미리보기 견본"><meta property="og:image" content="/page/og.png"></head><body>본문</body></html>';
+  const body = Buffer.from(html, 'utf8');
+  res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'content-length': body.length });
+  res.end(body);
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', BASE);
   const p = url.pathname;
   try {
     if (req.method === 'GET' && p === '/health') return send(res, 200, { status: 'ok' });
     if (req.method === 'GET' && p === '/favicon.ico') return favicon(req, res);
+    // 링크 미리보기 (conductor linkpreview.py · E2E = https://preview.brewai.test → 이 서버) · og 태그 + 대표 그림
+    if (req.method === 'GET' && p === '/page/og') return ogPage(res);
+    if (req.method === 'GET' && p === '/page/og.png') {
+      res.writeHead(200, { 'content-type': 'image/png', 'content-length': FAVICON.length });
+      return res.end(FAVICON);
+    }
     if (req.method === 'GET' && (p === '/.well-known/oauth-protected-resource/mcp' || p === '/.well-known/oauth-protected-resource')) return send(res, 200, prm());
     if (req.method === 'GET' && (p === '/.well-known/oauth-authorization-server' || p === '/.well-known/openid-configuration')) return send(res, 200, asMeta());
     if (req.method === 'POST' && p === '/register') return await register(req, res);
