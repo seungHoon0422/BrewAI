@@ -102,11 +102,11 @@ a.ui-kpi:hover{border-color:var(--border-strong)}
 
 /* 줄인 숫자의 실제 값 (data-exact) — 마우스를 올리면 바로 위에 (글자 안에 안 들어간다 = 화면 낭독 · 복사엔 줄인 값 그대로) */
 .ui-exact{position:relative}
-.ui-exact::after{content:attr(data-exact);position:absolute;left:0;bottom:calc(100% + 4px);z-index:var(--z-tooltip);padding:3px 8px;border-radius:var(--radius-md);
-  background:var(--accent);color:var(--on-accent);font-size:var(--fs-xs);font-weight:var(--fw-medium);line-height:1.4;white-space:nowrap;
-  box-shadow:var(--shadow-md);opacity:0;visibility:hidden;transform:translateY(2px);pointer-events:none;
-  transition:opacity var(--dur-fast),transform var(--dur-fast),visibility 0s linear var(--dur-fast)}
-.ui-exact:hover::after,.ui-stat:hover .ui-exact::after{opacity:1;visibility:visible;transform:none;transition-delay:0s}
+/* 숨긴 동안은 그리지 않는다 (display:none) — 보이지 않는 풍선도 폭을 차지해 좁은 창에서 가로 스크롤을 만든다 */
+.ui-exact::after{content:attr(data-exact);display:none;position:absolute;left:0;bottom:calc(100% + 4px);z-index:var(--z-tooltip);padding:3px 8px;border-radius:var(--radius-md);
+  max-width:min(320px,calc(100vw - 32px));width:max-content;background:var(--accent);color:var(--on-accent);font-size:var(--fs-xs);font-weight:var(--fw-medium);line-height:1.4;
+  white-space:normal;box-shadow:var(--shadow-md);pointer-events:none;animation:ui-appear var(--dur-fast) var(--ease-out)}
+.ui-exact:hover::after,.ui-stat:hover .ui-exact::after{display:block}
 
 @media (prefers-reduced-motion:reduce){
   .ui-barlist-fill,.ui-share-seg{transition:none}
