@@ -4,6 +4,7 @@ import { Badge, Button, Icon } from '@brewai/ui';
 import { Count, Empty, Notes, Page, Section } from '../../shell/components/Page';
 import { LIFECYCLE_NOTES, SKILL_NOTES, SKILL_STEPS, SKILLS } from '../copy';
 import { loadSkills, useSkillState } from '../hooks';
+import { DesignCards } from './DesignCards';
 
 export function SkillsScreen() {
   const skills = useSkillState((s) => s.skills);
@@ -43,6 +44,10 @@ export function SkillsScreen() {
           <Empty icon="layers" title={SKILLS.empty} text={SKILLS.emptyText} needs={SKILLS.emptyNeeds} />
         )}
         <Notes items={SKILL_NOTES} />
+      </Section>
+      <Section title={SKILLS.designs} id="designs">
+        <p className="needs dz-sub">{SKILLS.designsSub}</p>
+        <DesignCards />
       </Section>
       <Section title={SKILLS.lifecycle}>
         <ol className="steps">

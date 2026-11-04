@@ -11,6 +11,7 @@
                                        (마지막 연결 결과. error 여도 목록에 남고 고를 수 있다 — 화면은 경고만)
   GET    /api/tools                  conductor 툴 [{name, label, description}] (내장 툴은 없다 · 스킬이 있으면 use_skill · 문서 스킬이 있으면 make_file · MCP 앱 도구는 앱마다)
   GET    /api/skills                 제품 스킬 (runtime/skills) [{name, label, description, tools, builtin, used}] (단계 skill:<name>)
+  GET    /api/designs                문서 디자인 4종 [{id, label, description, colors}] · /api/designs/{id}/preview.png 견본 (api_designs.py)
   POST   /api/chat                   AG-UI RunAgentInput → AG-UI SSE (agent.py 머리말 = 이벤트 순서)
                                      forwardedProps.spaceId · projectId = 새 대화만 (없으면 내 스페이스) · 기존 대화는 DB 값
                                      남의 대화 = 404 thread_not_found · 공유된 남의 대화에 이어 쓰기 = 403 forbidden
@@ -66,7 +67,7 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from . import api_admin, api_auth, api_files, api_mcp, api_spaces
+from . import api_admin, api_auth, api_designs, api_files, api_mcp, api_spaces
 from .api_files import file_error_response
 from .agent import ChatRequest, ChatRequestError, ChatRuntime, RunScope, render_run
 from .auth import policy
@@ -757,6 +758,7 @@ def create_app(
     api_auth.register(public, user, admin, settings=settings, google=google)
     api_spaces.register(user)
     api_files.register(user, files=files, registry=registry)
+    api_designs.register(user)
     api_admin.register(admin)
     api_mcp.register(public, user, admin, settings=settings, connectors=connectors)
     for router in (public, user, admin):

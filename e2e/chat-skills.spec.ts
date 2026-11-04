@@ -1,5 +1,6 @@
 import { test, expect, type ElectronApplication, type Page } from '@playwright/test';
 import { launchDesktop, userApi, type Client } from './auth';
+import { separatorsOnScreen } from './copy-rule';
 import { expectHeading, openMenu, openSettings, shot } from './helpers';
 
 // 스킬 (제품 스킬 = runtime/skills · conductor 가 읽는다 · 평소에 쓰는 문서 스킬 2개만): 스킬 메뉴 목록 → 대화에서 스킬 카드 → 사용 횟수.
@@ -44,6 +45,20 @@ test('스킬 메뉴: 스타터 스킬 6개 (이름 · 설명 · 내장 · 사용
   await expect(win.getByText('아직 Skill이 없어요')).toHaveCount(0); // 빈 상태 대신 목록
   await expect(win.locator('.page-title .chip')).toHaveCount(0); // '준비 중' 딱지 없음
   await win.screenshot({ path: shot('desktop-skills-menu'), animations: 'disabled' });
+});
+
+test('스킬 메뉴: 문서 디자인 견본 4종 (견본 쪽 그림 · 이름 · 설명 · 고르는 말) = GET /api/designs', async () => {
+  await openSettings(win, SKILLS);
+  const cards = win.getByRole('list', { name: '문서 디자인 목록' }).getByRole('listitem');
+  await expect(cards).toHaveCount(4);
+  await expect(cards.locator('b')).toHaveText(['깔끔', '보고서', '모던', '따뜻함']);
+  await expect(cards.nth(1)).toContainText('"보고서 디자인으로 만들어 줘" 처럼 말하면 돼요');
+  const thumbs = cards.locator('.dz-thumb img');
+  await expect(thumbs).toHaveCount(4, { timeout: 15_000 });
+  for (const img of await thumbs.all()) await expect(img).toHaveAttribute('src', /^data:image\/png;base64,/);
+  expect(await separatorsOnScreen(win)).toEqual([]);
+  await win.getByRole('heading', { name: '문서 디자인' }).scrollIntoViewIfNeeded();
+  await win.screenshot({ path: shot('desktop-skills-designs'), animations: 'disabled' });
 });
 
 test('대화: 스킬 사용 카드 → 답 · 단계 = 스킬: 비교표 만들기 → 답 쓰기', async () => {

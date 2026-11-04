@@ -476,8 +476,9 @@ def skill_toolset(scope: RunScope, *, thread_id: str) -> AbstractToolset[None] |
     user_id, space_id = scope.user_id, scope.space_id
 
     def make_file(kind: str, name: str, title: str | None = None, subtitle: str | None = None, blocks: Any = None,
-                  sheets: Any = None, slides: Any = None) -> dict[str, Any]:
-        spec = {"kind": kind, "name": name, "title": title, "subtitle": subtitle, "blocks": blocks, "sheets": sheets, "slides": slides}
+                  sheets: Any = None, slides: Any = None, design: str | None = None) -> dict[str, Any]:
+        spec = {"kind": kind, "name": name, "title": title, "subtitle": subtitle, "blocks": blocks, "sheets": sheets, "slides": slides,
+                "design": design}
         try:
             made = dm.make(spec)
             row = store.add(user_id=user_id, space_id=space_id, project_id=None, name=made.name, data=made.data)

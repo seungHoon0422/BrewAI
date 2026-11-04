@@ -307,14 +307,20 @@ const LONG_TASK = '3박4일1인여행경비를항목별(항공제외현지기준
 
 // [fake:make <kind>] → make_file 인자 (문서 스킬을 부른 뒤 = 요청 tools 에 make_file 이 있을 때만)
 const SAMPLE_FILES = {
-  docx: { kind: 'docx', name: '회의록', title: '주간 회의록', blocks: [
-    { type: 'heading', text: '결정', level: 1 }, { type: 'bullets', items: ['금요일 배포', '  QA 는 목요일'] },
-    { type: 'table', rows: [['할 일', '담당'], ['배포 공지', '민지']] }] },
-  xlsx: { kind: 'xlsx', name: '예산표', sheets: [{ name: '예산', rows: [['항목', '금액'], ['서버', 120], ['합계', '=SUM(B2:B2)']] }] },
-  pptx: { kind: 'pptx', name: '발표', title: '3분기 실적', subtitle: '영업팀', slides: [{ title: '핵심', bullets: ['매출 12% 증가'] }] },
-  pdf: { kind: 'pdf', name: '요약 보고서', title: 'OpenTelemetry 요약', blocks: [
-    { type: 'heading', text: '핵심', level: 1 }, { type: 'paragraph', text: '계측은 **OTel API 로 한 번**만 한다.' },
-    { type: 'table', rows: [['항목', '내용'], ['교체', 'exporter 만 바꿈']] }, { type: 'pagebreak' }, { type: 'paragraph', text: '둘째 쪽' }] },
+  // 디자인 (designs.py: clean · report · modern · warm) + 꾸밈 블록 (표지 · 숫자 카드 · 강조 상자 · 두 단 · 슬라이드 layout)
+  docx: { kind: 'docx', name: '회의록', design: 'warm', blocks: [
+    { type: 'cover', title: '주간 회의록', subtitle: '신제품 출시 준비', date: '2026년 11월 4일', by: '제품팀' },
+    { type: 'heading', text: '결정', level: 1 }, { type: 'callout', tone: 'ok', title: '확정', text: '12월 첫 주 출시' },
+    { type: 'bullets', items: ['금요일 배포', '  QA 는 목요일'] }, { type: 'table', rows: [['할 일', '담당'], ['배포 공지', '민지']] }] },
+  xlsx: { kind: 'xlsx', name: '예산표', design: 'report', sheets: [{ name: '예산', rows: [['항목', '금액'], ['서버', 120], ['합계', '=SUM(B2:B2)']] }] },
+  pptx: { kind: 'pptx', name: '발표', design: 'modern', title: '3분기 실적', subtitle: '영업팀', slides: [
+    { layout: 'section', title: '1부 성과' }, { layout: 'big_number', title: '매출', value: '+12%', label: '지난 분기보다' },
+    { title: '핵심', bullets: ['매출 12% 증가'] }, { layout: 'two_column', title: '비교', left: ['좋은 점'], right: ['아쉬운 점'] }] },
+  pdf: { kind: 'pdf', name: '요약 보고서', design: 'report', blocks: [
+    { type: 'cover', title: 'OpenTelemetry 요약', subtitle: 'CNCF 졸업과 다음 단계', date: '2026년 11월' },
+    { type: 'heading', text: '핵심', level: 1 }, { type: 'kpis', cards: [{ label: '기여자', value: '12,000명' }, { label: '회사', value: '2,800곳' }] },
+    { type: 'paragraph', text: '계측은 **OTel API 로 한 번**만 한다.' },
+    { type: 'table', rows: [['항목', '내용'], ['교체', 'exporter 만 바꿈']] }] },
   md: { kind: 'md', name: '노트', blocks: [{ type: 'paragraph', text: '메모' }] },
   csv: { kind: 'csv', name: '목록', sheets: [{ rows: [['이름'], ['가']] }] },
 };

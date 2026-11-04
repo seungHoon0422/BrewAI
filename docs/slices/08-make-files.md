@@ -26,13 +26,28 @@
 - 만든 파일 = 파일 저장소 (slice 07) · 그 **대화**에 묶음 (턴에는 안 묶음 = 내 말풍선 첨부 칩 아님) · 다음 턴 read_file 로 읽힘 · 스페이스 '파일' 화면에도.
 - 확인: LibreOffice 로 PDF 변환 · 쪽 그림 확인 (docx · xlsx · pptx) · pytest 는 모든 칸을 XML 로 읽고 우리 파서로 되읽기.
 
+## 디자인 4종 + 꾸밈 블록 (designs.py · 2026-11-04 사용자: 글과 표만이라 딱딱하다 → 우리가 견본 디자인을 들고, 말하면 그 디자인으로)
+| design | 색 | 표지 | 제목 | 고르는 때 |
+|---|---|---|---|---|
+| clean 깔끔 (기본 · 모르는 이름도) | 회색 하나 | 흰 쪽 + 짧은 막대 | 굵게 | 무엇에나 |
+| report 보고서 | 남색 | 위 남색 띠 (pptx = 왼쪽 패널) | 왼쪽 띠 | 보고 · 기획서 · 공문 |
+| modern 모던 | 검정 + 파랑 | 진한 면 | 번호 + 아래 선 (01 · 1.1) | 발표 · 제안 · 기술 |
+| warm 따뜻함 | 주황 · 베이지 | 베이지 면 | 강조색 밑줄 | 안내 · 사내 소식 · 행사 |
+
+- 꾸밈 블록 (docx · pdf · md): `cover` {title, subtitle, date, by} = 첫 쪽 하나 (docx = 여백 0 구역 · 쪽 번호 없음) · `kpis` {cards: [{label, value, note}]} 2~4개 · `callout` {tone info|ok|warn, title, text} · `quote` {text, by} · `divider` · `columns` {left, right} (안에는 heading · paragraph · 목록 · table · callout · quote · divider).
+- 표 = 머리 행 디자인 색 · 줄무늬 · 가로줄만 · 숫자 열 오른쪽 맞춤 (머리도). 본문 쪽 번호 (docx 바닥글 · pdf).
+- pptx 슬라이드 layout: bullets (기본) · section (장 나눔 · 진한 바탕) · big_number {value, label} · two_column {left, right} · table · title. 내용 슬라이드 = 제목 위 강조 막대 · 오른쪽 아래 번호.
+- xlsx = 머리 행 색 · 줄무늬 · 눈금선 숨김 · 정수 · 수식 = 1,234.
+- 견본: `GET /api/designs` · `GET /api/designs/{id}/preview.png` (견본 PDF 표지 + 본문 첫 쪽을 나란히 · 메모리 캐시) → 설정 › 스킬 '문서 디자인' 카드 4장.
+- 확인: 디자인 × docx · pptx · xlsx 를 LibreOffice 로 PDF → 쪽 그림 · pdf 는 직접 그림 (맥에 맑은 고딕이 없어 LibreOffice 확인은 Apple SD 산돌고딕 Neo 로 바꿔서).
+
 ## 화면
 | 어디 | 무엇 |
 |---|---|
 | 답 아래 | '만든 파일' 칩 (종류 아이콘 · 이름 · 종류 크기 · 저장) → 데스크톱 = 저장 대화상자 (main `save-file.cjs` · 경로는 renderer 에 안 돌려줌) · 지워진 파일 = '지워진 파일이에요' |
 | 미리보기 서랍 | PDF · 이미지 칩을 누르면 Sheet = 쪽 그림 (`GET /api/files/{id}/pages/{n}` · pypdfium2 · 서버가 64장 기억 · data: 주소) · 앞 30쪽 · 저장 |
 | 도구 카드 | '파일 만들기' · 파일 이름 · '만들었어요 (답 아래에서 저장)' · 구조(JSON)는 원문 토글 뒤 |
-| 설정 › 스킬 | 문서 스킬 3개에 '쓰는 도구: 파일 만들기' |
+| 설정 › 스킬 | 문서 스킬에 '쓰는 도구: 파일 만들기' · '문서 디자인' 견본 카드 4장 (견본 그림 · 이름 · 설명 · "…디자인으로 만들어 줘") |
 | 개발 샘플 | '문서 파일 만들기' 묶음 (Word 회의록 · Excel 예산표 · PPT 발표 자료) |
 
 ## 테스트

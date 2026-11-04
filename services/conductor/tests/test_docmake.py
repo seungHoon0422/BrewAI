@@ -269,3 +269,100 @@ def test_pdf_preview_pages_endpoint(make_api, h, clock) -> None:  # noqa: F811
     assert eve.get(f"/api/files/{f['id']}/pages/1").status_code == 404
     docx = api.client.put("/api/files", params={"name": "a.docx"}, content=dm.make(DOC).data).json()
     assert api.client.get(f"/api/files/{docx['id']}/pages/1").status_code == 404
+
+
+# ── 디자인 4종 · 꾸밈 블록 (designs.py) ──
+
+from conductor import designs as ds  # noqa: E402
+
+RICH = [
+    {"type": "cover", "title": "3분기 사업 보고", "subtitle": "매출과 다음 분기", "date": "2026년 10월", "by": "전략기획팀"},
+    {"type": "heading", "text": "요약", "level": 1},
+    {"type": "kpis", "cards": [{"label": "매출", "value": "12%", "note": "지난 분기보다"}, {"label": "신규 고객", "value": "40곳"}]},
+    {"type": "callout", "tone": "warn", "title": "위험", "text": "환율이 오르면 원가가 는다."},
+    {"type": "quote", "text": "고객이 먼저 찾아오게", "by": "영업본부장"},
+    {"type": "divider"},
+    {"type": "columns", "left": [{"type": "heading", "text": "잘 된 것", "level": 3}, {"type": "bullets", "items": ["대형 계약"]}],
+     "right": [{"type": "paragraph", "text": "아쉬운 것: 응답 지연"}]},
+    {"type": "heading", "text": "세부 수치", "level": 2},
+    {"type": "table", "rows": [["항목", "3분기"], ["매출", "1,200"], ["비용", 800]]},
+]
+LAYOUTS = {"title": "실적", "subtitle": "영업팀", "slides": [
+    {"layout": "section", "title": "1부 성과", "subtitle": "숫자로 본 분기"}, {"layout": "big_number", "title": "매출", "value": "+12%", "label": "지난 분기보다"},
+    {"layout": "two_column", "title": "비교", "left": ["좋은 점"], "right": ["아쉬운 점"]}, {"layout": "table", "title": "수치", "rows": [["a", "b"], ["1", "2"]]},
+    {"title": "핵심", "bullets": ["하나", "  안쪽"]},
+]}
+
+
+@pytest.mark.parametrize("design", list(ds.DESIGNS))
+@pytest.mark.parametrize("kind", ["docx", "pdf", "md"])
+def test_every_design_renders_rich_blocks(design: str, kind: str) -> None:
+    made = dm.make({"kind": kind, "name": "견본", "design": design, "blocks": RICH})
+    if kind == "docx":
+        xml_parts(made.data)  # 모든 칸이 올바른 XML
+    text = made.data.decode() if kind == "md" else "\n".join(c.text for c in fl.parse(made.data).chunks)
+    for m in ("3분기 사업 보고", "12%", "신규 고객", "위험", "고객이 먼저 찾아오게", "잘 된 것", "아쉬운 것: 응답 지연", "1,200"):
+        assert m in text, (design, kind, m)
+    assert dm.make({"kind": kind, "name": "견본", "design": design, "blocks": RICH}).data == made.data
+
+
+@pytest.mark.parametrize("design", list(ds.DESIGNS))
+def test_every_design_pptx_layouts_and_xlsx(design: str) -> None:
+    made = dm.make({"kind": "pptx", "name": "덱", "design": design, **LAYOUTS})
+    parts = xml_parts(made.data)
+    d = ds.DESIGNS[design]
+    assert f'val="{d.accent}"' in ElementTree.tostring(parts["ppt/theme/theme1.xml"], encoding="unicode")
+    with zipfile.ZipFile(io.BytesIO(made.data)) as z:
+        section = z.read("ppt/slides/slide2.xml").decode()
+        assert "<p:bg>" in section and "1부 성과" in section  # 장 나눔 = 바탕색
+        assert "+12%" in z.read("ppt/slides/slide3.xml").decode() and 'sz="8800"' in z.read("ppt/slides/slide3.xml").decode()
+        two = z.read("ppt/slides/slide4.xml").decode()
+        assert "좋은 점" in two and "아쉬운 점" in two
+    xlsx = dm.make({"kind": "xlsx", "name": "표", "design": design, "sheets": [{"rows": [["항목", "값"], ["가", 1200], ["나", 3], ["다", 4]]}]})
+    styles = ElementTree.tostring(xml_parts(xlsx.data)["xl/styles.xml"], encoding="unicode")
+    assert f"FF{d.head_fill}" in styles and f"FF{d.zebra}" in styles
+
+
+def test_unknown_design_is_clean_and_cover_rules() -> None:
+    spec = {"kind": "pdf", "name": "x", "blocks": RICH}
+    assert dm.make({**spec, "design": "neon"}).data == dm.make({**spec, "design": "clean"}).data == dm.make(spec).data
+    # 표지 = 첫 쪽 (쪽 번호 없음) · 본문 첫 쪽 = 1
+    chunks = fl.parse(dm.make(spec).data).chunks
+    assert "3분기 사업 보고" in chunks[0].text and not chunks[0].text.rstrip().endswith("1")
+    assert chunks[1].text.rstrip().endswith("1")
+    # docx 표지 = 구역 둘 (표지 여백 0 · 본문 쪽 번호)
+    doc = xml_parts(dm.make({**spec, "kind": "docx"}).data)["word/document.xml"]
+    w = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+    assert len(list(doc.iter(f"{w}sectPr"))) == 2 and len(list(doc.iter(f"{w}footerReference"))) == 1
+
+
+@pytest.mark.parametrize(("blocks", "code"), [
+    ([{"type": "kpis", "cards": ["12%"]}], "bad_shape"),
+    ([{"type": "kpis", "cards": [{"label": str(i), "value": "1"} for i in range(dm.MAX_CARDS + 1)]}], "too_large"),
+    ([{"type": "columns", "left": [{"type": "columns"}]}], "bad_block"),
+    ([{"type": "columns", "left": [{"type": "cover", "title": "x"}]}], "bad_block"),
+    ([{"type": "columns", "left": "글"}], "bad_shape"),
+])
+def test_decorative_block_rejections(blocks: list[dict[str, Any]], code: str) -> None:
+    with pytest.raises(dm.MakeError) as e:
+        dm.make({"kind": "docx", "name": "x", "blocks": blocks})
+    assert e.value.code == code
+
+
+def test_md_renders_new_blocks_plainly() -> None:
+    md = dm.make({"kind": "md", "name": "노트", "blocks": RICH[:6]}).data.decode()
+    assert md.startswith("# 3분기 사업 보고\n\n매출과 다음 분기\n\n2026년 10월 / 전략기획팀\n\n## 요약\n\n- **12%** 매출 (지난 분기보다)\n- **40곳** 신규 고객")
+    assert "> **위험**\n> 환율이 오르면 원가가 는다." in md and "> 고객이 먼저 찾아오게\n> — 영업본부장" in md
+
+
+def test_designs_api_and_preview(make_api, h, clock) -> None:  # noqa: F811
+    api = make(make_api, h, Wire())
+    got = api.client.get("/api/designs").json()
+    assert [x["id"] for x in got] == ["clean", "report", "modern", "warm"]
+    assert all(x["label"] and x["description"] and x["colors"]["accent"].startswith("#") for x in got)
+    assert all("·" not in x["description"] and "·" not in x["label"] for x in got)  # 화면 글
+    png = api.client.get("/api/designs/report/preview.png")
+    assert png.status_code == 200 and png.headers["content-type"] == "image/png" and png.content.startswith(b"\x89PNG")
+    assert api.client.get("/api/designs/neon/preview.png").status_code == 404
+    assert api.anon().get("/api/designs").status_code == 401
+    assert api.anon().get("/api/designs/report/preview.png").status_code == 401

@@ -15,6 +15,11 @@ export const SKILLS = {
   emptyText: '대화 중에 필요한 능력이 없으면 에이전트가 카탈로그에서 찾거나 새로 만들어요.',
   emptyNeeds: 'Skill 저장소',
   lifecycle: '새 Skill이 쓰이기까지',
+  designs: '문서 디자인', // e2e 계약 (section 이름)
+  designsSub: 'Word, PowerPoint, PDF, Excel 파일을 만들 때 고를 수 있는 모양이에요.',
+  designList: '문서 디자인 목록', // e2e 계약 (list 이름)
+  designHint: (label: string) => `"${label} 디자인으로 만들어 줘" 처럼 말하면 돼요`,
+  designsFailed: '디자인 견본을 불러오지 못했어요',
 } as const;
 
 // 안내 줄 = [앞 글, 굵게, 뒤 글] (shell Notes)
