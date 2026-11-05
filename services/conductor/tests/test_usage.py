@@ -429,3 +429,24 @@ def test_my_usage_is_only_mine(make_api, h) -> None:
     assert b.get("/api/me/usage", params={"group": "user"}).status_code == 422  # 사람별 · 조직별 묶음은 관리자만
     assert api.anon().get("/api/me/usage").status_code == 401
     assert SECRET_PROMPT not in json.dumps(admin, ensure_ascii=False)
+
+
+def test_my_usage_by_project_org_and_drill_down_filters(make_api, h) -> None:
+    """세부 보기: 묶음 = 프로젝트 · 조직 · 거르개(모델 · 프로젝트 · 스페이스 · 조직)는 늘 '나' 위에 · project=none = 프로젝트 밖."""
+    api, _, team, org_id = setup(make_api, h)
+    space = api.client.get("/api/spaces").json()["spaces"][0]["id"]
+    proj = api.client.post(f"/api/spaces/{space}/projects", json={"name": "주간 보고"}).json()["id"]
+    res = api.client.post("/api/chat", json=h.chat_body("프로젝트 안", thread="ap", run="rap", model="fake-chat-small", projectId=proj, spaceId=space))
+    assert res.status_code == 200
+    me = lambda **q: api.client.get("/api/me/usage", params=q).json()  # noqa: E731
+    by_project = {g["key"]: g for g in me(group="project")["groups"]}
+    assert by_project[proj]["label"] == "주간 보고" and by_project[proj]["runs"] == 1
+    assert by_project["none"]["runs"] == 2 and by_project["none"]["label"] is None  # 프로젝트 밖 = 화면이 이름을 붙인다
+    assert [(g["key"], g["runs"]) for g in me(group="org")["groups"]] == [(org_id, 3)]
+    only = me(project=proj, group="model")
+    assert only["totals"]["runs"] == 1 and only["filters"] == {"project": proj} and [g["key"] for g in only["groups"]] == ["fake-chat-small"]
+    assert me(project="none")["totals"]["runs"] == 2
+    assert me(model="fake-chat-large")["totals"]["runs"] == 1
+    assert me(space=team["id"])["totals"]["runs"] == 0  # 팀 스페이스 실행은 b 의 것 = 나 위에 걸러도 0
+    admin = api.client.get("/api/admin/usage", params={"group": "project", "project": proj}).json()
+    assert admin["totals"]["runs"] == 1 and admin["groups"][0]["label"] == "주간 보고"

@@ -810,7 +810,8 @@ function buildBoard(
         const onBranch = new RegExp(`slice/0*${num}(?![0-9])`).test(branchLine);
         // 완료 = passes · done 모두 체크 · HANDOFF '구현' · 그 뒤 번호가 구현됨 / 진행 중 = 문서 있음 · 활성 브랜치 / 나머지 = 예정 (다음 · 나중은 아래)
         const built = p.passes || (total > 0 && doneN === total) || builtSet.has(num) || num < maxBuilt;
-        const state: Card['state'] = built ? 'done' : s || onBranch ? 'doing' : 'later';
+        const designOnly = !!s && /설계/.test(s.meta.find((x) => x.key === '상태')?.value ?? ''); // '- 상태: 설계' = 문서만 (구현 전)
+        const state: Card['state'] = built ? 'done' : (s && !designOnly) || onBranch ? 'doing' : 'later';
         cards.push({
           key,
           label: `slice ${key.slice(6)}`,
@@ -822,6 +823,7 @@ function buildBoard(
           why:
             state === 'done' ? (p.passes ? `${p.id} passes` : builtSet.has(num) ? 'HANDOFF 에 구현' : num < maxBuilt ? '뒤 slice 가 구현됨' : 'done 모두 체크')
             : onBranch ? 'HANDOFF 활성 브랜치'
+            : designOnly ? `${s!.file} 설계만, 구현 전`
             : s ? `${s.file} 있음, 아직 구현 전`
             : 'slice 문서 아직 없음',
           goal: s?.goal ?? (desc ? md.inline(desc, R) : null),

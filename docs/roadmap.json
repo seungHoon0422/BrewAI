@@ -40,7 +40,8 @@
         "08 문서 파일 만들기: 스킬은 필요할 때 찾기(use_skill) · make_file 로 docx · xlsx · pptx · pdf · 답 아래 저장",
         "09 로컬 폴더: 프로젝트에 이 PC 폴더 연결 · 읽기 도구 3개 · 비밀 파일 막음 (ADR-0016)",
         "10 샌드박스 + 승인 카드: 승인 필요 툴(deferred tool) + 승인 카드 · 이 PC Docker 샌드박스 · 로컬 폴더 쓰기 · 실행 + Playwright desktop 스펙 CI + eval 3건 — CI는 키 없이 TestModel·mock (P1-2, P1-4)",
-        "11 trace: Langfuse 에 agent · LLM · MCP tool · 서브에이전트 span 이 user · session 과 한 trace tree 로 (P1-3, P4-3) — 05~10 은 OTel span 만 남긴다"
+        "11 trace: Langfuse 에 agent · LLM · MCP tool · 서브에이전트 span 이 user · session 과 한 trace tree 로 (P1-3, P4-3) — 05~10 은 OTel span 만 남긴다",
+        "12 API 키: 사람별 키(bwk_) · 외부 OpenAI 호환 /v1/models · /v1/chat/completions · 한도 · 폐기 · 사용량 키별 · 관리자 키 목록과 정책 (ADR-0017)"
       ],
       "passes": false
     },

@@ -9,7 +9,8 @@
   GET    /api/models                 노출 모델만 · 기본 모델이 첫 항목(is_default) · 나머지는 관리자 순서
                                      + source(config|ui|mixed|null = 등록 출처) · health(ok|error|unknown) · health_code · health_at
                                        (마지막 연결 결과. error 여도 목록에 남고 고를 수 있다 — 화면은 경고만)
-  GET    /api/me/usage?from&to&tz&group=day|model|space&limit&sort   내 사용량 (관리자 /api/admin/usage 와 같은 모양 · 나로 고정)
+  GET    /api/me/usage?from&to&tz&group=day|model|project|space|org&model&project&space&org&limit&sort&series
+                                     내 사용량 (관리자 /api/admin/usage 와 같은 모양 · 나로 고정 · 거르개는 나 위에 더함 · project=none = 프로젝트 밖)
   GET    /api/tools                  conductor 툴 [{name, label, description}] (내장 툴은 없다 · 스킬이 있으면 use_skill · 문서 스킬이 있으면 make_file · MCP 앱 도구는 앱마다
                                      · 로컬 폴더가 켜진 이 PC 요청이면 folder_list · folder_read · folder_search)
   GET    /api/skills                 제품 스킬 (runtime/skills) [{name, label, description, tools, builtin, used}] (단계 skill:<name>)
@@ -556,8 +557,10 @@ def create_app(
     def my_usage(
         request: Request, p: Principal = Depends(require_user),
         start: str | None = Query(None, alias="from", max_length=10), end: str | None = Query(None, alias="to", max_length=10),
-        tz: int = Query(0, ge=-720, le=840), group: Literal["day", "model", "space"] = Query("day"),
-        limit: int = Query(20, ge=1, le=50), sort: usage_mod.Sort = Query("runs"),
+        tz: int = Query(0, ge=-720, le=840), group: Literal["org", "model", "space", "day", "project"] = Query("day"),  # 순서 = 아무 뜻 없음 (층 순서는 scopes.py 만)
+        limit: int = Query(20, ge=1, le=50), sort: usage_mod.Sort = Query("runs"), series: bool = Query(True),
+        model: str | None = Query(None, max_length=200), project: str | None = Query(None, max_length=64),
+        space: str | None = Query(None, max_length=64), org: str | None = Query(None, max_length=64),
     ) -> dict[str, Any]:
         try:
             w = usage_mod.window(start, end, tz=tz, now=accounts.clock())
@@ -565,8 +568,10 @@ def create_app(
             raise Denied(422, str(e)) from e
         labels = {r.gateway_id: r.label for r in registry.rows()}
         with store.read() as db:
-            out = usage_mod.summary(db, w, usage_mod.Filters(user=p.user_id), group, limit=limit, model_labels=labels, sort=sort)
-        out["filters"] = {}  # 내 id 는 돌려주지 않는다 (화면에 필요 없음)
+            # 거르개는 늘 '나' 위에 더한다 (남의 실행은 어떤 값을 줘도 안 섞인다)
+            f = usage_mod.Filters(user=p.user_id, model=model, project=project, space=space, org=org)
+            out = usage_mod.summary(db, w, f, group, limit=limit, model_labels=labels, sort=sort, series=series)
+        out["filters"] = {k: v for k, v in (("model", model), ("project", project), ("space", space), ("org", org)) if v}  # 내 id 는 빼고
         for g in out["groups"]:
             g.pop("active_users", None)
         out["totals"].pop("active_users", None)

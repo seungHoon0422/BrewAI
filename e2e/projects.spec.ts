@@ -166,19 +166,38 @@ test('다른 스페이스의 프로젝트로는 못 옮긴다 (409 project_in_ot
   expect((await bob.raw('GET', `/api/projects/${projectId}`)).status).toBe(404);
 });
 
-test('설정 › 사용량 = 내 호출 · 토큰 (API 와 같은 숫자) · 모델별 · 스페이스별 · 기간 바꾸기', async () => {
+test('설정 › 사용량 = 내 호출 · 토큰 (API 와 같은 숫자) · 세부 보기 (모델 · 프로젝트 · 스페이스 · 조직) → 줄을 누르면 거름 · 칩으로 해제', async () => {
   await goHash(win, '#/settings/usage');
   await expectHeading(win, '사용량');
   const now = new Date();
   const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   const start = new Date(now);
   start.setDate(start.getDate() - 29);
-  const mine = await api.get<{ totals: { runs: number } }>(`/api/me/usage?from=${ymd(start)}&to=${ymd(now)}&tz=${-now.getTimezoneOffset()}`);
-  expect(mine.totals.runs).toBeGreaterThan(0); // 위 테스트들이 묻은 것
-  await expect(win.locator('[data-kpi="runs"] .ui-stat-value')).toHaveText(mine.totals.runs.toLocaleString('ko-KR'));
-  await expect(win.getByRole('list', { name: '모델별' }).getByRole('listitem')).not.toHaveCount(0);
-  await expect(win.getByRole('list', { name: '스페이스별' })).toContainText('내 스페이스');
+  const q = `from=${ymd(start)}&to=${ymd(now)}&tz=${-now.getTimezoneOffset()}`;
+  const mine = await api.get<{ totals: { runs: number } }>(`/api/me/usage?${q}`);
+  const inProject = await api.get<{ totals: { runs: number } }>(`/api/me/usage?${q}&project=${projectId}`);
+  expect(mine.totals.runs).toBeGreaterThan(inProject.totals.runs); // 위 테스트들 = 프로젝트 안 + 밖
+  const runs = win.locator('[data-kpi="runs"] .ui-stat-value');
+  await expect(runs).toHaveText(mine.totals.runs.toLocaleString('ko-KR'));
+  const tabs = win.getByRole('tablist', { name: '세부 보기' });
+  await expect(tabs.getByRole('tab')).toHaveText(['모델', '프로젝트', '스페이스', '조직']);
+  await expect(win.getByRole('table', { name: '모델별 사용량' }).locator('tbody tr')).not.toHaveCount(0);
+  // 프로젝트 탭 → 이 프로젝트 줄을 누르면 위 숫자가 그 프로젝트 것으로 · 칩
+  await tabs.getByRole('tab', { name: '프로젝트' }).click();
+  const projTable = win.getByRole('table', { name: '프로젝트별 사용량' });
+  await expect(projTable).toContainText('프로젝트 밖 대화');
+  await projTable.getByRole('button', { name: new RegExp(NAME) }).click();
+  const chips = win.getByRole('group', { name: '거른 항목' });
+  await expect(chips.getByRole('button')).toHaveText([`프로젝트: ${NAME}`]);
+  await expect(runs).toHaveText(inProject.totals.runs.toLocaleString('ko-KR'));
+  // 스페이스 탭 = 거른 채로 (내 스페이스 하나)
+  await tabs.getByRole('tab', { name: '스페이스' }).click();
+  await expect(win.getByRole('table', { name: '스페이스별 사용량' }).locator('tbody tr')).toHaveCount(1);
+  await expect(win.getByRole('table', { name: '스페이스별 사용량' })).toContainText('내 스페이스');
+  await win.screenshot({ path: shot('desktop-settings-usage'), fullPage: true });
+  await chips.getByRole('button', { name: `${NAME} 거르기 해제` }).click();
+  await expect(chips).toHaveCount(0);
+  await expect(runs).toHaveText(mine.totals.runs.toLocaleString('ko-KR'));
   await win.getByRole('radiogroup', { name: '기간' }).getByRole('radio', { name: '7일' }).click();
   await expect(win.locator('[data-kpi="runs"]')).toContainText('지난 7일 대비');
-  await win.screenshot({ path: shot('desktop-settings-usage'), fullPage: true });
 });

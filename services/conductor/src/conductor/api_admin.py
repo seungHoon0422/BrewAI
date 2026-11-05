@@ -11,7 +11,7 @@
   GET    /api/admin/invites · POST {org_id?, email?, org_role, space_ids?, max_uses?, days?} → {invite, code} (코드 1회 표시)
   DELETE /api/admin/invites/{id}              204 (취소)
   GET    /api/admin/audit?limit=              최근 감사 기록
-  GET    /api/admin/usage?from&to&tz&group=day|org|space|user|model&org&space&user&model&limit&series&sort=runs|tokens|cost
+  GET    /api/admin/usage?from&to&tz&group=day|org|space|user|model|project&org&space&user&model&project&limit&series&sort=runs|tokens|cost
                                               {from, to, tz, days, group, filters, totals, previous, series: [하루], groups: [묶음], others}
                                               (usage.py · 숫자만 — 질문 · 답 · 제목 없음. space=personal = 내 스페이스 전부 한 줄)
   GET    /api/admin/usage/gateway?from&to&tz  {status: ok|down|error|auth, code, last_sync_at, models: {개수}, by_model: [연결 · 실패율]}
@@ -341,6 +341,7 @@ def register(admin: APIRouter) -> None:
         tz: int = Query(0, ge=-720, le=840), group: usage.Group = Query("day"),
         org: str | None = Query(None, max_length=64), space: str | None = Query(None, max_length=64),
         user: str | None = Query(None, max_length=64), model: str | None = Query(None, max_length=200),
+        project: str | None = Query(None, max_length=64),
         limit: int = Query(50, ge=1, le=200), series: bool = Query(True), sort: usage.Sort = Query("runs"), trend: bool = Query(False),
     ) -> dict[str, Any]:
         w = usage_window(request, start, end, tz)
@@ -348,7 +349,7 @@ def register(admin: APIRouter) -> None:
         labels = model_labels(request)
         with store.read() as db:
             return usage.summary(
-                db, w, usage.Filters(org=org, space=space, user=user, model=model), group, limit=limit, model_labels=labels, series=series, sort=sort, trend=trend,
+                db, w, usage.Filters(org=org, space=space, user=user, model=model, project=project), group, limit=limit, model_labels=labels, series=series, sort=sort, trend=trend,
             )
 
     @admin.get("/api/admin/usage/gateway")

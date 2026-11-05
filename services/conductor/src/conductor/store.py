@@ -492,6 +492,8 @@ class Store:
         self._db.executescript(_SCHEMA)
         with self.tx() as db:
             self._rebuild_one_time(db)
+            if "project_id" in {r[1] for r in db.execute("PRAGMA table_info(usage_events)")}:  # 칸이 있을 때만 (옛 표 = 처음 읽을 때 ensure_columns)
+                db.execute(usage_log.ADDED_INDEXES)
             if version < 3 and had_runs:
                 log.info("DB v%d → v3: 사용량 %d건 채움", version, usage_log.backfill(db))
             db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")

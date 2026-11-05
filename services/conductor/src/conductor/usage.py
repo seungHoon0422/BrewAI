@@ -23,9 +23,10 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Literal
 
-Group = Literal["day", "org", "user", "space", "model"]
+Group = Literal["day", "org", "user", "space", "model", "project"]
 Sort = Literal["runs", "tokens", "cost"]
-GROUPS: tuple[Group, ...] = ("day", "org", "user", "space", "model")
+GROUPS: tuple[Group, ...] = ("day", "org", "user", "space", "model", "project")
+NO_PROJECT = "none"  # 프로젝트 묶음 · 거르개: 프로젝트 밖 대화
 PERSONAL = "personal"  # 스페이스 묶음: 내 스페이스(개인)는 사람마다 나누지 않고 한 줄 (내용은 본인만 · ADR-0011)
 MAX_DAYS = 366
 _STATUS = {"done": "ok", "error": "error", "cancelled": "cancelled"}
@@ -34,7 +35,7 @@ COLUMNS = (
     "run_id", "started_at", "finished_at", "status", "error_code", "user_id", "org_id", "space_id", "model", "model_label",
     "provider", "input_tokens", "output_tokens", "reasoning_tokens", "requests", "tool_calls", "cost_usd", "duration_ms",
     "cache_read_tokens", "cache_write_tokens", "cost_input_usd", "cost_output_usd", "cost_reasoning_usd", "cost_cache_read_usd",
-    "cost_cache_write_usd", "cost_estimated",
+    "cost_cache_write_usd", "cost_estimated", "project_id",
 )
 # 종류 = 겹치지 않는 토큰 묶음 (화면의 비용 분해 · 모델 사용량). 순서 = 막대 왼쪽부터
 KINDS = ("input", "output", "reasoning", "cache_read", "cache_write")
@@ -43,6 +44,7 @@ ADDED_COLUMNS = (
     ("cache_read_tokens", "INTEGER"), ("cache_write_tokens", "INTEGER"),
     *((f"cost_{k}_usd", "REAL") for k in KINDS),
     ("cost_estimated", "INTEGER"),  # 1 = 캐시 가격을 몰라 입력 가격으로 어림
+    ("project_id", "TEXT"),  # 실행이 닫힐 때 그 대화의 프로젝트 (NULL = 프로젝트 밖 · 더할 때 옛 줄은 지금 대화의 프로젝트로 채운다)
 )
 
 SCHEMA = """
@@ -72,7 +74,8 @@ CREATE TABLE IF NOT EXISTS usage_events (
   cost_reasoning_usd   REAL,
   cost_cache_read_usd  REAL,
   cost_cache_write_usd REAL,
-  cost_estimated       INTEGER
+  cost_estimated       INTEGER,
+  project_id           TEXT
 );
 CREATE INDEX IF NOT EXISTS usage_at ON usage_events (started_at);
 CREATE INDEX IF NOT EXISTS usage_org ON usage_events (org_id, started_at);
@@ -80,6 +83,8 @@ CREATE INDEX IF NOT EXISTS usage_space ON usage_events (space_id, started_at);
 CREATE INDEX IF NOT EXISTS usage_user ON usage_events (user_id, started_at);
 CREATE INDEX IF NOT EXISTS usage_model ON usage_events (model, started_at);
 """
+# 더한 칸의 색인 (새 DB = Store 가 열 때 · 옛 표 = ensure_columns 가 칸을 더할 때)
+ADDED_INDEXES = "CREATE INDEX IF NOT EXISTS usage_project ON usage_events (project_id, started_at)"
 
 
 # ── 기록 (store.finish_run · 옛 DB 채우기 · 꺼진 뒤 닫은 실행) ──
@@ -161,6 +166,7 @@ def usage_event(run: Mapping[str, Any], gateway_info: Mapping[str, Any] | None) 
         "cache_read_tokens": (cr or 0) if tin is not None else None, "cache_write_tokens": (cw or 0) if tin is not None else None,
         **{f"cost_{k}_usd": cost["parts"][k] if cost else None for k in KINDS},
         "cost_estimated": int(cost["estimated"]) if cost else None,
+        "project_id": run["project_id"] if "project_id" in run.keys() else None,  # record 가 대화의 프로젝트를 붙여 준다
     }
 
 
@@ -177,6 +183,12 @@ def ensure_columns(db: sqlite3.Connection) -> list[str]:
             db.execute(f"ALTER TABLE usage_events ADD COLUMN {name} {kind}")
         if "cost_input_usd" in {n for n, _ in missing}:
             _split_old_costs(db)
+        if "project_id" in {n for n, _ in missing}:
+            db.execute(
+                "UPDATE usage_events SET project_id = (SELECT t.project_id FROM runs r JOIN threads t ON t.id = r.thread_id"
+                " WHERE r.id = usage_events.run_id)"
+            )
+            db.execute(ADDED_INDEXES)
     except BaseException:
         db.execute("ROLLBACK TO usage_columns")
         db.execute("RELEASE usage_columns")
@@ -216,7 +228,9 @@ def _split_old_costs(db: sqlite3.Connection) -> None:
 def record(db: sqlite3.Connection, run_id: str) -> bool:
     """닫힌 실행 하나를 사용량에 (이미 있으면 그대로 = 한 번만). 가격 = 지금 model_exposure 스냅샷."""
     ensure_columns(db)
-    run = db.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
+    run = db.execute(
+        "SELECT r.*, t.project_id AS project_id FROM runs r LEFT JOIN threads t ON t.id = r.thread_id WHERE r.id = ?", (run_id,)
+    ).fetchone()
     if run is None:
         return False
     price = db.execute("SELECT gateway_info FROM model_exposure WHERE gateway_id = ?", (run["model"],)).fetchone()
@@ -302,6 +316,7 @@ class Filters:
     space: str | None = None  # 'personal' = 내 스페이스 전부
     user: str | None = None
     model: str | None = None
+    project: str | None = None  # 'none' = 프로젝트 밖
 
     def sql(self) -> tuple[str, list[Any]]:
         where, params = [], []
@@ -319,6 +334,11 @@ class Filters:
         if self.model:
             where.append("u.model = ?")
             params.append(self.model)
+        if self.project == NO_PROJECT:
+            where.append("u.project_id IS NULL")
+        elif self.project:
+            where.append("u.project_id = ?")
+            params.append(self.project)
         return "".join(f" AND {w}" for w in where), params
 
 
@@ -336,6 +356,7 @@ _KEY: dict[Group, str] = {
     "space": f"CASE WHEN s.kind = 'personal' THEN '{PERSONAL}' ELSE u.space_id END",
     "user": "u.user_id",
     "model": "u.model",
+    "project": f"COALESCE(u.project_id, '{NO_PROJECT}')",
 }
 
 
@@ -441,6 +462,12 @@ def _labels(db: sqlite3.Connection, group: Group, keys: list[str], w: Window, mo
     if group == "user":
         rows = db.execute(f"SELECT id, display_name, email, status FROM users WHERE id IN ({marks})", keys)
         return {r["id"]: {"label": r["display_name"], "sub": r["email"], "status": r["status"]} for r in rows}
+    if group == "project":
+        out = {NO_PROJECT: {"label": None, "kind": "none"}}  # 이름은 화면이 정한다 (프로젝트 밖)
+        rows = db.execute(
+            f"SELECT p.id, p.name, s.name AS space_name, s.kind FROM projects p JOIN spaces s ON s.id = p.space_id WHERE p.id IN ({marks})", keys)
+        out |= {r["id"]: {"label": r["name"], "sub": r["space_name"], "kind": "project", "space_kind": r["kind"]} for r in rows}
+        return out
     if group == "model":
         lo, hi = w.bounds
         # 모델마다 한 줄 = 가장 최근 실행의 이름 (SQLite: MAX() 와 같이 고른 칸은 그 최댓값 줄에서 온다)
