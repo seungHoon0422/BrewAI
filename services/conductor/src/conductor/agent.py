@@ -713,6 +713,8 @@ def open_calls(messages: Sequence[ModelMessage]) -> dict[str, ToolCallPart]:
 class _DelegateArgs(TypedDict):
     role: Annotated[str, Field(max_length=200)]
     task: Annotated[str, Field(max_length=4000)]
+    after: NotRequired[Annotated[list[Annotated[str, Field(max_length=200)]], Field(max_length=10)]]  # 기다릴 앞 팀원 role (team.resolve_after)
+    context: NotRequired[Annotated[str, Field(max_length=20000)]]  # 앞 대화 내용 (team.clean_context 가 CONTEXT_MAX 로 자른다)
 
 
 _DELEGATE_ARGS = TypeAdapter(_DelegateArgs)
@@ -751,6 +753,10 @@ class _TeamRun:
     # (kind, tag, value): main = (taken 신호, AG-UI 이벤트) · member = (delegate call id, CUSTOM 이벤트) · fail · end
     queue: asyncio.Queue[tuple[str, Any, Any]] = field(default_factory=asyncio.Queue)
     member_gate: asyncio.Semaphore = field(default_factory=lambda: asyncio.Semaphore(tm.MEMBER_PARALLEL))
+    finished: dict[str, asyncio.Event] = field(default_factory=dict)  # 팀원 call id → 끝남 (after 로 기다리는 팀원이 본다)
+
+    def done_event(self, call_id: str) -> asyncio.Event:
+        return self.finished.setdefault(call_id, asyncio.Event())
 
     def emit(self, parent: str, event: BaseEvent) -> None:
         self.queue.put_nowait(("member", parent, event))
@@ -788,6 +794,7 @@ class _TeamRun:
     def reject(self, m: tm.Member, code: str) -> ToolReturn:
         m.status, m.code = "error", code
         self.emit(m.call_id, self.member_event(m, 0))
+        self.done_event(m.call_id).set()  # 이 팀원을 기다리던 팀원이 '결과 없음' 으로 이어 간다
         return ToolReturn(tm.rejected(code), metadata=self.metadata(m))
 
     def _tool_opened(self, m: tm.Member, part: ToolCallPart, view: MemberApps | None) -> None:
@@ -836,7 +843,21 @@ class _TeamRun:
         return answer
 
     async def run(self, m: tm.Member) -> ToolReturn:
-        """팀원 하나를 끝까지 (task 만 · 기록 없음). 실패는 결과로 (총괄 실행은 계속) · 바깥 취소 = 팀원도 멈춘다 (HTTP 까지)."""
+        """after = 앞 팀원이 끝나길 기다렸다가 (status waiting · 최대 AFTER_WAIT_S) 그 결과를 붙여 돈다. 끝나면 기다리는 팀원에게 알린다."""
+        try:
+            before = [self.roster.members[c] for c in m.after if c in self.roster.members]
+            if before:
+                self.emit(m.call_id, self.member_event(m))  # 기다리는 중 (화면 = 대기)
+                with suppress(TimeoutError):
+                    async with asyncio.timeout(tm.AFTER_WAIT_S):
+                        for b in before:
+                            await self.done_event(b.call_id).wait()
+            return await self._run(m, before)
+        finally:
+            self.done_event(m.call_id).set()
+
+    async def _run(self, m: tm.Member, before: list[tm.Member]) -> ToolReturn:
+        """팀원 하나를 끝까지 (할 일 + 앞 대화 자료 + 앞 팀원 결과 · 기록 없음). 실패는 결과로 (총괄 실행은 계속) · 바깥 취소 = 팀원도 멈춘다."""
         view = self.apps.member_view(m.agent) if self.apps is not None else None
         m.tools = [{"name": USE_APP, "label": tool_label(USE_APP)}] if view is not None else []
         if self.folder is not None:
@@ -857,7 +878,7 @@ class _TeamRun:
             try:
                 async with asyncio.timeout(tm.MEMBER_TIMEOUT_S):
                     async with self.agent.run_stream_events(
-                        m.task or m.role, model=self.model, model_settings=self.settings, toolsets=toolsets, usage=usage,
+                        tm.member_prompt(m, before), model=self.model, model_settings=self.settings, toolsets=toolsets, usage=usage,
                         usage_limits=limits, instructions=member_prompt,
                     ) as stream:
                         async for ev in stream:
@@ -925,9 +946,10 @@ class _TeamTools(AbstractToolset[None]):
         # 한 응답의 delegate 수 = 지금 실행 중인 모델 응답 (병렬 실행 때 ctx.messages 의 마지막 = 그 응답 · 스파이크 확인)
         last = ctx.messages[-1] if ctx.messages else None
         ids = [p.tool_call_id for p in last.parts if isinstance(p, ToolCallPart) and p.tool_name == DELEGATE] if isinstance(last, ModelResponse) else []
-        n = len(ids)
-        if n < tm.MIN_MEMBERS and not team.roster.ran:  # 처음 = 2명 이상 · 이미 팀이 있으면 1명 다시 맡기기도 된다 (실패한 팀원 재시도)
-            return team.reject(m, "team_too_small")
+        # 1명부터 된다 (단계별 팀 · 2026-11-05) · 앞 대화 자료 · 기다릴 앞 팀원 (앞 번호만 = 순환 없음)
+        if m.status == "waiting" and not m.admitted:
+            m.context = tm.clean_context(tool_args.get("context"))
+            m.after = [b.call_id for b in team.roster.resolve_after(m, tool_args.get("after"))]
         place = ids.index(ctx.tool_call_id) if ctx.tool_call_id in ids else 0  # 한 응답에서 몇 번째 delegate (앞 MAX_MEMBERS 개만)
         if place >= tm.MAX_MEMBERS or not team.roster.admit(m):
             return team.reject(m, "team_full")

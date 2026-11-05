@@ -16,7 +16,7 @@
 | 무엇이 요청에 실리나 | 크기 |
 |---|---|
 | 지침 · 대화별 지침 | **안 바뀜** (system 2개 · `INSTRUCTIONS` 한 줄 그대로 · '팀 가능' 같은 안내 문구 없음) |
-| `delegate` 정의 (게이트 켜진 턴 · 그 뒤 그 대화) | 98 (est · 여유 2) · 상한 `TEAM_TOOL_EXTRA=100` · 설명 '서로 독립인 일 2~3개를 팀원에게 한 응답에 같이 맡긴다. 일이 하나면 안 부른다. role=짧은 이름' (계획 문구 = 111 이라 줄임) · 손으로 쓴 2필드 스키마 |
+| `delegate` 정의 (게이트 켜진 턴 · 그 뒤 그 대화) | 135 (est) · 상한 `TEAM_TOOL_EXTRA=140` (2026-11-05 단계별 팀: `after` · `context` 칸 · 전엔 98) · 손으로 쓴 4필드 스키마 (role · task 필수) |
 | 도구 배열 순서 | `[use_skill, delegate, use_app, …공개된 MCP]` = delegate 는 고정 앞부분 · 공개 도구는 계속 맨 뒤 = 한 턴 안에서 앞 요청이 다음 요청의 앞부분 그대로 (맨 뒤에 붙이면 공개 순간 깨진다) |
 | 팀원 요청 | system 1개 `MEMBER_INSTRUCTIONS` 고정 한 줄 (팀원 · 실행끼리 캐시 공유) + user = task 만 (대화 기록 · now_line 없음) + 앱 있으면 `use_app` 과 ready 앱 목록 한 줄 · 추론 끔 · max_tokens 1500 |
 | 팀원 결과 → 총괄 | 팀원당 4KB 상한 · `{source:'team:a1', untrusted, role, status, answer, needs_app?}` (untrusted 가 맨 앞 = compact_result 뒤에도 남음) · 지난 턴 = 400B + '줄임' |
@@ -29,7 +29,7 @@
 | hello · 앱 0개 | 223 (est 225) | 그대로 · `HELLO_0_APPS=280` · 도구 `['use_skill']` | 225 그대로 |
 | hello · 앱 54개 | 425 (est 413) | 그대로 · `HELLO_54_APPS=520` · 도구 `['use_skill','use_app']` | 413 그대로 |
 | 큰 결과 둘 다음 턴의 hello | 1,089 (est 1,001) | 그대로 · `HELLO_AFTER_BIG_RESULTS=1250` | 기존 assert 그대로 green |
-| 팀 턴 첫 요청 − 같은 질문 게이트 꺼짐 | — | ≤ `TEAM_TOOL_EXTRA=100` | 98 (팀 턴 첫 요청 = 341) |
+| 팀 턴 첫 요청 − 같은 질문 게이트 꺼짐 | — | ≤ `TEAM_TOOL_EXTRA=140` | 135 (2026-11-05 · 전엔 98) |
 | 팀원 첫 요청 (고정 task 40자) | — | 앱 0개 ≤ `MEMBER_FIRST_0=250` · 앱 54개 ≤ `MEMBER_FIRST_54=450` | 137 · 330 (ready 18개) |
 | 팀원 2명 팀 턴 합계 (MCP 없음 · 모든 요청 합) | — | ≤ `TEAM_TURN_TOTAL=4500` | 1,194 (메모 앱 + 3KB 답 = 3,683) |
 | 팀 턴 다음의 hello (sticky + 줄인 결과 2개) | — | ≤ `HELLO_AFTER_BIG_RESULTS=1250` | 1,046 |

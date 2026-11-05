@@ -267,7 +267,7 @@ def test_search_records_preamble_is_a_header_not_a_record() -> None:
 
 # ── slice 06 팀: 게이트가 꺼진 길은 그대로 · 켜진 턴은 delegate 정의만 더 (상한 = docs/slices/06-agent-team.md '토큰 전략') ──────────
 
-TEAM_TOOL_EXTRA = 100  # 팀 턴 첫 요청 − 같은 질문 게이트 꺼짐 (delegate 정의 하나 · 지금 96)
+TEAM_TOOL_EXTRA = 140  # 팀 턴 첫 요청 − 같은 질문 게이트 꺼짐 (delegate 정의 하나 · 2026-11-05 after · context 칸 더해 135 · 전엔 96)
 MEMBER_FIRST_0 = 250  # 팀원 첫 요청 (고정 task 40자 · 앱 0개)
 MEMBER_FIRST_54 = 450  # 팀원 첫 요청 (앱 54개 = ready 18개만 목록 · use_app 하나)
 TEAM_TURN_TOTAL = 4500  # 팀원 2명 팀 턴의 모든 요청 합 (MCP 없음)

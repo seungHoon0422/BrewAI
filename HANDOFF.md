@@ -17,6 +17,7 @@
 - (아이디어·요청을 한 줄씩. 다음 `/start` 때 처리하고 지운다)
 
 ## 🕘 최근 기록
+- 2026-11-05 · 클라우드 · 에이전트 팀 단계별 (사용자: '기획 → 검토 · 실무' 가 '팀원이 한 명뿐' 으로 실패): '처음 2명 이상' 규칙 없앰 · delegate `after`(앞 팀원을 서버가 기다렸다 결과를 붙임 · 같은 응답 안에서도 · 앞 번호만) · `context`(앞 대화 내용 4천 자 · 팀원은 대화를 못 봄) · task 600자 · delegate 정의 135 토큰(상한 140) · ADR-0014 고침 · E2E chat-team '단계별 팀' · mock `[fake:team 검토팀^기획팀]`
 - 2026-11-05 · 클라우드 · API 키(slice 12 · ADR-0017 확정): conductor apikeys · /api/me/keys · /api/admin/keys(정책 · 키 한도 · 강제 폐기) · /v1/models · /v1/chat/completions (스트림 · usage 기록 source api · key_id) · 한도 429 key_limit_rpm|tokens|cost · 데스크톱 설정 › API 키 (한 번만 보기 · 복사 · curl 예시 · 폐기) · 사용량 'API 키' 탭 · 관리자 사용자와 조직 › API 키 탭 · eval p1-key-secret · E2E chat-keys · admin-keys
 - 2026-11-05 · 클라우드 · 설정 › 사용량 세부 보기: 분류 탭 모델 · 프로젝트 · 스페이스 · 조직 (표 = 호출 · 토큰 · 추정 비용 · 실패율 · 평균 시간 · 비중) · 줄을 누르면 거름(칩 · 여러 분류 겹침 · ✕ 해제) · usage_events 에 project_id (옛 줄 = 대화의 프로젝트로 채움) · /api/me/usage · /api/admin/usage 에 project 묶음 · 거르개 · API 키 설계 = ADR-0017(제안) + slice 12 문서 (첫 표면 OpenAI 호환 · 결정 대기 3개) · 보드: '- 상태: 설계' slice 는 '나중'
 - 2026-11-05 · 클라우드 · 사이드바 프로젝트 묶음: 프로젝트 대화는 그 프로젝트 줄 아래 (▸ 펼치기 · 최근 5개 + 모두 보기 · 지금 연 대화의 프로젝트는 저절로 펼침 · 펼친 것 기억) · '최근' = 프로젝트 밖 대화만 · 설정 › 사용량 (내 계정 묶음 · GET /api/me/usage = 나만 · 호출 · 토큰 · 추정 비용 · 캐시 · 하루별 · 모델별 · 스페이스별 · 7/30/90일) · E2E projects · spaces · chat-folder · chat-files · desktop · chat-copy 통과 · pytest 622

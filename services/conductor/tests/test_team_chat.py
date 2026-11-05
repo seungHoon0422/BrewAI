@@ -233,7 +233,8 @@ def test_member_tool_rows_have_parent_and_reopen_as_the_same_tree(make_api, fake
     assert len(old) == 2 and all(o["untrusted"] is True and o["source"].startswith("team:") and "줄임" in o["note"] for o in old)
 
 
-def test_lone_delegate_and_fourth_member_get_error_results(make_api, fake_mcp) -> None:
+def test_lone_delegate_runs_and_fourth_member_gets_team_full(make_api, fake_mcp) -> None:
+    """단계별 팀 (2026-11-05): 처음 1명만 맡겨도 돈다 · 한 응답 4번째 = team_full (팀원을 만들지 않는다)."""
     def main(messages: list[ModelMessage], info: AgentInfo, n: int) -> Any:
         rs = returns(messages)
         if not rs:
@@ -246,17 +247,48 @@ def test_lone_delegate_and_fourth_member_get_error_results(make_api, fake_mcp) -
     api, _ = world(make_api, fake_mcp, team)
     events = api.chat(ASK, thread="tf")
     first = returns(team.of("main")[1]["messages"])[0].content
-    assert first["error"] == "team_too_small" and "2명 이상" in first["message"]
+    assert first["status"] == "done" and first["answer"] == "하나 결과"
     second = [r.content for r in returns(team.of("main")[2]["messages"])[1:]]
     assert [c.get("status") for c in second[:3]] == ["done"] * 3 and second[3]["error"] == "team_full"
-    assert len(team.of("member")) == 3  # 거절된 delegate 는 팀원을 만들지 않는다
+    assert len(team.of("member")) == 4  # 혼자 1 + 3 (거절된 delegate 는 팀원을 만들지 않는다)
     run = api.client.get("/api/runs").json()[0]
     assert run["status"] == "done"
     assert [(s["name"], s["status"]) for s in run["steps"] if s["name"].startswith("agent:")] == [
-        ("agent:a1", "error"), ("agent:a2", "done"), ("agent:a3", "done"), ("agent:a4", "done"), ("agent:a5", "error")]
+        ("agent:a1", "done"), ("agent:a2", "done"), ("agent:a3", "done"), ("agent:a4", "done"), ("agent:a5", "error")]
     ends = {v["agent"]: v for v in custom(events, "brewai.team_member") if v["status"] in ("done", "error")}
-    assert ends["a1"]["code"] == "team_too_small" and ends["a5"]["code"] == "team_full"
-    assert [r["agent"] for r in summary(events)["usage"]["members"]] == ["a2", "a3", "a4"]
+    assert ends["a5"]["code"] == "team_full"
+    assert [r["agent"] for r in summary(events)["usage"]["members"]] == ["a1", "a2", "a3", "a4"]
+
+
+def test_after_waits_for_earlier_member_in_the_same_response_and_gets_its_result(make_api, fake_mcp) -> None:
+    """기획 → 검토 · 실무 (한 응답에 3명): 검토 · 실무는 기획이 끝난 뒤 시작하고 기획 결과 + 앞 대화 자료를 받는다. 기획이 실패해도 이어 간다."""
+    seen: dict[str, str] = {}
+    order: list[str] = []
+
+    def member(task: str, messages: Any, info: Any, n: int) -> Any:
+        role = task.split("\n")[0]
+        seen[role] = task
+        order.append(role)
+        return f"{role} 결과: 1일차 경복궁" if role == "일정 초안" else f"{role} 끝"
+
+    def main(messages: list[ModelMessage], info: AgentInfo, n: int) -> Any:
+        if returns(messages):
+            return "정리"
+        return [("delegate", {"role": "기획팀", "task": "일정 초안", "context": "앞 표: 서울 3박 4일 69만 원"}),
+                ("delegate", {"role": "검토팀", "task": "초안 검토", "after": ["기획팀"]}),
+                ("delegate", {"role": "실무팀", "task": "예약 정리", "after": ["기획팀", "검토팀"]})]
+
+    team = Team(main, member)
+    api, _ = world(make_api, fake_mcp, team)
+    events = api.chat("기획, 검토, 실무 팀으로 나눠서 각 여행 일정 구체화 시켜줘", thread="seq")
+    assert order == ["일정 초안", "초안 검토", "예약 정리"]  # 기다린 순서 그대로
+    assert "<앞 대화 자료 untrusted>\n앞 표: 서울 3박 4일 69만 원" in seen["일정 초안"]
+    assert '<앞 팀원 결과 role="기획팀" untrusted>\n일정 초안 결과: 1일차 경복궁' in seen["초안 검토"]
+    assert 'role="기획팀"' in seen["예약 정리"] and '<앞 팀원 결과 role="검토팀" untrusted>\n초안 검토 끝' in seen["예약 정리"]
+    statuses = [(v["agent"], v["status"]) for v in custom(events, "brewai.team_member")]
+    assert ("a2", "waiting") in statuses and ("a3", "waiting") in statuses  # 기다리는 동안 화면 = 대기
+    run = api.client.get("/api/runs").json()[0]
+    assert [s["status"] for s in run["steps"] if s["name"].startswith("agent:")] == ["done", "done", "done"]
 
 
 def test_member_limit_wraps_up_with_what_it_found_and_failure_stays_inside(make_api, fake_mcp) -> None:

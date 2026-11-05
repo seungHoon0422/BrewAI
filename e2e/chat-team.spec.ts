@@ -226,3 +226,24 @@ test('팀원의 긴 일 설명(task)이 와도 상태 줄 패널 밖으로 넘�
   expect(fit).toEqual({ inside: true, noScroll: true });
   await win.screenshot({ path: shot('desktop-team-long-task'), animations: 'disabled' });
 });
+
+test('단계별 팀 (2026-11-05): 기획 → 검토 · 실무 = after 로 기다렸다 앞 결과를 받는다 · 처음 1명만 맡겨도 된다', async () => {
+  await win.getByRole('button', { name: '새 대화' }).click();
+  await expectHeading(win, HOME_H1);
+  clearRecord();
+  await win.getByRole('textbox', { name: '요청 입력' }).fill('기획, 검토, 실무 팀으로 나눠서 일정 구체화 [fake:team 기획팀, 검토팀^기획팀, 실무팀^기획팀+검토팀]');
+  await win.getByRole('button', { name: '보내기', exact: true }).click();
+  await idle(win);
+  const t = team(win);
+  await expect(t.members).toHaveCount(3);
+  for (const role of ['기획팀', '검토팀', '실무팀']) await expect(t.member(role)).toContainText('완료');
+  // 팀원 요청 = 검토팀은 기획팀 결과를, 실무팀은 둘 다 받는다 (서버가 붙인다 · 모델이 옮겨 적지 않는다)
+  const members = chatRecords().filter((r) => r.kind === 'member').map((r) => JSON.stringify(r.body?.messages ?? []));
+  const of = (role: string) => members.find((m) => m.includes(`${role} 맡기`)) ?? '';
+  expect(of('기획팀')).not.toContain('앞 팀원 결과');
+  expect(of('검토팀')).toContain('앞 팀원 결과 role=\\"기획팀\\"');
+  expect(of('실무팀')).toContain('앞 팀원 결과 role=\\"기획팀\\"');
+  expect(of('실무팀')).toContain('앞 팀원 결과 role=\\"검토팀\\"');
+  await expect(chat(win).last).not.toContainText('하지 못했어요');
+  await win.screenshot({ path: shot('desktop-team-staged'), animations: 'disabled' });
+});

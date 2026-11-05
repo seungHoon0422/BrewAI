@@ -60,7 +60,7 @@ def test_clean_role_and_task() -> None:
     long = tm.clean_role("나" * 30, 2, ["나" * 20])
     assert long.endswith(" 2") and len(long) <= tm.ROLE_MAX
     assert tm.clean_task("  첫 줄\n\n둘째\x07 줄  ") == "첫 줄\n둘째 줄"
-    assert len(tm.clean_task("일" * 500)) == tm.TASK_MAX and tm.clean_task("일" * 500).endswith("…")
+    assert len(tm.clean_task("일" * 900)) == tm.TASK_MAX and tm.clean_task("일" * 900).endswith("…")
 
 
 def test_roster_numbers_limits_and_rejects() -> None:
@@ -74,7 +74,24 @@ def test_roster_numbers_limits_and_rejects() -> None:
     assert [r.admit(x) for x in more] == [True, True, False]  # 7번째 = team_full
     assert [m.agent for m in r.ran] == ["a1", "a2", "a3", "a4", "a5", "a6"]
     assert tm.rejected("team_full")["error"] == "team_full" and "2명 이상" in tm.rejected("team_too_small")["message"]
-    assert (tm.MAX_MEMBERS, tm.MAX_MEMBERS_RUN, tm.MIN_MEMBERS, tm.MEMBER_REQUEST_LIMIT, tm.MEMBER_TIMEOUT_S) == (3, 6, 2, 6, 90.0)
+    assert (tm.MAX_MEMBERS, tm.MAX_MEMBERS_RUN, tm.MEMBER_REQUEST_LIMIT, tm.MEMBER_TIMEOUT_S) == (3, 6, 6, 90.0)
+
+
+def test_after_resolves_earlier_members_only_and_prompt_carries_context_and_results() -> None:
+    """after = 앞 번호 팀원만 (role · 대소문자 무시 · a1) · 자기 · 뒤 번호 · 모르는 이름은 뺀다 → 순환 없음. 팀원 글 = 할 일 + 자료 + 앞 결과."""
+    r = tm.Roster()
+    plan, review, ops = r.member("c1", "기획팀", "일정 초안"), r.member("c2", "검토팀", "초안 검토"), r.member("c3", "실무팀", "예약 정리")
+    assert [x.agent for x in r.resolve_after(review, ["기획팀", "없는팀", "검토팀", "실무팀"])] == ["a1"]
+    assert [x.agent for x in r.resolve_after(ops, ["A1", "검토팀"])] == ["a1", "a2"]
+    assert r.resolve_after(plan, ["검토팀"]) == [] and r.resolve_after(plan, "기획팀") == []
+    plan.status, plan.answer = "done", "1일차 경복궁"
+    review.context = tm.clean_context("앞 표: 서울 69만 원\x07")
+    text = tm.member_prompt(review, [plan])
+    assert text.startswith("초안 검토") and "<앞 대화 자료 untrusted>\n앞 표: 서울 69만 원" in text and "\x07" not in text
+    assert '<앞 팀원 결과 role="기획팀" untrusted>\n1일차 경복궁' in text
+    plan.status = "error"
+    assert "결과 없음 (실패)" in tm.member_prompt(review, [plan])
+    assert len(tm.clean_context("가" * 9000)) == tm.CONTEXT_MAX
 
 
 def test_member_result_is_untrusted_first_and_capped() -> None:

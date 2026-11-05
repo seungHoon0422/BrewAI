@@ -40,7 +40,8 @@
 //   · [fake:tool <이름> {json 인자}?] → 그 도구가
 //   요청 tools 에 있을 때만 (= use_app 이 공개한 뒤 · 다음 턴엔 바로) 부른다. 적은 순서대로 차례 하나씩 → 결과로 답
 //   예: '[fake:app tracker 이슈 검색] [fake:tool tracker__search_issues {"query":"버그"}]' · FAKE_GATEWAY_RECORD 로 요청 tools 를 검사
-// 에이전트 팀 (slice 06): [fake:team <역할>[><handle>][ slow][ 500], …] → 요청 tools 에 delegate 가 있으면 응답 하나에 delegate 호출 N개
+// 에이전트 팀 (slice 06): [fake:team <역할>[^<앞 역할>+<앞 역할>][><handle>][ slow][ 500], …] → 요청 tools 에 delegate 가 있으면 응답 하나에 delegate 호출 N개
+//   ^ = after (2026-11-05 단계별 팀 · 서버가 그 앞 팀원이 끝나길 기다렸다 결과를 붙인다)
 //   {role, task: '<역할> 맡기 [fake:app <handle> <역할>] [fake:read <handle>] [fake:slow] [fake:500] <긴 설명>'} (handle · slow · 500 · long 은 적은 것만)
 //   팀원 요청 (첫 system 이 '너는 BrewAI 팀원이다') = task 의 표식을 그대로 쓰고 '<역할> 결과: …' 로 답한다 (slow = 2글자씩 · 더 오래 돈다)
 //   [fake:read <handle>] → 공개된 <handle>__search_notes {query: 회의} (없으면 공개된 <handle>__ 도구 첫 번째 {})
@@ -379,9 +380,11 @@ function plannedRounds(body, question) {
   const team = question.match(/\[fake:team\s+([^\]]+)\]/);
   if (team) {
     const calls = team[1].split(',').map((item) => {
-      const m = /^(.+?)(?:>([a-z0-9_-]+))?((?:\s+(?:slow|500|long))*)\s*$/.exec(item.trim());
+      const m = /^(.+?)(?:\^([^>\s]+))?(?:>([a-z0-9_-]+))?((?:\s+(?:slow|500|long))*)\s*$/.exec(item.trim());
       if (!m) return null;
       const role = m[1].trim();
+      const after = m[2] ? m[2].split('+').filter(Boolean) : [];
+      m.splice(2, 1); // 아래는 예전 번호 그대로 (2 = handle · 3 = 깃발)
       const flags = m[3].split(/\s+/).filter(Boolean);
       const task = [
         `${role} 맡기`,
@@ -390,7 +393,7 @@ function plannedRounds(body, question) {
         flags.includes('500') ? '[fake:500]' : '',
         flags.includes('long') ? LONG_TASK : '', // 실사용처럼 긴 일 설명 (상태 줄 패널 넘침 검사)
       ].filter(Boolean).join(' ');
-      return { name: 'delegate', args: { role, task } };
+      return { name: 'delegate', args: after.length ? { role, task, after } : { role, task } };
     }).filter(Boolean);
     found.push({ at: team.index, calls });
   }
