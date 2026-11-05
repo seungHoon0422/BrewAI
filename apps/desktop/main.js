@@ -12,6 +12,7 @@ const { apiOrigin } = require('./api-url.cjs');
 const { createAuth } = require('./auth.cjs');
 const { createMcp } = require('./mcp-connect.cjs');
 const { createSave } = require('./save-file.cjs');
+const { createPicker } = require('./pick-folder.cjs');
 
 const isMac = process.platform === 'darwin';
 const DIST = path.join(__dirname, 'dist');
@@ -141,6 +142,7 @@ function focus() {
 const auth = API ? createAuth({ api: API, packaged: app.isPackaged, fromApp, focus }) : null;
 const mcp = auth ? createMcp({ request: auth.request, focus, fromApp, packaged: app.isPackaged }) : null;
 const saver = createSave({ fromApp, packaged: app.isPackaged });
+const picker = createPicker({ fromApp, packaged: app.isPackaged });
 
 // 한 번에 하나만 (바로가기를 두 번 눌러도). 두 개가 같은 refresh 를 회전하면 재사용 감지로 세션이 통째 폐기돼 둘 다 로그아웃된다.
 // E2E · 개발의 여러 사용자 launch (BREWAI_USER_DATA 따로 · 배포본 아님) 만 예외
@@ -204,6 +206,7 @@ app.whenReady().then(() => {
   lockDown(session.defaultSession);
   protocol.handle('app', serve);
   saver.register();
+  picker.register();
   if (auth) {
     auth.register();
     mcp?.register();

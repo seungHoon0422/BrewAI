@@ -40,6 +40,8 @@ MCP 앱 (ADR-0013 · slice 05 · 판단은 connectors/session.py · 여기는 Py
   · OpenAI · Gemini = 앞부분이 같으면 저절로 캐시
   앞 요청 = 다음 요청의 앞부분: 한 턴의 도구 루프 안, 그리고 지난 턴 결과가 HISTORY_RESULT_BYTES 아래일 때까지 (넘으면 다음 턴에 줄임으로 바뀐다)
   · use_app 공개 = 도구 배열이 바뀐다 (Anthropic 은 도구 → system → 메시지 순이라 캐시가 처음부터)
+로컬 폴더 (slice 09 · ADR-0016 · 판단은 localfs.py): RunScope.folder 가 있을 때만 folder_list · folder_read · folder_search (read_file 다음 · 앱 앞)
+  + 지침 한 줄 (폴더 이름만 · 프로젝트 지침 앞) · 팀원도 같은 3개. 없으면 요청 바이트 그대로
 에이전트 팀 (slice 06 · 판단은 team.py · 여기는 Pydantic AI 접착만)
   delegate 는 team.offer_team 이 켠 실행에만 (복합 신호 · 그 대화에 이미 보였음 = sticky · 이어서 하기 = 멈춘 실행 그대로) → 안 켜면 요청 바이트가 slice 05 그대로
   도구 배열 = [use_skill, delegate, use_app, …공개된 MCP] (delegate 는 고정 앞부분 · 공개 도구는 계속 맨 뒤) · 지침은 안 바뀐다
@@ -119,6 +121,7 @@ from starlette.responses import Response
 from . import diagnose as dx
 from . import docmake as dm
 from . import files as fl
+from . import localfs as lfs
 from . import team as tm
 from .connectors.client import split_public
 from .connectors.session import AppSession, AuthNeeded, MemberApps, Revealed
@@ -235,6 +238,7 @@ class RunScope:
     readable: tuple[Any, ...] = ()
     file_store: Any = None
     file_line: str = ""
+    folder: Any = None  # 로컬 폴더 (slice 09 · localfs.Folder) = 프로젝트 대화 · 내가 연결 · 이 PC 일 때만 (None = 도구 · 지침 0)
 
 
 class RunSink(Protocol):
@@ -453,6 +457,27 @@ def file_toolset(scope: RunScope) -> FunctionToolset[None] | None:
         return store.read(f, page=page, query=query)  # type: ignore[no-any-return]
 
     return FunctionToolset([Tool.from_schema(read_file, fl.READ_FILE, fl.READ_FILE_DESC, fl.READ_FILE_SCHEMA)], max_retries=1, timeout=TOOL_TIMEOUT_S)
+
+
+def folder_toolset(folder: Any) -> FunctionToolset[None] | None:
+    """folder_list · folder_read · folder_search (slice 09 · ADR-0016) = 로컬 폴더가 연결된 프로젝트 대화만 (읽기만 · 판단은 localfs.py)."""
+    if folder is None:
+        return None
+
+    def folder_list(path: str | None = None, depth: int | None = None) -> dict[str, Any]:
+        return folder.list(path, depth)  # type: ignore[no-any-return]
+
+    def folder_read(path: str, start: int | None = None, lines: int | None = None) -> dict[str, Any]:
+        return folder.read(path, start, lines)  # type: ignore[no-any-return]
+
+    def folder_search(query: str | None = None, glob: str | None = None, regex: bool | None = None, path: str | None = None) -> dict[str, Any]:
+        return folder.search(query, glob, regex, path)  # type: ignore[no-any-return]
+
+    return FunctionToolset([
+        Tool.from_schema(folder_list, lfs.FOLDER_LIST, lfs.LIST_DESC, lfs.LIST_SCHEMA),
+        Tool.from_schema(folder_read, lfs.FOLDER_READ, lfs.READ_DESC, lfs.READ_SCHEMA),
+        Tool.from_schema(folder_search, lfs.FOLDER_SEARCH, lfs.SEARCH_DESC, lfs.SEARCH_SCHEMA),
+    ], max_retries=1, timeout=TOOL_TIMEOUT_S)
 
 
 def skill_tools(messages: Sequence[ModelMessage]) -> set[str]:
@@ -721,6 +746,7 @@ class _TeamRun:
     apps: AppSession | None
     user_id: str | None
     thread_id: str
+    folder: Any = None  # 로컬 폴더 (slice 09) = 팀원도 읽기 도구 3개 (총괄과 같은 폴더 · 읽기만)
     roster: tm.Roster = field(default_factory=tm.Roster)
     # (kind, tag, value): main = (taken 신호, AG-UI 이벤트) · member = (delegate call id, CUSTOM 이벤트) · fail · end
     queue: asyncio.Queue[tuple[str, Any, Any]] = field(default_factory=asyncio.Queue)
@@ -813,12 +839,18 @@ class _TeamRun:
         """팀원 하나를 끝까지 (task 만 · 기록 없음). 실패는 결과로 (총괄 실행은 계속) · 바깥 취소 = 팀원도 멈춘다 (HTTP 까지)."""
         view = self.apps.member_view(m.agent) if self.apps is not None else None
         m.tools = [{"name": USE_APP, "label": tool_label(USE_APP)}] if view is not None else []
+        if self.folder is not None:
+            m.tools = [*m.tools, *({"name": n, "label": tool_label(n)} for n in lfs.FOLDER_TOOLS)]
         m.status = "running"
         started = time.monotonic()
         self.emit(m.call_id, self.member_event(m))
         usage = RunUsage()
         found: list[str] = []  # 받은 도구 결과 (한도에 닿으면 마무리 자료)
-        toolsets = [bounded(_AppTools(_AppRun(view)), gate=self.member_gate)] if view is not None else None
+        folder_ts = folder_toolset(self.folder)
+        toolsets = [*([bounded(folder_ts, gate=self.member_gate)] if folder_ts else []),
+                    *([bounded(_AppTools(_AppRun(view)), gate=self.member_gate)] if view is not None else [])] or None
+        member_prompt = "\n\n".join(x for x in ((view.prompt() if view is not None else ""),
+                                                  lfs.folder_line(self.folder) if self.folder is not None else "") if x) or None
         limits = UsageLimits(request_limit=tm.MEMBER_REQUEST_LIMIT, input_tokens_limit=tm.MEMBER_INPUT_TOKENS_LIMIT)
         attrs = {"user.id": self.user_id or "", "session.id": self.thread_id, "brewai.agent.id": m.agent, "gen_ai.agent.name": "member"}
         with _member_span(attrs) as span:
@@ -826,7 +858,7 @@ class _TeamRun:
                 async with asyncio.timeout(tm.MEMBER_TIMEOUT_S):
                     async with self.agent.run_stream_events(
                         m.task or m.role, model=self.model, model_settings=self.settings, toolsets=toolsets, usage=usage,
-                        usage_limits=limits, instructions=(view.prompt() or None) if view is not None else None,
+                        usage_limits=limits, instructions=member_prompt,
                     ) as stream:
                         async for ev in stream:
                             if isinstance(ev, FunctionToolCallEvent):
@@ -1676,18 +1708,21 @@ class ChatRuntime:
                 member_settings["extra_body"] = {"cache_control_injection_points": CACHE_POINTS}
             member_settings = response_settings(model, member_settings) or member_settings
             team = _TeamRun(agent=self.member, model=base, model_label=model.label, settings=member_settings, activity=activity,
-                            apps=apps.apps if apps else None, user_id=scope.user_id, thread_id=req.thread_id)
+                            apps=apps.apps if apps else None, user_id=scope.user_id, thread_id=req.thread_id, folder=scope.folder)
         toolsets: list[AbstractToolset[None]] | None = None
         if model.supports_tools:  # 실행마다 동시 실행 상한 하나 (스킬 · 앱 도구가 같이 센다) · 도구 배열 = 고정 도구 → delegate → use_app → 공개 순
             gate = asyncio.Semaphore(MAX_PARALLEL_TOOLS)  # delegate 는 gate 밖 (팀원이 칸을 잡고 기다리면 4칸 교착)
             files_ts = file_toolset(scope)  # read_file = 파일이 있는 대화만 (고정 도구 · 팀 다음 · 앱 앞 = 그 대화에서 늘 같은 자리)
             made_ts = skill_toolset(scope, thread_id=req.thread_id) if self.skills.skills else None  # make_file = 문서 스킬을 부른 뒤만
+            folder_ts = folder_toolset(scope.folder)  # 로컬 폴더 읽기 = 폴더가 연결된 프로젝트 대화만 (read_file 다음 · 앱 앞)
             toolsets = [bounded(self._toolset, gate=gate), *([_TeamTools(team)] if team else []),
-                        *([bounded(files_ts, gate=gate)] if files_ts else []), *([bounded(made_ts, gate=gate)] if made_ts else []),
+                        *([bounded(files_ts, gate=gate)] if files_ts else []), *([bounded(folder_ts, gate=gate)] if folder_ts else []),
+                        *([bounded(made_ts, gate=gate)] if made_ts else []),
                         *([bounded(_AppTools(apps), gate=gate)] if apps else [])]
         # 실행 지침 = 앱 목록 한 줄 (handle 순 고정 = 프롬프트 캐시) → 프로젝트 지침 (conductor 규칙 · 앱 목록 뒤에)
         block = apps.apps.prompt() if apps else ""
-        instructions = "\n\n".join(x for x in (block, scope.file_line, scope.instructions) if x) or None
+        folder_block = lfs.folder_line(scope.folder) if scope.folder is not None and model.supports_tools else ""
+        instructions = "\n\n".join(x for x in (block, scope.file_line, folder_block, scope.instructions) if x) or None
         events = single.run_stream(
             model=llm,
             message_history=history,

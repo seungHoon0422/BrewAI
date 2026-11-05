@@ -422,6 +422,18 @@ CREATE TABLE IF NOT EXISTS file_chunks (
 """
 _SCHEMA += FILES_SCHEMA
 
+# 로컬 폴더 (slice 09 · ADR-0016 · localfs.py). 프로젝트 하나에 사람마다 이 PC 폴더 하나 (경로는 그 사람 PC 의 것 = 남과 안 나눈다)
+FOLDERS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS project_folders (
+  project_id TEXT NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+  user_id    TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  path       TEXT NOT NULL,
+  added_at   TEXT NOT NULL,
+  PRIMARY KEY (project_id, user_id)
+);
+"""
+_SCHEMA += FOLDERS_SCHEMA
+
 # v3 → v4: 이미 있는 표에 더하는 칸 (새 DB 는 CREATE TABLE 이 처음부터 갖고 있다 · 표가 없으면 CREATE 가 만든다)
 _V4_COLUMNS = {
     "users": ("mcp_auto_auth TEXT NOT NULL DEFAULT 'unset' CHECK (mcp_auto_auth IN ('unset', 'on', 'off'))",),

@@ -9,7 +9,8 @@
   GET    /api/models                 노출 모델만 · 기본 모델이 첫 항목(is_default) · 나머지는 관리자 순서
                                      + source(config|ui|mixed|null = 등록 출처) · health(ok|error|unknown) · health_code · health_at
                                        (마지막 연결 결과. error 여도 목록에 남고 고를 수 있다 — 화면은 경고만)
-  GET    /api/tools                  conductor 툴 [{name, label, description}] (내장 툴은 없다 · 스킬이 있으면 use_skill · 문서 스킬이 있으면 make_file · MCP 앱 도구는 앱마다)
+  GET    /api/tools                  conductor 툴 [{name, label, description}] (내장 툴은 없다 · 스킬이 있으면 use_skill · 문서 스킬이 있으면 make_file · MCP 앱 도구는 앱마다
+                                     · 로컬 폴더가 켜진 이 PC 요청이면 folder_list · folder_read · folder_search)
   GET    /api/skills                 제품 스킬 (runtime/skills) [{name, label, description, tools, builtin, used}] (단계 skill:<name>)
   GET    /api/links/preview?url=     링크 미리보기 카드 {url, title, description, site, image} · /api/links/image/{sha} 그림 (api_links.py · SSRF 검사)
   GET    /api/designs                문서 디자인 4종 [{id, label, description, colors}] · /api/designs/{id}/preview.png 견본 (api_designs.py)
@@ -68,7 +69,7 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from . import api_admin, api_auth, api_designs, api_files, api_links, api_mcp, api_spaces
+from . import api_admin, api_auth, api_designs, api_files, api_folders, api_links, api_mcp, api_spaces
 from .api_files import file_error_response
 from .agent import ChatRequest, ChatRequestError, ChatRuntime, RunScope, render_run
 from .auth import policy
@@ -84,6 +85,7 @@ from .connectors.vault import Vault
 from .diagnose import MODEL_HEALTH_CODES
 from .files import Attachment, Caps, FileError, FileRow, Files, file_line
 from .gateway import GatewayCatalogPort, GatewayError, LiteLLMCatalog
+from .localfs import FolderLinks, open_folder
 from .models import ExposureRow, ModelChoice, ModelPatchError, ModelRegistry
 from .providers import provider_label
 from .scopes import Crumb, Scopes, describe
@@ -91,6 +93,7 @@ from .settings import Settings, load_settings
 from .linkpreview import LinkPreviewer, parse_hosts
 from .skills import load_skills
 from . import docmake as dm
+from . import localfs as lfs
 from .tools import SKILL_TOOLS, tool_label
 from .store import Store, StoreConflict
 from .usage import health_state as usage_health
@@ -456,6 +459,8 @@ def create_app(
     app.state.connectors = connectors
     app.state.files = files
     app.state.links = links
+    folders = FolderLinks(store)  # 로컬 폴더 연결 (slice 09 · ADR-0016)
+    app.state.folders = folders
 
     # 라우터 3개 = 인증 3종류. 경로는 반드시 이 중 하나에 (app 에 직접 붙이지 않는다 · /healthz 만 예외)
     public = APIRouter()
@@ -535,9 +540,12 @@ def create_app(
         return {"levels": describe()}
 
     @user.get("/api/tools")
-    async def list_tools() -> list[dict[str, str]]:
+    async def list_tools(request: Request) -> list[dict[str, str]]:
         gated = sorted({t for sk in runtime.skills.list() for t in sk.tools})  # 스킬이 여는 도구 (make_file) = 스킬 화면의 '쓰는 도구' 이름
         extra = [{"name": dm.MAKE_FILE, "label": tool_label(dm.MAKE_FILE), "description": dm.MAKE_FILE_DESC}] if dm.MAKE_FILE in gated else []
+        if api_folders.folders_enabled(settings, request):  # 로컬 폴더 읽기 도구 (slice 09 · 폴더가 연결된 프로젝트 대화에만 실린다)
+            extra += [{"name": n, "label": tool_label(n), "description": d}
+                      for n, d in zip(lfs.FOLDER_TOOLS, (lfs.LIST_DESC, lfs.READ_DESC, lfs.SEARCH_DESC), strict=True)]
         return [{"name": t.name, "label": t.label, "description": t.description} for t in runtime.tools] + extra
 
     @user.get("/api/skills")
@@ -596,9 +604,13 @@ def create_app(
                 f"이 대화는 프로젝트 '{project['name']}' 안에 있다. 아래 프로젝트 지침을 따른다 (위 규칙이 우선).\n{project['instructions']}"
                 if project is not None and project["instructions"] else None
             )
+            # 로컬 폴더 (slice 09): 프로젝트 대화 · 내가 연결한 폴더 · conductor 와 요청이 이 PC 일 때만 (아니면 도구 · 지침 0)
+            folder = None
+            if project is not None and api_folders.folders_enabled(settings, request):
+                folder = open_folder(folders.get(project["id"], p.user_id), settings.local_home_path)
             scope = RunScope(
                 user_id=p.user_id, space_id=space.id, project_id=project["id"] if project else None, instructions=instructions,
-                apps=apps, resume=resume, attachments=attachments, readable=readable, file_store=files, file_line=line,
+                apps=apps, resume=resume, attachments=attachments, readable=readable, file_store=files, file_line=line, folder=folder,
             )
             return choice, blobs, _Sink(store, req, choice.id), scope
 
@@ -765,6 +777,7 @@ def create_app(
     api_files.register(user, files=files, registry=registry)
     api_designs.register(user)
     api_links.register(user, links=links)
+    api_folders.register(user, settings=settings, links=folders)
     api_admin.register(admin)
     api_mcp.register(public, user, admin, settings=settings, connectors=connectors)
     for router in (public, user, admin):

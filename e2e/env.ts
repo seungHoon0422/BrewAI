@@ -14,6 +14,8 @@ export const OIDC_CLIENT_SECRET = 'e2e-google-secret'; // mock 전용 (진짜 �
 export const MCP = 'http://127.0.0.1:4014'; // 가짜 MCP + OAuth (e2e/mock/mcp.mjs) · OAuth 서버 = MCP/mcp · 인증 없음 = MCP/noauth/mcp
 // mock 게이트웨이가 받은 요청 기록 (JSONL · Authorization 가림) — mcp-tokens 가 요청에 실린 도구를 센다
 export const GATEWAY_RECORD = path.join(os.tmpdir(), 'brewai-e2e-gateway.jsonl');
+// 로컬 폴더 (slice 09): conductor 가 고를 수 있게 허용하는 바깥 경계 (CONDUCTOR_LOCAL_HOME) · 스펙이 그 안에 가짜 프로젝트 폴더를 만든다
+export const LOCAL_HOME = path.join(os.tmpdir(), 'brewai-e2e-home');
 export const MCP_SECRET_KEY = 'ZTJlLWJyZXdhaS1tY3AtdmF1bHQta2V5LTAwMDAwMDE'; // conductor 금고 키 (E2E 전용 32바이트 · 진짜 값 아님)
 
 // 첫 관리자 = conductor 가 빈 DB 에 만든다 (BREWAI_ADMIN_EMAIL · PASSWORD). E2E 전용 값 (비밀번호 15자 이상)

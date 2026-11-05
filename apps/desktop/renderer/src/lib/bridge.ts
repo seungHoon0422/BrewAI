@@ -33,8 +33,13 @@ export type DesktopBridge = {
   files?: {
     save: (input: { name: string; bytes: Uint8Array }) => Promise<SaveResult>;
   };
+  // 로컬 폴더 고르기 (slice 09) = main 의 폴더 대화상자 · code = cancelled. 규칙 판정은 conductor (PUT /api/projects/{id}/folder)
+  folder?: {
+    pick: (input?: { title?: string }) => Promise<PickResult>;
+  };
 };
 export type SaveResult = { ok: true; name: string } | { ok: false; code: string };
+export type PickResult = { ok: true; path: string } | { ok: false; code: string };
 
 declare global {
   interface Window {

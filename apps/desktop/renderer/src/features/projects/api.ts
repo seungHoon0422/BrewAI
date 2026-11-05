@@ -54,3 +54,20 @@ export const createProject = async (spaceId: string, input: ProjectInput) =>
   must(toProject(await send(`/api/spaces/${encodeURIComponent(spaceId)}/projects`, 'POST', input)));
 export const patchProject = async (id: string, patch: Partial<ProjectInput & { sort_order: number; archived: boolean }>) =>
   must(toProject(await send(`/api/projects/${encodeURIComponent(id)}`, 'PATCH', patch)));
+
+// 로컬 폴더 (slice 09 · ADR-0016 · conductor/api_folders.py) — 사람마다 프로젝트 하나에 이 PC 폴더 하나. 경로는 본인만 본다.
+// enabled = conductor 가 이 PC 에서 돈다 (아니면 연결 버튼을 숨긴다) · ok = 지금도 그 폴더가 있고 규칙에 맞다
+export type ProjectFolder = { name: string; path: string; ok: boolean };
+export type FolderState = { enabled: boolean; folder: ProjectFolder | null };
+
+function toFolderState(v: unknown): FolderState {
+  if (!isObj(v)) return { enabled: false, folder: null };
+  const f = isObj(v.folder) && typeof v.folder.path === 'string' ? { name: str(v.folder.name), path: v.folder.path, ok: bool(v.folder.ok) } : null;
+  return { enabled: bool(v.enabled), folder: f };
+}
+const folderUrl = (id: string) => `/api/projects/${encodeURIComponent(id)}/folder`;
+export const getFolder = async (id: string, signal?: AbortSignal) => toFolderState(await json(folderUrl(id), signal));
+export const putFolder = async (id: string, path: string) => toFolderState(await send(folderUrl(id), 'PUT', { path }));
+export const deleteFolder = async (id: string) => {
+  await send(folderUrl(id), 'DELETE');
+};

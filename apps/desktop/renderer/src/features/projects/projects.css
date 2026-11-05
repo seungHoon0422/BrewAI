@@ -9,6 +9,12 @@
 .proj-desc{margin:var(--space-1) 0 0;color:var(--text-2);line-height:var(--lh-base)}
 .proj-meta{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-2);margin:var(--space-2) 0 0;color:var(--text-muted);font-size:var(--fs-sm)}
 .proj-meta:empty{display:none}
+.proj-folder{display:grid;gap:var(--space-2);margin-top:var(--space-3)}
+.proj-folder-row{display:flex;align-items:center;gap:var(--space-2);min-width:0;color:var(--text-2);font-size:var(--fs-sm)}
+.proj-folder-row .grow{flex:1}
+.proj-folder-name{font-weight:var(--fw-semibold);color:var(--text)}
+.proj-folder-path{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-muted);font-family:var(--font-mono)}
+.proj-folder-hint{color:var(--text-muted)}
 .proj-list{overflow:auto;padding-bottom:var(--space-12)}
 .proj-list .sec{margin-top:var(--space-2)}
 

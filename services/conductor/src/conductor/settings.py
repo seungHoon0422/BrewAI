@@ -61,6 +61,9 @@ class Settings:
     mcp_allow_loopback: bool = False  # CONDUCTOR_MCP_ALLOW_LOOPBACK=1 (테스트 전용) — 켜지는 건 mcp_loopback_ok 일 때만
     link_preview_hosts: str | None = None  # CONDUCTOR_LINK_PREVIEW_HOSTS (E2E 전용 · 'preview.brewai.test=http://127.0.0.1:4014') — mcp_loopback_ok 일 때만
     mcp_presets_path: str | None = None  # CONDUCTOR_MCP_PRESETS = 추천 서버 파일 (없음 = connectors/presets.json · E2E = 가짜 MCP 주소 파일)
+    # ↓ 로컬 폴더 (slice 09 · ADR-0016). conductor 가 직접 읽는다 = 켜지는 건 local_folders_ok 일 때만
+    local_folders: bool = True  # CONDUCTOR_LOCAL_FOLDERS=0 이면 끔
+    local_home: str | None = None  # CONDUCTOR_LOCAL_HOME = 고를 수 있는 폴더의 바깥 경계 (없음 = 이 PC 사용자 집 폴더 · 테스트 · E2E 가 바꾼다)
 
     @property
     def google_enabled(self) -> bool:
@@ -87,6 +90,15 @@ class Settings:
         """http://127.0.0.1 MCP 서버 · OAuth 서버(가짜) = 테스트 전용: 켜 두고 + (E2E 또는 conductor 공개 주소가 loopback) 일 때만.
         사설 · link-local · 메타데이터 주소는 이때도 막는다 (connectors/ssrf.py)."""
         return self.mcp_allow_loopback and (self.e2e or is_loopback(self.public_url))
+
+    @property
+    def local_folders_ok(self) -> bool:
+        """로컬 폴더 = conductor 가 이 PC 에서 돌 때만 (공개 주소가 loopback). 다른 PC 의 conductor 는 사용자 폴더를 볼 수 없다 (ADR-0016)."""
+        return self.local_folders and is_loopback(self.public_url)
+
+    @property
+    def local_home_path(self) -> Path:
+        return Path(self.local_home).expanduser() if self.local_home else Path.home()
 
     @property
     def secure_cookies(self) -> bool:
@@ -144,6 +156,8 @@ def load_settings(env: Mapping[str, str] = os.environ) -> Settings:
         secret_keys_old=_old_keys(env.get("CONDUCTOR_SECRET_KEYS_OLD")),
         mcp_allow_loopback=env.get("CONDUCTOR_MCP_ALLOW_LOOPBACK") == "1",
         mcp_presets_path=(env.get("CONDUCTOR_MCP_PRESETS") or "").strip() or None,
+        local_folders=env.get("CONDUCTOR_LOCAL_FOLDERS", "1").strip() != "0",
+        local_home=(env.get("CONDUCTOR_LOCAL_HOME") or "").strip() or None,
         link_preview_hosts=(env.get("CONDUCTOR_LINK_PREVIEW_HOSTS") or "").strip() or None,
     )
 

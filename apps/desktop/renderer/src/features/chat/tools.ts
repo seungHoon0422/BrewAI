@@ -4,7 +4,9 @@ import type { IconName } from '@brewai/ui';
 import { TOOL } from './copy';
 import type { ToolPart } from './model';
 
-export const TOOL_ICON: Record<string, IconName> = { use_skill: 'layers', use_app: 'plug', make_file: 'file', read_file: 'file' };
+export const TOOL_ICON: Record<string, IconName> = {
+  use_skill: 'layers', use_app: 'plug', make_file: 'file', read_file: 'file', folder_list: 'folder', folder_read: 'file', folder_search: 'search',
+};
 export const TOOL_STATE_ICON: Partial<Record<ToolPart['status'], IconName>> = { done: 'check', error: 'close', waiting: 'lock' };
 // 카드 아이콘: MCP 앱 도구 = 플러그 (앱 서버) · 그 밖 = 도구마다
 export const toolIcon = (p: ToolPart): IconName => (p.app ? 'plug' : TOOL_ICON[p.name] ?? 'wrench');

@@ -1,7 +1,7 @@
 import { defineConfig } from '@playwright/test';
 import path from 'node:path';
 import { ADMIN_STATE } from './auth';
-import { ADMIN_DEV_URL, ADMIN_URL, ADMIN_USER, API, GATEWAY, GATEWAY_KEY, GATEWAY_RECORD, MCP, MCP_SECRET_KEY, OIDC, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET } from './env';
+import { ADMIN_DEV_URL, ADMIN_URL, ADMIN_USER, API, GATEWAY, GATEWAY_KEY, GATEWAY_RECORD, LOCAL_HOME, MCP, MCP_SECRET_KEY, OIDC, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET } from './env';
 
 // E2E = 기능이 끝난 시점에 돈다 (금요일 데모 스크립트). 전체 = npm run e2e (데스크톱·관리자 빌드 → 테스트)
 // 브라우저: 맥 = Chrome · 윈도우 = Edge (PC에 깔린 것) · 그 밖(CI) = Playwright 번들 Chromium
@@ -83,6 +83,7 @@ export default defineConfig({
         // 첫 동기화 때 노출할 모델 (실제 기본값은 키 없는 brewai-mock). mock 의 채팅 모델 둘 = 노출, fake-embed = 숨김
         CONDUCTOR_BOOTSTRAP_MODELS: 'fake-chat-small,fake-chat-large',
         LLM_GATEWAY_UI_URL: '',
+        CONDUCTOR_LOCAL_HOME: LOCAL_HOME, // 로컬 폴더 경계 = 임시 폴더 (진짜 집 폴더를 쓰지 않는다 · chat-folder.spec)
         CONDUCTOR_DESKTOP_ORIGINS: 'app://brewai',
         BREWAI_ENV_FILE: '',
         LLM_GATEWAY_URL: GATEWAY,

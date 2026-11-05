@@ -32,7 +32,8 @@ class ToolSpec:
 USE_SKILL = "use_skill"  # skills.py 가 만드는 툴 이름 (활동 단계는 tool:use_skill 대신 skill:<스킬 이름>)
 USE_APP = "use_app"  # MCP 앱 도구 꺼내기 (agent.py · connectors/session.py — 활동 단계는 tool:use_app 대신 app:<handle>)
 DELEGATE = "delegate"  # 팀원에게 맡기기 (team.py · agent.py — 활동 단계는 tool:delegate 대신 agent:<a1|a2|a3>)
-EXTRA_LABELS = {USE_SKILL: "스킬 사용", USE_APP: "앱 도구 고르기", DELEGATE: "팀원에게 맡기기", "read_file": "파일 읽기", "make_file": "파일 만들기"}
+EXTRA_LABELS = {USE_SKILL: "스킬 사용", USE_APP: "앱 도구 고르기", DELEGATE: "팀원에게 맡기기", "read_file": "파일 읽기", "make_file": "파일 만들기",
+                "folder_list": "폴더 보기", "folder_read": "폴더 파일 읽기", "folder_search": "폴더 검색"}  # 로컬 폴더 (localfs.py)
 SKILL_TOOLS = ("make_file",)  # 스킬 머리말 tools 에 적을 수 있는 도구 (그 스킬을 부르면 도구 배열에 · agent._skill_toolset)
 # 예전 기록의 화면 이름 (내장 툴 5개 · search_tools 는 없어졌다 · 옛 대화를 다시 열 때만)
 LEGACY_LABELS = {

@@ -45,6 +45,33 @@ export const PROJECTS = {
   composerHint: (name: string) => `'${name}'에 새 대화`,
 } as const;
 
+// 로컬 폴더 (slice 09) — 이 PC 폴더를 연결하면 이 프로젝트 대화에서 읽을 수 있다 (읽기만)
+export const FOLDER = {
+  connect: '로컬 폴더 연결', // e2e 계약 후보
+  pickTitle: `${P}에 연결할 폴더`,
+  change: '바꾸기',
+  disconnect: '연결 끊기',
+  label: '로컬 폴더',
+  hint: '이 PC의 폴더를 연결하면 대화에서 파일을 찾아 읽어요. 고치거나 실행하지는 않아요',
+  readOnly: '읽기만',
+  missing: '폴더를 찾을 수 없어요. 다시 연결해 주세요',
+  connected: (name: string) => `'${name}' 폴더를 연결했어요`,
+} as const;
+
+const FOLDER_ERRORS: Record<string, string> = {
+  local_folders_off: '이 PC에서 도는 서버일 때만 폴더를 연결할 수 있어요',
+  not_absolute: '폴더 경로가 올바르지 않아요',
+  not_found: '그 폴더를 찾을 수 없어요',
+  not_dir: '폴더가 아니에요',
+  too_broad: '집 폴더 전체나 디스크 전체는 연결할 수 없어요. 프로젝트 폴더를 골라 주세요',
+  outside_home: '내 집 폴더 안의 폴더만 연결할 수 있어요',
+  hidden: '숨김 폴더 안은 연결할 수 없어요',
+  system: '시스템 폴더는 연결할 수 없어요',
+  offline: '서버에 연결할 수 없어요',
+};
+export const folderError = (code: string | undefined) =>
+  code && Object.prototype.hasOwnProperty.call(FOLDER_ERRORS, code) ? FOLDER_ERRORS[code] : projectError(code);
+
 const ERRORS: Record<string, string> = {
   bad_name: '이름은 1~80자로 적어 주세요',
   forbidden: '이 작업을 할 권한이 없어요',

@@ -1,4 +1,5 @@
-// 로그인 · 앱 연결 · 파일 저장 preload (sandbox · contextIsolation). renderer 에 여는 것 = window.brewai.auth · mcp · files · dev.
+// 로그인 · 앱 연결 · 파일 저장 · 폴더 고르기 preload (sandbox · contextIsolation). renderer 에 여는 것 = window.brewai.auth · mcp · files · folder · dev.
+// folder.pick = 폴더 대화상자 → {ok, path} | {ok:false, code} (로컬 폴더 연결 · slice 09 · 판정은 conductor).
 // files.save = 바이트 + 이름 → main 이 저장 대화상자 (어디에 쓸지는 사람이 고른다 · 결과는 {ok, code?, name?} 뿐 · 경로는 안 돌려준다).
 // dev = 개발 빌드인지 (main 이 배포본이 아닐 때만 --brewai-dev 를 넘긴다 · 값 하나뿐 · 비밀 없음).
 // 토큰은 오가지 않는다: 결과는 {ok, code?, retryAfter?, linked?} · 상태는 {status, reason, user} 뿐 (auth.cjs)
@@ -29,5 +30,8 @@ contextBridge.exposeInMainWorld('brewai', {
   },
   files: {
     save: (input) => ipcRenderer.invoke('files:save', input),
+  },
+  folder: {
+    pick: (input) => ipcRenderer.invoke('folder:pick', input),
   },
 });
