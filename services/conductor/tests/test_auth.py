@@ -238,10 +238,15 @@ def test_every_api_route_requires_auth(make_api) -> None:
     flat = {(m, r.path.replace(":path}", "}")) for r in routes for m in r.methods - {"HEAD"}}
     assert flat == documented  # 펼치기가 빠뜨린 경로 없음
     for route in routes:
-        assert route.path.startswith("/api/") or route.path == "/healthz", route.path  # /api 밖 경로 금지 (healthz 만)
+        # /api 밖 경로 금지 (healthz · 외부 표면 /v1 만 · ADR-0017)
+        assert route.path.startswith(("/api/", "/v1/")) or route.path == "/healthz", route.path
         for method in route.methods - {"HEAD"}:
             seen.add((method, route.path))
             if (method, route.path) in PUBLIC or route.path == "/healthz":
+                continue
+            if route.path.startswith("/v1/"):  # 외부 표면 = API 키만 (OpenAI 오류 모양 · test_apikeys 가 자세히)
+                res = anon.request(method, route.path, json={})
+                assert (res.status_code, res.json()["error"]["code"]) == (401, "invalid_api_key"), (method, route.path)
                 continue
             url = route.path.replace("{gateway_id:path}", "m").format(**{k: "x" for k in route.param_convertors})
             res = anon.request(method, url, json={})

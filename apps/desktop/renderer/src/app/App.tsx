@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState, type ComponentType } from 'react';
 import { ToastRegion, useToastQueue } from '@brewai/ui';
 import { ActivityScreen } from '../features/activity/components/ActivityScreen';
+import { KeysScreen } from '../features/apikeys/components/KeysScreen';
 import { AuthGate } from '../features/auth/components/AuthGate';
 import { ChatScreen } from '../features/chat/components/ChatScreen';
 import { useChat } from '../features/chat/hooks';
@@ -27,6 +28,7 @@ const PAGES: Record<RouteId, ComponentType> = {
   'settings/account': AccountScreen,
   'settings/general': GeneralScreen,
   'settings/usage': UsageScreen,
+  'settings/keys': KeysScreen,
   'settings/model': ModelScreen,
   'settings/skills': SkillsScreen,
   'settings/connections': ConnectionsScreen,

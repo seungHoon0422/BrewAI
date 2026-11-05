@@ -1438,6 +1438,11 @@ class ChatRuntime:
         # 팀원 = 하나의 Agent · 호출마다 run_stream_events (지침 = 고정 한 줄 · 도구 = 실행마다 그 팀원의 앱 · 글로만 답한다)
         self.member: Agent[None, str] = Agent(name="member", instructions=tm.MEMBER_INSTRUCTIONS, output_type=str)
 
+    @property
+    def client(self) -> AsyncOpenAI:
+        """게이트웨이 OpenAI 호환 클라이언트 (서비스 키) — /v1 외부 표면이 같은 클라이언트로 모델을 부른다 (api_v1.py)."""
+        return self._client
+
     async def __aenter__(self) -> ChatRuntime:  # 앱 수명 = provider HTTP 클라이언트 수명
         await self._provider.__aenter__()
         return self

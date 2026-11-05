@@ -180,7 +180,7 @@ test('설정 › 사용량 = 내 호출 · 토큰 (API 와 같은 숫자) · 세
   const runs = win.locator('[data-kpi="runs"] .ui-stat-value');
   await expect(runs).toHaveText(mine.totals.runs.toLocaleString('ko-KR'));
   const tabs = win.getByRole('tablist', { name: '세부 보기' });
-  await expect(tabs.getByRole('tab')).toHaveText(['모델', '프로젝트', '스페이스', '조직']);
+  await expect(tabs.getByRole('tab')).toHaveText(['모델', '프로젝트', '스페이스', '조직', 'API 키']);
   await expect(win.getByRole('table', { name: '모델별 사용량' }).locator('tbody tr')).not.toHaveCount(0);
   // 프로젝트 탭 → 이 프로젝트 줄을 누르면 위 숫자가 그 프로젝트 것으로 · 칩
   await tabs.getByRole('tab', { name: '프로젝트' }).click();

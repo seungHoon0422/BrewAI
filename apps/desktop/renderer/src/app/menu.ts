@@ -16,13 +16,14 @@ export const MENU: readonly MenuItem[] = [
 export const MENU_END: readonly MenuItem[] = [{ id: 'settings', label: '설정', icon: 'gear' }];
 
 // 설정 세부 메뉴 (설정 화면에선 사이드바 자리에) — 묶음 = 영역. 주소 = #/settings/<id>
-export type SettingsId = 'account' | 'general' | 'usage' | 'model' | 'skills' | 'connections' | 'about';
+export type SettingsId = 'account' | 'general' | 'usage' | 'keys' | 'model' | 'skills' | 'connections' | 'about';
 export type SettingsItem = { id: SettingsId; label: string; icon: IconName };
 export const SETTINGS_MENU: readonly { label: string; items: readonly SettingsItem[] }[] = [
   { label: '내 계정', items: [
     { id: 'account', label: '계정', icon: 'user' },
     { id: 'general', label: '일반', icon: 'sliders' },
     { id: 'usage', label: '사용량', icon: 'receipt' },
+    { id: 'keys', label: 'API 키', icon: 'lock' },
   ] },
   { label: 'AI 작업', items: [
     { id: 'model', label: '모델', icon: 'sparkle' },

@@ -3,7 +3,7 @@
 import { isObj, json, list, num, str, strOrNull } from '../../lib/api';
 
 export type Days = 7 | 30 | 90;
-export type Dim = 'model' | 'project' | 'space' | 'org';
+export type Dim = 'model' | 'project' | 'space' | 'org' | 'key';
 export type Filters = Partial<Record<Dim, { key: string; label: string }>>;
 export type Totals = {
   runs: number; errors: number; error_rate: number; tokens: number; input_tokens: number; output_tokens: number;

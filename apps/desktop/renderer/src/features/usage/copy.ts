@@ -29,6 +29,8 @@ export const USAGE = {
   others: (n: number) => `그 밖의 ${n}개는 줄였어요`,
   personal: '내 스페이스',
   noProject: '프로젝트 밖 대화',
+  appChats: '앱에서 한 대화',
+  revoked: '폐기됨',
   pick: (label: string) => `${label}만 보기`,
 } as const;
 
@@ -37,5 +39,6 @@ export const DIMS: readonly { id: Dim; label: string }[] = [
   { id: 'project', label: '프로젝트' },
   { id: 'space', label: '스페이스' },
   { id: 'org', label: '조직' },
+  { id: 'key', label: 'API 키' },
 ];
 export const dimLabel = (d: Dim) => DIMS.find((x) => x.id === d)?.label ?? d;

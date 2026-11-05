@@ -1,0 +1,9 @@
+/* 사용자와 조직 › API 키 탭 — 정책 카드 · 키 표 · 한도 대화상자. 토큰만 (ADR-0012) */
+.akey-form{display:grid;gap:var(--space-3)}
+.akey-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--space-3)}
+.akey-save{display:flex;justify-content:flex-end}
+.akey-title{font-size:var(--fs-base);font-weight:var(--fw-semibold)}
+.akey-hint{font-family:var(--font-mono);font-size:var(--fs-sm);color:var(--text-2);white-space:nowrap}
+.akey-limits{display:inline-flex;align-items:center;flex-wrap:wrap;gap:var(--space-1-5);font-size:var(--fs-sm)}
+.akey-act{display:inline-flex;gap:var(--space-1)}
+@media (max-width:760px){.akey-grid{grid-template-columns:minmax(0,1fr)}}

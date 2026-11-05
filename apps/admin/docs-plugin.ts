@@ -809,7 +809,8 @@ function buildBoard(
         const num = Number(m[1]);
         const onBranch = new RegExp(`slice/0*${num}(?![0-9])`).test(branchLine);
         // 완료 = passes · done 모두 체크 · HANDOFF '구현' · 그 뒤 번호가 구현됨 / 진행 중 = 문서 있음 · 활성 브랜치 / 나머지 = 예정 (다음 · 나중은 아래)
-        const built = p.passes || (total > 0 && doneN === total) || builtSet.has(num) || num < maxBuilt;
+        // '뒤 번호가 구현됨' = 문서가 있는 옛 slice 만 (01 · 02 처럼 Phase 에 번호 없이 끝난 것). 문서 없는 번호는 순서를 바꿔 미룬 것 (10 · 11)
+        const built = p.passes || (total > 0 && doneN === total) || builtSet.has(num) || (!!s && num < maxBuilt);
         const designOnly = !!s && /설계/.test(s.meta.find((x) => x.key === '상태')?.value ?? ''); // '- 상태: 설계' = 문서만 (구현 전)
         const state: Card['state'] = built ? 'done' : (s && !designOnly) || onBranch ? 'doing' : 'later';
         cards.push({
@@ -821,7 +822,7 @@ function buildBoard(
           weeks: null,
           state,
           why:
-            state === 'done' ? (p.passes ? `${p.id} passes` : builtSet.has(num) ? 'HANDOFF 에 구현' : num < maxBuilt ? '뒤 slice 가 구현됨' : 'done 모두 체크')
+            state === 'done' ? (p.passes ? `${p.id} passes` : builtSet.has(num) ? 'HANDOFF 에 구현' : s && num < maxBuilt ? '뒤 slice 가 구현됨' : 'done 모두 체크')
             : onBranch ? 'HANDOFF 활성 브랜치'
             : designOnly ? `${s!.file} 설계만, 구현 전`
             : s ? `${s.file} 있음, 아직 구현 전`
@@ -877,7 +878,7 @@ function buildBoard(
     const before = cards.filter((c) => c.kind === 'slice' && Number(c.key.slice(6)) < num).pop();
     const total = sl.done.length;
     const doneN = sl.done.filter((d) => d.done).length;
-    const built = (total > 0 && doneN === total) || builtSet.has(num) || num < maxBuilt;
+    const built = (total > 0 && doneN === total) || builtSet.has(num) || num < maxBuilt; // 문서가 있는 slice (이 고리는 문서에서 만든 카드)
     const card: Card = {
       key, label: `slice ${key.slice(6)}`, kind: 'slice', title: sl.title, phase: before?.phase ?? 'P1', weeks: null,
       state: built ? 'done' : 'doing', why: built ? 'HANDOFF 에 구현' : `${sl.file} 있음, 아직 구현 전`,

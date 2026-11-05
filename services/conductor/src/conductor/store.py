@@ -434,6 +434,11 @@ CREATE TABLE IF NOT EXISTS project_folders (
 """
 _SCHEMA += FOLDERS_SCHEMA
 
+# API 키 (slice 12 · ADR-0017 · apikeys.py). 사람별 키 bwk_ · DB 엔 sha256 만
+from .apikeys import SCHEMA as _KEYS_SCHEMA  # noqa: E402
+
+_SCHEMA += _KEYS_SCHEMA
+
 # v3 → v4: 이미 있는 표에 더하는 칸 (새 DB 는 CREATE TABLE 이 처음부터 갖고 있다 · 표가 없으면 CREATE 가 만든다)
 _V4_COLUMNS = {
     "users": ("mcp_auto_auth TEXT NOT NULL DEFAULT 'unset' CHECK (mcp_auto_auth IN ('unset', 'on', 'off'))",),
@@ -492,8 +497,7 @@ class Store:
         self._db.executescript(_SCHEMA)
         with self.tx() as db:
             self._rebuild_one_time(db)
-            if "project_id" in {r[1] for r in db.execute("PRAGMA table_info(usage_events)")}:  # 칸이 있을 때만 (옛 표 = 처음 읽을 때 ensure_columns)
-                db.execute(usage_log.ADDED_INDEXES)
+            usage_log.add_indexes(db)  # 더한 칸의 색인 (칸이 있는 것만 · 옛 표 = 처음 읽을 때 ensure_columns 가 칸을 더한 뒤)
             if version < 3 and had_runs:
                 log.info("DB v%d → v3: 사용량 %d건 채움", version, usage_log.backfill(db))
             db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")

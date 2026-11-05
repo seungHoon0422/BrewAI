@@ -72,7 +72,8 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from . import api_admin, api_auth, api_designs, api_files, api_folders, api_links, api_mcp, api_spaces
+from . import api_admin, api_auth, api_designs, api_files, api_folders, api_keys, api_links, api_mcp, api_spaces, api_v1
+from .apikeys import Keys
 from .api_files import file_error_response
 from .agent import ChatRequest, ChatRequestError, ChatRuntime, RunScope, render_run
 from .auth import policy
@@ -466,10 +467,14 @@ def create_app(
     folders = FolderLinks(store)  # 로컬 폴더 연결 (slice 09 · ADR-0016)
     app.state.folders = folders
 
-    # 라우터 3개 = 인증 3종류. 경로는 반드시 이 중 하나에 (app 에 직접 붙이지 않는다 · /healthz 만 예외)
+    # 라우터 4개 = 인증 4종류. 경로는 반드시 이 중 하나에 (app 에 직접 붙이지 않는다 · /healthz 만 예외)
+    # external = /v1 · API 키 bwk_ 만 (api_v1.py 가 요청마다 판정 · ADR-0017)
     public = APIRouter()
     user = APIRouter(dependencies=[Depends(require_user)])
     admin = APIRouter(dependencies=[Depends(require_admin)])
+    external = APIRouter()
+    keys = Keys(store, clock=lambda: accounts.clock())  # 테스트가 accounts.clock 을 바꾸면 키 만료 · 한도도 같이
+    app.state.keys = keys
 
     @app.exception_handler(GatewayError)
     async def _gateway_error(_: Request, e: GatewayError) -> JSONResponse:
@@ -557,10 +562,11 @@ def create_app(
     def my_usage(
         request: Request, p: Principal = Depends(require_user),
         start: str | None = Query(None, alias="from", max_length=10), end: str | None = Query(None, alias="to", max_length=10),
-        tz: int = Query(0, ge=-720, le=840), group: Literal["org", "model", "space", "day", "project"] = Query("day"),  # 순서 = 아무 뜻 없음 (층 순서는 scopes.py 만)
+        tz: int = Query(0, ge=-720, le=840), group: Literal["org", "model", "space", "day", "project", "key"] = Query("day"),  # 순서 = 아무 뜻 없음 (층 순서는 scopes.py 만)
         limit: int = Query(20, ge=1, le=50), sort: usage_mod.Sort = Query("runs"), series: bool = Query(True),
         model: str | None = Query(None, max_length=200), project: str | None = Query(None, max_length=64),
         space: str | None = Query(None, max_length=64), org: str | None = Query(None, max_length=64),
+        key: str | None = Query(None, max_length=64),
     ) -> dict[str, Any]:
         try:
             w = usage_mod.window(start, end, tz=tz, now=accounts.clock())
@@ -569,9 +575,9 @@ def create_app(
         labels = {r.gateway_id: r.label for r in registry.rows()}
         with store.read() as db:
             # 거르개는 늘 '나' 위에 더한다 (남의 실행은 어떤 값을 줘도 안 섞인다)
-            f = usage_mod.Filters(user=p.user_id, model=model, project=project, space=space, org=org)
+            f = usage_mod.Filters(user=p.user_id, model=model, project=project, space=space, org=org, key=key)
             out = usage_mod.summary(db, w, f, group, limit=limit, model_labels=labels, sort=sort, series=series)
-        out["filters"] = {k: v for k, v in (("model", model), ("project", project), ("space", space), ("org", org)) if v}  # 내 id 는 빼고
+        out["filters"] = {k: v for k, v in (("model", model), ("project", project), ("space", space), ("org", org), ("key", key)) if v}  # 내 id 는 빼고
         for g in out["groups"]:
             g.pop("active_users", None)
         out["totals"].pop("active_users", None)
@@ -816,6 +822,8 @@ def create_app(
     api_folders.register(user, settings=settings, links=folders)
     api_admin.register(admin)
     api_mcp.register(public, user, admin, settings=settings, connectors=connectors)
-    for router in (public, user, admin):
+    api_keys.register(user, admin, keys=keys)
+    api_v1.register(external, keys=keys, registry=registry, runtime=runtime, store=store)
+    for router in (public, user, admin, external):
         app.include_router(router)
     return app

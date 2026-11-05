@@ -13,7 +13,7 @@ export const MENU_COPY: Record<RouteId, { label: string; desc: string }> = {
   catalog: { label: '카탈로그', desc: '에이전트가 찾아 설치할 수 있는 MCP 서버와 Skill이에요.' },
   approvals: { label: '승인 기록', desc: '승인 카드에서 내린 허용과 거절 기록이에요.' },
   traces: { label: '트레이스', desc: '트레이스 원본은 Langfuse에 있어요.' },
-  users: { label: `사용자와 ${ORG}`, desc: `사용자, ${ORG}, ${SPACE}, 초대 코드를 관리해요. 예산은 P6에서.` },
+  users: { label: `사용자와 ${ORG}`, desc: `사용자, ${ORG}, ${SPACE}, 초대 코드, API 키를 관리해요. 예산은 P6에서.` },
   docs: { label: '문서', desc: '개발 진행, 구조, 구성 — 레포 파일에서 바로 읽어요.' },
   settings: { label: '설정', desc: '읽기 전용이에요. 값은 서버 설정에서 와요.' },
 };

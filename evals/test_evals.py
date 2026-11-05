@@ -16,6 +16,9 @@ conductor_folder (slice 09 · ADR-0016 '비밀 노출' 제약 · 로컬 폴더 �
   secret          연결된 폴더에 .env · .env.local · 키 · .git/config · secrets.json · 폴더 밖(../) → 읽기 · 검색 · 목록을 차례로.
                   그 값이 모델 요청 · SSE · DB 어디에도 0번 · 막힌 호출은 blocked / outside_folder
 
+conductor_keys (slice 12 · ADR-0017 '비밀 노출' 제약 · API 키)
+  secret          키 만들기 → /v1 호출 (일반 · 스트림) · 목록 · 사용량 → 폐기. 키 값이 게이트웨이 요청 · 응답 · DB · 로그에 0번 · 폐기 뒤 401
+
 conductor_team (slice 06 '팀이 생기는 길' · plan = 총괄 응답마다 [[도구, 인자], …] (한 응답 = 병렬) · 다 쓰면 글 '끝' · 팀원 = '<task> 결과')
   golden          복합 질문 → 첫 요청에 delegate → 한 응답에 delegate 2번 = agent:a1 · agent:a2 → writing. 팀원 요청에 도구 0 (delegate · use_skill 없음)
   hello           hello = 게이트 꺼짐 → 첫 요청에 delegate 없음 · 팀원 요청 0
@@ -261,11 +264,87 @@ def conductor_folder(inputs: dict[str, Any]) -> dict[str, Any]:
             "refused": [r.get("error") for r in results if r.get("error")]}
 
 
+def conductor_keys(inputs: dict[str, Any]) -> dict[str, Any]:
+    """API 키 (slice 12 · ADR-0017) '비밀 노출' 제약: 만든 키 값(bwk_)이 게이트웨이 요청(본문 · 머리) · /v1 응답 · 앱 API 응답 ·
+    DB(감사 · 사용량 포함) · 로그 어디에도 0번 (만들 때 응답 한 번만). 폐기 뒤 = 401."""
+    import logging
+
+    import httpx2
+    from fastapi.testclient import TestClient
+    from openai import AsyncOpenAI
+
+    from conductor.agent import ChatRuntime
+    from conductor.app import create_app
+    from conductor.gateway import parse_model_group
+    from conductor.settings import Settings
+    from conductor.store import Store
+
+    seen: list[str] = []
+
+    def handler(req: httpx2.Request) -> httpx2.Response:
+        seen.append(json.dumps(dict(req.headers)) + req.content.decode())
+        body = json.loads(req.content)
+        usage = {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+        if body.get("stream"):
+            chunk = {"id": "c", "object": "chat.completion.chunk", "created": 1, "model": body["model"],
+                     "choices": [{"index": 0, "delta": {"role": "assistant", "content": "답"}, "finish_reason": "stop"}]}
+            tail = {**chunk, "choices": [], "usage": usage}
+            return httpx2.Response(200, content=f"data: {json.dumps(chunk)}\n\ndata: {json.dumps(tail)}\n\ndata: [DONE]\n\n".encode(),
+                                   headers={"content-type": "text/event-stream"})
+        return httpx2.Response(200, json={"id": "c", "object": "chat.completion", "created": 1, "model": body["model"], "usage": usage,
+                                          "choices": [{"index": 0, "message": {"role": "assistant", "content": "답"}, "finish_reason": "stop"}]})
+
+    items = json.loads((TESTS / "fixtures" / "litellm-1.106.2-model_group_info.json").read_text(encoding="utf-8"))["data"]
+
+    class Catalog:
+        async def list_models(self, *, fresh: bool = False) -> list[Any]:
+            return [parse_model_group(i) for i in items]
+
+    class Capture(logging.Handler):
+        def __init__(self) -> None:
+            super().__init__()
+            self.lines: list[str] = []
+
+        def emit(self, record: logging.LogRecord) -> None:
+            self.lines.append(record.getMessage())
+
+    cap = Capture()
+    logging.getLogger().addHandler(cap)
+    admin_email, admin_pw = "admin@brewai.test", "eval-admin-password-0001"
+    settings = Settings(gateway_url="http://gateway.invalid", gateway_key="sk-eval-0000", bootstrap_models=("fake-chat-small",),
+                        admin_email=admin_email, admin_password=admin_pw)
+    client = AsyncOpenAI(base_url="http://gateway.invalid/v1", api_key="sk-eval-0000", max_retries=0,
+                         http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(handler)))
+    runtime = ChatRuntime(gateway_url=settings.gateway_url, gateway_key=settings.gateway_key, openai_client=client)
+    app = create_app(settings, catalog=Catalog(), runtime=runtime, store=Store(":memory:"))
+    out: list[str] = []
+    try:
+        with TestClient(app, base_url="http://127.0.0.1", client=("127.0.0.1", 50000)) as c:
+            user = {"authorization": f"Bearer {c.post('/api/auth/login', json={'email': admin_email, 'password': admin_pw}).json()['access_token']}"}
+            made = c.post("/api/me/keys", headers=user, json={"name": "eval", "scopes": ["models:read", "chat"]}).json()
+            raw, key_id = made["key"], made["item"]["id"]
+            ext = {"authorization": f"Bearer {raw}"}
+            for body in inputs["calls"]:
+                out.append(c.post("/v1/chat/completions", headers=ext, json=body).text)
+            out.append(c.get("/v1/models", headers=ext).text)
+            out.append(c.get("/api/me/keys", headers=user).text)
+            out.append(c.get("/api/me/usage", headers=user, params={"group": "key"}).text)
+            c.delete(f"/api/me/keys/{key_id}", headers=user)
+            after = c.get("/v1/models", headers=ext).status_code
+            stored = "\n".join(app.state.store._db.iterdump())
+    finally:
+        logging.getLogger().removeHandler(cap)
+    hay = [*seen, *out, stored, *cap.lines]
+    rows = stored.count('INSERT INTO "usage_events"')
+    return {"secret_leaks": sum(h.count(raw) + h.count(raw[4:]) for h in hay), "usage_rows": rows, "after_revoke": after}
+
+
 RUNNERS = {
     "echo": lambda inputs: inputs,
     "conductor_mcp": conductor_mcp,
     "conductor_team": conductor_team,
     "conductor_folder": conductor_folder,
+    "conductor_keys": conductor_keys,
 }
 
 

@@ -1,4 +1,4 @@
-// 설정 › 사용량 — 내 호출 · 토큰 · 추정 비용 · 캐시 적중률 (기간 7 · 30 · 90일) + 하루별 호출 + 세부 보기 (모델 · 프로젝트 · 스페이스 · 조직).
+// 설정 › 사용량 — 내 호출 · 토큰 · 추정 비용 · 캐시 적중률 (기간 7 · 30 · 90일) + 하루별 호출 + 세부 보기 (모델 · 프로젝트 · 스페이스 · 조직 · API 키).
 // 세부 보기 표의 줄을 누르면 그 항목으로 거른다 (칩 · ✕ 로 해제 · 분류마다 하나 · 여러 분류를 겹쳐 거를 수 있다). 나만 (GET /api/me/usage)
 import { useEffect, useState } from 'react';
 import {
@@ -20,6 +20,7 @@ const secs = (ms: number | null) => (ms === null ? '—' : ms < 1000 ? `${ms}ms`
 function nameOf(dim: Dim, g: GroupRow): string {
   if (dim === 'space' && g.kind === 'personal') return USAGE.personal;
   if (dim === 'project' && g.key === 'none') return USAGE.noProject;
+  if (dim === 'key' && g.key === 'none') return USAGE.appChats;
   return g.label ?? g.key;
 }
 
@@ -66,6 +67,7 @@ export function UsageScreen() {
           {dim === 'model' && g.provider && <ProviderIcon provider={g.provider} size="sm" />}
           <span className="ui-ell">{nameOf(dim, g)}</span>
           {g.sub && dim !== 'model' && <span className="usage-sub">{g.sub}</span>}
+          {dim === 'key' && g.kind === 'revoked' && <span className="usage-sub">{USAGE.revoked}</span>}
         </span>
       ),
     },

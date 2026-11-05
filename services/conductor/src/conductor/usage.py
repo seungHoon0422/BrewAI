@@ -23,9 +23,9 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Literal
 
-Group = Literal["day", "org", "user", "space", "model", "project"]
+Group = Literal["day", "org", "user", "space", "model", "project", "key"]
 Sort = Literal["runs", "tokens", "cost"]
-GROUPS: tuple[Group, ...] = ("day", "org", "user", "space", "model", "project")
+GROUPS: tuple[Group, ...] = ("day", "org", "user", "space", "model", "project", "key")
 NO_PROJECT = "none"  # 프로젝트 묶음 · 거르개: 프로젝트 밖 대화
 PERSONAL = "personal"  # 스페이스 묶음: 내 스페이스(개인)는 사람마다 나누지 않고 한 줄 (내용은 본인만 · ADR-0011)
 MAX_DAYS = 366
@@ -35,7 +35,7 @@ COLUMNS = (
     "run_id", "started_at", "finished_at", "status", "error_code", "user_id", "org_id", "space_id", "model", "model_label",
     "provider", "input_tokens", "output_tokens", "reasoning_tokens", "requests", "tool_calls", "cost_usd", "duration_ms",
     "cache_read_tokens", "cache_write_tokens", "cost_input_usd", "cost_output_usd", "cost_reasoning_usd", "cost_cache_read_usd",
-    "cost_cache_write_usd", "cost_estimated", "project_id",
+    "cost_cache_write_usd", "cost_estimated", "project_id", "key_id", "source",
 )
 # 종류 = 겹치지 않는 토큰 묶음 (화면의 비용 분해 · 모델 사용량). 순서 = 막대 왼쪽부터
 KINDS = ("input", "output", "reasoning", "cache_read", "cache_write")
@@ -45,6 +45,8 @@ ADDED_COLUMNS = (
     *((f"cost_{k}_usd", "REAL") for k in KINDS),
     ("cost_estimated", "INTEGER"),  # 1 = 캐시 가격을 몰라 입력 가격으로 어림
     ("project_id", "TEXT"),  # 실행이 닫힐 때 그 대화의 프로젝트 (NULL = 프로젝트 밖 · 더할 때 옛 줄은 지금 대화의 프로젝트로 채운다)
+    ("key_id", "TEXT"),  # API 키로 부른 호출 (ADR-0017 · NULL = 앱)
+    ("source", "TEXT"),  # app (데스크톱 대화) | api (/v1 · 키) · 옛 줄 = NULL (app 으로 읽는다)
 )
 
 SCHEMA = """
@@ -75,7 +77,9 @@ CREATE TABLE IF NOT EXISTS usage_events (
   cost_cache_read_usd  REAL,
   cost_cache_write_usd REAL,
   cost_estimated       INTEGER,
-  project_id           TEXT
+  project_id           TEXT,
+  key_id               TEXT,
+  source               TEXT
 );
 CREATE INDEX IF NOT EXISTS usage_at ON usage_events (started_at);
 CREATE INDEX IF NOT EXISTS usage_org ON usage_events (org_id, started_at);
@@ -84,7 +88,10 @@ CREATE INDEX IF NOT EXISTS usage_user ON usage_events (user_id, started_at);
 CREATE INDEX IF NOT EXISTS usage_model ON usage_events (model, started_at);
 """
 # 더한 칸의 색인 (새 DB = Store 가 열 때 · 옛 표 = ensure_columns 가 칸을 더할 때)
-ADDED_INDEXES = "CREATE INDEX IF NOT EXISTS usage_project ON usage_events (project_id, started_at)"
+ADDED_INDEXES = (
+    "CREATE INDEX IF NOT EXISTS usage_project ON usage_events (project_id, started_at);"
+    "CREATE INDEX IF NOT EXISTS usage_key ON usage_events (key_id, started_at);"
+)
 
 
 # ── 기록 (store.finish_run · 옛 DB 채우기 · 꺼진 뒤 닫은 실행) ──
@@ -167,6 +174,7 @@ def usage_event(run: Mapping[str, Any], gateway_info: Mapping[str, Any] | None) 
         **{f"cost_{k}_usd": cost["parts"][k] if cost else None for k in KINDS},
         "cost_estimated": int(cost["estimated"]) if cost else None,
         "project_id": run["project_id"] if "project_id" in run.keys() else None,  # record 가 대화의 프로젝트를 붙여 준다
+        "key_id": None, "source": "app",
     }
 
 
@@ -188,13 +196,22 @@ def ensure_columns(db: sqlite3.Connection) -> list[str]:
                 "UPDATE usage_events SET project_id = (SELECT t.project_id FROM runs r JOIN threads t ON t.id = r.thread_id"
                 " WHERE r.id = usage_events.run_id)"
             )
-            db.execute(ADDED_INDEXES)
+        add_indexes(db)
     except BaseException:
         db.execute("ROLLBACK TO usage_columns")
         db.execute("RELEASE usage_columns")
         raise
     db.execute("RELEASE usage_columns")
     return [n for n, _ in missing]
+
+
+def add_indexes(db: sqlite3.Connection) -> None:
+    """더한 칸의 색인 (칸이 있는 것만 · 몇 번이든 같은 결과)."""
+    have = {r[1] for r in db.execute("PRAGMA table_info(usage_events)")}
+    for sql in (x.strip() for x in ADDED_INDEXES.split(";")):
+        col = sql[sql.index("(") + 1:].split(",")[0].strip() if sql else ""
+        if sql and col in have:
+            db.execute(sql)
 
 
 def _split_old_costs(db: sqlite3.Connection) -> None:
@@ -246,6 +263,30 @@ def record(db: sqlite3.Connection, run_id: str) -> bool:
         tuple(ev[c] for c in COLUMNS),
     )
     return cur.rowcount > 0
+
+
+def record_api(db: sqlite3.Connection, ev: Mapping[str, Any], gateway_info: Mapping[str, Any] | None) -> None:
+    """/v1 호출 한 번 = 한 줄 (ADR-0017 · 대화 · 실행 기록 없음 · 숫자만). ev = run_id · started_at · finished_at · status · error_code ·
+    user_id · org_id · key_id · model · model_label · provider · duration_ms · usage(OpenAI 모양 dict | None)."""
+    ensure_columns(db)
+    u = ev.get("usage") or {}
+    tin, tout = _int(u.get("prompt_tokens")), _int(u.get("completion_tokens"))
+    pd, cd = u.get("prompt_tokens_details") or {}, u.get("completion_tokens_details") or {}
+    cr = _int(pd.get("cached_tokens") if isinstance(pd, dict) else None) or _int(u.get("cache_read_input_tokens"))
+    cw = _int(u.get("cache_creation_input_tokens"))
+    think = _int(cd.get("reasoning_tokens") if isinstance(cd, dict) else None)
+    cost = cost_parts(gateway_info or {}, tin, tout, think, cr, cw) if tin is not None else None
+    row = {
+        "run_id": ev["run_id"], "started_at": ev["started_at"], "finished_at": ev.get("finished_at"), "status": ev["status"],
+        "error_code": ev.get("error_code"), "user_id": ev["user_id"], "org_id": ev.get("org_id"), "space_id": None,
+        "model": ev["model"], "model_label": ev["model_label"], "provider": ev["provider"],
+        "input_tokens": tin, "output_tokens": tout, "reasoning_tokens": think, "requests": 1, "tool_calls": 0,
+        "cost_usd": cost["total"] if cost else None, "duration_ms": ev.get("duration_ms"),
+        "cache_read_tokens": (cr or 0) if tin is not None else None, "cache_write_tokens": (cw or 0) if tin is not None else None,
+        **{f"cost_{k}_usd": cost["parts"][k] if cost else None for k in KINDS},
+        "cost_estimated": int(cost["estimated"]) if cost else None, "project_id": None, "key_id": ev["key_id"], "source": "api",
+    }
+    db.execute(f"INSERT OR IGNORE INTO usage_events ({', '.join(COLUMNS)}) VALUES ({', '.join('?' * len(COLUMNS))})", tuple(row[c] for c in COLUMNS))
 
 
 def backfill(db: sqlite3.Connection) -> int:
@@ -317,6 +358,7 @@ class Filters:
     user: str | None = None
     model: str | None = None
     project: str | None = None  # 'none' = 프로젝트 밖
+    key: str | None = None  # API 키 id ('none' = 앱에서 한 대화)
 
     def sql(self) -> tuple[str, list[Any]]:
         where, params = [], []
@@ -334,6 +376,11 @@ class Filters:
         if self.model:
             where.append("u.model = ?")
             params.append(self.model)
+        if self.key == NO_PROJECT:
+            where.append("u.key_id IS NULL")
+        elif self.key:
+            where.append("u.key_id = ?")
+            params.append(self.key)
         if self.project == NO_PROJECT:
             where.append("u.project_id IS NULL")
         elif self.project:
@@ -357,6 +404,7 @@ _KEY: dict[Group, str] = {
     "user": "u.user_id",
     "model": "u.model",
     "project": f"COALESCE(u.project_id, '{NO_PROJECT}')",
+    "key": f"COALESCE(u.key_id, '{NO_PROJECT}')",
 }
 
 
@@ -462,6 +510,11 @@ def _labels(db: sqlite3.Connection, group: Group, keys: list[str], w: Window, mo
     if group == "user":
         rows = db.execute(f"SELECT id, display_name, email, status FROM users WHERE id IN ({marks})", keys)
         return {r["id"]: {"label": r["display_name"], "sub": r["email"], "status": r["status"]} for r in rows}
+    if group == "key":
+        out = {NO_PROJECT: {"label": None, "kind": "app"}}  # 이름은 화면이 정한다 (앱에서 한 대화)
+        rows = db.execute(f"SELECT id, name, hint, revoked_at FROM api_keys WHERE id IN ({marks})", keys)
+        out |= {r["id"]: {"label": r["name"], "sub": r["hint"], "kind": "revoked" if r["revoked_at"] else "key"} for r in rows}
+        return out
     if group == "project":
         out = {NO_PROJECT: {"label": None, "kind": "none"}}  # 이름은 화면이 정한다 (프로젝트 밖)
         rows = db.execute(

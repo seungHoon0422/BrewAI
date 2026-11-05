@@ -6,8 +6,8 @@ import { KIND_LABEL } from '../scope/copy';
 const ORG = KIND_LABEL.org;
 const S = KIND_LABEL.space;
 
-export type DirectoryTab = 'people' | 'orgs' | 'spaces' | 'invites';
-export const DIRECTORY_TABS: readonly DirectoryTab[] = ['people', 'orgs', 'spaces', 'invites'];
+export type DirectoryTab = 'people' | 'orgs' | 'spaces' | 'invites' | 'keys';
+export const DIRECTORY_TABS: readonly DirectoryTab[] = ['people', 'orgs', 'spaces', 'invites', 'keys'];
 
 export const PROVIDER_TEXT: Record<string, string> = { password: '비밀번호', google: 'Google' };
 export const STATUS_TEXT: Record<UserStatus, string> = { active: '활성', disabled: '비활성' };
