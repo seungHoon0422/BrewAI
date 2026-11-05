@@ -17,6 +17,7 @@
 - (아이디어·요청을 한 줄씩. 다음 `/start` 때 처리하고 지운다)
 
 ## 🕘 최근 기록
+- 2026-11-05 · 클라우드 · 사이드바 프로젝트 묶음: 프로젝트 대화는 그 프로젝트 줄 아래 (▸ 펼치기 · 최근 5개 + 모두 보기 · 지금 연 대화의 프로젝트는 저절로 펼침 · 펼친 것 기억) · '최근' = 프로젝트 밖 대화만 · 설정 › 사용량 (내 계정 묶음 · GET /api/me/usage = 나만 · 호출 · 토큰 · 추정 비용 · 캐시 · 하루별 · 모델별 · 스페이스별 · 7/30/90일) · E2E projects · spaces · chat-folder · chat-files · desktop · chat-copy 통과 · pytest 622
 - 2026-11-05 · 클라우드 · 관리자 문서 › 보드: 👤 내가 할 일 · ❓ 컨펌 필요 없앰 · 칸반이 맨 위 · 열 4개 (진행 중 파랑 · 다음 주황 · 나중 회색 · 완료 초록 작게) · 상태 = HANDOFF Phase '(slice NN) 구현' + roadmap slice_hint (07 파일 · 08 문서 · 09 로컬 폴더 · 10 샌드박스 + 승인 · 11 trace 로 번호 맞춤) · 모델: 게이트웨이에서 사라진 모델 [삭제] (목록 연결 칸 · 자세히 머리 · DELETE /api/admin/models/{id} · 사용량 기록은 남음) · 자세히 = 탭 개요 · 사용량 · E2E admin 55 · pytest 621
 - 2026-11-05 · 클라우드 · 로컬 폴더(slice 09 · ADR-0016 · 승인 카드는 10 으로 미룸): 프로젝트 화면 [로컬 폴더 연결] (Electron 폴더 대화상자 · `pick-folder.cjs`) → `PUT /api/projects/{id}/folder` (집 폴더 안 · 숨김 X · 이 PC 만 · `project_folders` 사람마다) → 그 프로젝트 대화에만 folder_list · folder_read · folder_search (팀원도) · 폴더 밖 · 링크 · .env · 키 · .git = 막힘 · 모델엔 폴더 이름만 · eval `p1-folder-secret` · E2E `chat-folder.spec.ts` (리눅스 xvfb 에서 chat-folder · projects · chat-files 14/14) · pytest 621 · 맥 · 윈도우 전체 E2E 는 아직
 - 2026-11-04 · 회사 맥 · 문서 디자인 4종 (깔끔 · 보고서 · 모던 · 따뜻함 · designs.py 한 표를 docx · pptx · pdf · xlsx 가 따름) + 꾸밈 블록 (표지 · 숫자 카드 · 강조 상자 · 인용 · 구분선 · 두 단 · PPT 장 구분 · 큰 숫자 · 두 단) · GET /api/designs + 견본 그림 · 설정 › 스킬 '문서 디자인' · 도구 카드 두 단계 (머리 줄 → 입력 · 결과) · E2E 255 · pytest 573

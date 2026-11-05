@@ -1,6 +1,6 @@
 import { test, expect, type ElectronApplication, type Page } from '@playwright/test';
 import { launchDesktop, poolUser, userApi, type Client, type Me, type NewUser } from './auth';
-import { expectHeading, shot } from './helpers';
+import { expectHeading, goHash, shot } from './helpers';
 
 // 프로젝트 (조직 > 스페이스 > 프로젝트 > 대화): 지금 스페이스의 묶음 + 지침. 지침은 그 프로젝트 대화마다 시스템 프롬프트 뒤에 붙는다.
 // mock 게이트웨이 [fake:system] = 답 끝에 ', 지침: <system 마지막 줄>' → 지침이 모델까지 갔는지 본다.
@@ -59,7 +59,7 @@ test('사이드바 프로젝트 = 지금 스페이스의 프로젝트 · [+ 새 
   await expect(head).toContainText('매주 금요일 보고');
   await expect(head).toContainText(`${user.display_name} 님이 만듦`);
   await expect(head).toContainText('지침 있음');
-  await expect(projects(win).getByRole('button', { name: NAME })).toHaveAttribute('aria-current', 'true');
+  await expect(projects(win).getByRole('button', { name: NAME, exact: true })).toHaveAttribute('aria-current', 'true');
   await expect(box(win)).toHaveAttribute('placeholder', `'${NAME}'에 새 대화`);
   await expect(win.locator('.proj')).toContainText('아직 대화가 없어요. 위에서 시작하면 이 프로젝트에 들어가요');
 
@@ -79,12 +79,20 @@ test('프로젝트 안에서 시작한 대화 = 그 프로젝트 · 지침이 �
   await expect(crumbs(win).nth(0)).toHaveAttribute('data-kind', 'space');
   await expect(crumbs(win).nth(1)).toHaveAttribute('data-kind', 'project');
   await expect(crumbs(win).nth(1)).toContainText(NAME);
-  await expect(projects(win).getByRole('button', { name: NAME })).not.toHaveAttribute('aria-current', 'true'); // 대화를 보는 중
+  await expect(projects(win).getByRole('button', { name: NAME, exact: true })).not.toHaveAttribute('aria-current', 'true'); // 대화를 보는 중
+  // 사이드바: 프로젝트 대화는 그 프로젝트 아래 묶음 (지금 연 대화의 프로젝트 = 저절로 펼침) · '최근' 에는 없다
+  const group = side(win).getByRole('list', { name: `${NAME} 대화` });
+  await expect(group.getByRole('button', { name: '[fake:system] 이번 주 숫자' })).toHaveAttribute('aria-current', 'true');
+  await expect(side(win).getByRole('list', { name: '최근' }).getByRole('button', { name: '[fake:system] 이번 주 숫자' })).toHaveCount(0);
+  await side(win).getByRole('button', { name: `${NAME} 대화` }).click(); // 접기
+  await expect(group).toHaveCount(0);
+  await side(win).getByRole('button', { name: `${NAME} 대화` }).click(); // 펼치기
+  await expect(group).toBeVisible();
   await win.screenshot({ path: shot('desktop-project-thread') });
   // 사이드바 프로젝트 → 프로젝트 화면 (그 대화가 목록에)
-  await projects(win).getByRole('button', { name: NAME }).click();
+  await projects(win).getByRole('button', { name: NAME, exact: true }).click();
   await expectHeading(win, NAME);
-  await expect(win.getByRole('list', { name: '대화' })).toContainText('[fake:system] 이번 주 숫자');
+  await expect(win.getByRole('list', { name: '대화', exact: true })).toContainText('[fake:system] 이번 주 숫자');
   await win.screenshot({ path: shot('desktop-project-view') });
 });
 
@@ -105,6 +113,9 @@ test('프로젝트 밖 대화엔 지침이 없다 → 칩으로 프로젝트에 
   // 옮긴 뒤 묻는 말엔 지침이 붙는다 (서버가 대화의 프로젝트를 DB 에서 읽는다)
   const after = await ask(win, '[fake:system] 옮긴 뒤');
   await expect(after).toContainText(`, 지침: ${RULE}`);
+  // 옮긴 대화 = 사이드바에서도 그 프로젝트 아래로
+  await expect(side(win).getByRole('list', { name: `${NAME} 대화` }).getByRole('button', { name: '[fake:system] 밖에서 묻기' })).toBeVisible();
+  await expect(side(win).getByRole('list', { name: '최근' }).getByRole('button', { name: '[fake:system] 밖에서 묻기' })).toHaveCount(0);
 
   const threads = await api.get<{ title: string; project_id: string | null; path: { kind: string }[] }[]>(`/api/threads?project=${projectId}`);
   const moved = threads.find((t) => t.title === '[fake:system] 밖에서 묻기')!;
@@ -113,7 +124,7 @@ test('프로젝트 밖 대화엔 지침이 없다 → 칩으로 프로젝트에 
 });
 
 test('설정 서랍: 지침을 바꾸면 다음 답부터 새 지침 · 두 번째 프로젝트로 옮기기', async () => {
-  await projects(win).getByRole('button', { name: NAME }).click();
+  await projects(win).getByRole('button', { name: NAME, exact: true }).click();
   await expectHeading(win, NAME);
   await win.getByRole('button', { name: '프로젝트 설정' }).click();
   const sheet = win.getByRole('dialog', { name: '프로젝트 설정' });
@@ -128,8 +139,8 @@ test('설정 서랍: 지침을 바꾸면 다음 답부터 새 지침 · 두 번�
   // 두 번째 프로젝트 (API) → 이 대화를 거기로
   const other = await api.post<{ id: string }>(`/api/spaces/${api.me.personal_space_id}/projects`, { name: OTHER });
   await win.reload(); // 사이드바 목록을 다시 읽는다
-  await projects(win).getByRole('button', { name: NAME }).click();
-  await win.getByRole('list', { name: '대화' }).getByRole('button', { name: /새 지침 확인/ }).click();
+  await projects(win).getByRole('button', { name: NAME, exact: true }).click();
+  await win.getByRole('list', { name: '대화', exact: true }).getByRole('button', { name: /새 지침 확인/ }).click();
   await win.locator('.composer .composer-ctx').getByRole('button', { name: new RegExp(NAME) }).click();
   await win.getByRole('menu', { name: '이 대화를 옮길 프로젝트' }).getByRole('menuitemradio', { name: OTHER }).click();
   await expect(crumbs(win).nth(1)).toContainText(OTHER);
@@ -153,4 +164,21 @@ test('다른 스페이스의 프로젝트로는 못 옮긴다 (409 project_in_ot
   expect((await bob.raw('PATCH', `/api/projects/${far.id}`, { name: '밥이 바꿈' })).status).toBe(403);
   // 내 스페이스의 프로젝트는 남에게 아예 안 보인다
   expect((await bob.raw('GET', `/api/projects/${projectId}`)).status).toBe(404);
+});
+
+test('설정 › 사용량 = 내 호출 · 토큰 (API 와 같은 숫자) · 모델별 · 스페이스별 · 기간 바꾸기', async () => {
+  await goHash(win, '#/settings/usage');
+  await expectHeading(win, '사용량');
+  const now = new Date();
+  const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const start = new Date(now);
+  start.setDate(start.getDate() - 29);
+  const mine = await api.get<{ totals: { runs: number } }>(`/api/me/usage?from=${ymd(start)}&to=${ymd(now)}&tz=${-now.getTimezoneOffset()}`);
+  expect(mine.totals.runs).toBeGreaterThan(0); // 위 테스트들이 묻은 것
+  await expect(win.locator('[data-kpi="runs"] .ui-stat-value')).toHaveText(mine.totals.runs.toLocaleString('ko-KR'));
+  await expect(win.getByRole('list', { name: '모델별' }).getByRole('listitem')).not.toHaveCount(0);
+  await expect(win.getByRole('list', { name: '스페이스별' })).toContainText('내 스페이스');
+  await win.getByRole('radiogroup', { name: '기간' }).getByRole('radio', { name: '7일' }).click();
+  await expect(win.locator('[data-kpi="runs"]')).toContainText('지난 7일 대비');
+  await win.screenshot({ path: shot('desktop-settings-usage'), fullPage: true });
 });

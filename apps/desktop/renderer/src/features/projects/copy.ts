@@ -43,6 +43,9 @@ export const PROJECTS = {
   newChat: '새 대화',
   threadsEmpty: `아직 대화가 없어요. 위에서 시작하면 이 ${P}에 들어가요`,
   composerHint: (name: string) => `'${name}'에 새 대화`,
+  // 사이드바 프로젝트 묶음
+  chatsOf: (name: string) => `${name} 대화`, // e2e 계약 (펼치기 버튼 · 묶음 list 이름)
+  allChats: (n: number) => `모두 보기 (${n}개)`,
 } as const;
 
 // 로컬 폴더 (slice 09) — 이 PC 폴더를 연결하면 이 프로젝트 대화에서 읽을 수 있다 (읽기만)

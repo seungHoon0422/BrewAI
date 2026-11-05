@@ -9,6 +9,7 @@
   GET    /api/models                 노출 모델만 · 기본 모델이 첫 항목(is_default) · 나머지는 관리자 순서
                                      + source(config|ui|mixed|null = 등록 출처) · health(ok|error|unknown) · health_code · health_at
                                        (마지막 연결 결과. error 여도 목록에 남고 고를 수 있다 — 화면은 경고만)
+  GET    /api/me/usage?from&to&tz&group=day|model|space&limit&sort   내 사용량 (관리자 /api/admin/usage 와 같은 모양 · 나로 고정)
   GET    /api/tools                  conductor 툴 [{name, label, description}] (내장 툴은 없다 · 스킬이 있으면 use_skill · 문서 스킬이 있으면 make_file · MCP 앱 도구는 앱마다
                                      · 로컬 폴더가 켜진 이 PC 요청이면 folder_list · folder_read · folder_search)
   GET    /api/skills                 제품 스킬 (runtime/skills) [{name, label, description, tools, builtin, used}] (단계 skill:<name>)
@@ -97,6 +98,7 @@ from . import docmake as dm
 from . import localfs as lfs
 from .tools import SKILL_TOOLS, tool_label
 from .store import Store, StoreConflict
+from . import usage as usage_mod
 from .usage import health_state as usage_health
 
 ADMIN_PREFIX = "/api/admin/"
@@ -548,6 +550,29 @@ def create_app(
             extra += [{"name": n, "label": tool_label(n), "description": d}
                       for n, d in zip(lfs.FOLDER_TOOLS, (lfs.LIST_DESC, lfs.READ_DESC, lfs.SEARCH_DESC), strict=True)]
         return [{"name": t.name, "label": t.label, "description": t.description} for t in runtime.tools] + extra
+
+    # 내 사용량 (설정 › 사용량 · 숫자만 · 나만): 관리자 /api/admin/usage 와 같은 모양 · 거르개 = 나 (user) 고정 · 묶음 = 하루 · 모델 · 스페이스
+    @user.get("/api/me/usage")
+    def my_usage(
+        request: Request, p: Principal = Depends(require_user),
+        start: str | None = Query(None, alias="from", max_length=10), end: str | None = Query(None, alias="to", max_length=10),
+        tz: int = Query(0, ge=-720, le=840), group: Literal["day", "model", "space"] = Query("day"),
+        limit: int = Query(20, ge=1, le=50), sort: usage_mod.Sort = Query("runs"),
+    ) -> dict[str, Any]:
+        try:
+            w = usage_mod.window(start, end, tz=tz, now=accounts.clock())
+        except usage_mod.BadRange as e:
+            raise Denied(422, str(e)) from e
+        labels = {r.gateway_id: r.label for r in registry.rows()}
+        with store.read() as db:
+            out = usage_mod.summary(db, w, usage_mod.Filters(user=p.user_id), group, limit=limit, model_labels=labels, sort=sort)
+        out["filters"] = {}  # 내 id 는 돌려주지 않는다 (화면에 필요 없음)
+        for g in out["groups"]:
+            g.pop("active_users", None)
+        out["totals"].pop("active_users", None)
+        if out["previous"]:
+            out["previous"].pop("active_users", None)
+        return out
 
     @user.get("/api/skills")
     async def list_skills() -> list[dict[str, Any]]:

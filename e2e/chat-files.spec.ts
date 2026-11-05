@@ -172,7 +172,7 @@ test('프로젝트 파일: 프로젝트 화면에서 올리기 → 칩 · 목록
   const fresh = await launchDesktop(); // 새 창 = 사이드바가 새 프로젝트를 읽는다
   try {
     await expectHeading(fresh.win, HOME_H1);
-    await fresh.win.getByRole('complementary', { name: '사이드바' }).getByRole('list', { name: '프로젝트' }).getByRole('button', { name: PROJECT }).click();
+    await fresh.win.getByRole('complementary', { name: '사이드바' }).getByRole('list', { name: '프로젝트' }).getByRole('button', { name: PROJECT, exact: true }).click();
     await expectHeading(fresh.win, PROJECT);
     await fresh.win.locator('[data-testid="project-file-input"]').setInputFiles([{ name: '사양.md', mimeType: 'text/markdown', buffer: Buffer.from('# 사양\n\n무게 1.2kg') }]);
     const files = fresh.win.getByRole('region', { name: '프로젝트 파일' });

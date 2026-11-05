@@ -54,7 +54,7 @@ test.afterAll(async () => {
 });
 
 test('프로젝트 화면 [로컬 폴더 연결] → 폴더 이름 · 경로 · 읽기만', async () => {
-  await projects(win).getByRole('button', { name: NAME }).click();
+  await projects(win).getByRole('button', { name: NAME, exact: true }).click();
   await expectHeading(win, NAME);
   await row(win).getByRole('button', { name: '로컬 폴더 연결' }).click();
   await expect(row(win)).toContainText(path.basename(SHOP));
@@ -79,7 +79,7 @@ test('그 프로젝트 대화 = 폴더 검색 · 읽기 도구 · .env 는 막�
 });
 
 test('[연결 끊기] → 다음 대화엔 폴더 도구가 없다', async () => {
-  await projects(win).getByRole('button', { name: NAME }).click();
+  await projects(win).getByRole('button', { name: NAME, exact: true }).click();
   await expectHeading(win, NAME);
   await row(win).getByRole('button', { name: '연결 끊기' }).click();
   await expect(row(win).getByRole('button', { name: '로컬 폴더 연결' })).toBeVisible();

@@ -1,4 +1,4 @@
-// 사이드바 (256px · 흰 면) — 머리(스페이스 전환기 · 검색 · 접기) · 새 대화 · 프로젝트 · 최근 대화 · 아래 계정 칩.
+// 사이드바 (256px · 흰 면) — 머리(스페이스 전환기 · 검색 · 접기) · 새 대화 · 프로젝트(그 대화 묶음) · 최근 대화(프로젝트 밖) · 아래 계정 칩.
 // 설정 화면에선 머리(설정 · 접기) + 설정 세부 메뉴. 목록은 각 기능의 부품이 그린다. 어디로 갈지는 app/navigate.ts
 import { Icon, IconButton } from '@brewai/ui';
 import { menuOf, type RouteId } from '../../../app/menu';
@@ -41,7 +41,7 @@ export function Sidebar({ open, onClose, onError, route, thread, project }: {
           <button className="row-btn" type="button" onClick={startChat}>
             <Icon name="pen" />{SHELL.newChat}
           </button>
-          <ProjectList current={project} onOpen={openProject} />
+          <ProjectList current={project} thread={thread} onOpen={openProject} onOpenThread={openChat} />
           <RecentList current={thread} onOpen={openChat} />
         </>
       )}

@@ -14,6 +14,7 @@ import { Rail } from '../features/shell/components/Rail';
 import { Sidebar } from '../features/shell/components/Sidebar';
 import { Titlebar } from '../features/shell/components/Titlebar';
 import { SkillsScreen } from '../features/skills/components/SkillsScreen';
+import { UsageScreen } from '../features/usage/components/UsageScreen';
 import { boot } from './boot';
 import { menuOf, type RouteId } from './menu';
 import { useRoute } from './router';
@@ -25,6 +26,7 @@ const PAGES: Record<RouteId, ComponentType> = {
   files: FilesScreen,
   'settings/account': AccountScreen,
   'settings/general': GeneralScreen,
+  'settings/usage': UsageScreen,
   'settings/model': ModelScreen,
   'settings/skills': SkillsScreen,
   'settings/connections': ConnectionsScreen,

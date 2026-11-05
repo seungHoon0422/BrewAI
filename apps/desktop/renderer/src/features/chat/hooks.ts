@@ -59,7 +59,7 @@ watchScope((s) => s.spaceId, () => {
   void loadThreads();
 });
 
-export type RecentItem = { id: string; title: string; running: boolean; at: string; mine: boolean; owner: string | null; shared: boolean };
+export type RecentItem = { id: string; title: string; running: boolean; at: string; mine: boolean; owner: string | null; shared: boolean; project: string | null };
 // 서버 목록(완료된 턴이 있는 대화) + 아직 서버에 없는 이 창의 새 대화(첫 답을 쓰는 중, 지금 스페이스 것만) — 새 것이 위
 export function recents(s: Pick<ChatState, 'threads' | 'convs'>, spaceId: string | null): RecentItem[] {
   const out: RecentItem[] = [];
@@ -68,13 +68,15 @@ export function recents(s: Pick<ChatState, 'threads' | 'convs'>, spaceId: string
   for (const c of Object.values(s.convs)) {
     // 실패만 한 대화도 남긴다 (서버엔 없지만 이 창에서 다시 시도할 수 있다)
     if (c.load !== 'local' || !c.turns.length || c.scope.space_id !== spaceId || s.threads.list.some((t) => t.id === c.id)) continue;
-    out.push({ id: c.id, title: c.title, running: live(c.id), at: new Date(c.turns[0].answer.startedAt).toISOString(), mine: true, owner: null, shared: false });
+    out.push({ id: c.id, title: c.title, running: live(c.id), at: new Date(c.turns[0].answer.startedAt).toISOString(), mine: true, owner: null, shared: false,
+      project: c.scope.project_id });
     seen.add(c.id);
   }
   out.sort((a, b) => b.at.localeCompare(a.at));
   for (const t of s.threads.list) {
     if (seen.has(t.id)) continue;
-    out.push({ id: t.id, title: t.title, running: t.running || live(t.id), at: t.updated_at, mine: t.mine, owner: t.owner_name, shared: t.visibility === 'shared' });
+    out.push({ id: t.id, title: t.title, running: t.running || live(t.id), at: t.updated_at, mine: t.mine, owner: t.owner_name, shared: t.visibility === 'shared',
+      project: t.project_id });
   }
   return out;
 }

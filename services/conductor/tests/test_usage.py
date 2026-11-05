@@ -413,3 +413,19 @@ async def test_catalog_reads_cache_prices_from_model_info(h) -> None:
     assert models["fake-chat-large"].cache_creation_input_token_cost == 3.75e-6
     assert models["fake-embed"].cache_read_input_token_cost is None  # 음수 = 모름
     assert models["fake-chat-small"].row()["cache_read_input_token_cost"] == 7.5e-8  # model_exposure 스냅샷에 들어간다
+
+
+def test_my_usage_is_only_mine(make_api, h) -> None:
+    """설정 › 사용량 (GET /api/me/usage): 로그인한 사람 것만 · 묶음 = 하루 · 모델 · 스페이스 · 남의 실행 · 관리자 묶음은 없다."""
+    api, b_id, team, _ = setup(make_api, h)
+    b = api.login("b@brewai.test")
+    mine = b.get("/api/me/usage", params={"group": "space"}).json()
+    assert (mine["totals"]["runs"], mine["totals"]["errors"]) == (2, 1)  # b 의 두 실행 (관리자 2개는 안 셈)
+    assert [(g["key"], g["label"]) for g in mine["groups"]] == [(team["id"], "팀")]
+    assert mine["filters"] == {} and "active_users" not in mine["totals"] and b_id not in json.dumps(mine)
+    admin = api.client.get("/api/me/usage", params={"group": "model"}).json()
+    assert admin["totals"]["runs"] == 2 and sorted(g["key"] for g in admin["groups"]) == ["fake-chat-large", "fake-chat-small"]
+    assert len(api.client.get("/api/me/usage").json()["series"]) == 7  # 기본 = 7일 하루별
+    assert b.get("/api/me/usage", params={"group": "user"}).status_code == 422  # 사람별 · 조직별 묶음은 관리자만
+    assert api.anon().get("/api/me/usage").status_code == 401
+    assert SECRET_PROMPT not in json.dumps(admin, ensure_ascii=False)

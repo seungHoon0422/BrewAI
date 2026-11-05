@@ -20,7 +20,7 @@ const CHAT = MENU[0];
 const SETTINGS = MENU[4];
 // 설정 세부 메뉴 계약: 사이드바 자리 · 묶음(영역)마다 순서 그대로 · 스킬 · 연결된 앱은 여기 안에
 const GROUPS: { label: string; items: MenuItem[] }[] = [
-  { label: '내 계정', items: [{ id: 'settings/account', label: '계정' }, { id: 'settings/general', label: '일반' }] },
+  { label: '내 계정', items: [{ id: 'settings/account', label: '계정' }, { id: 'settings/general', label: '일반' }, { id: 'settings/usage', label: '사용량' }] },
   { label: 'AI 작업', items: [{ id: 'settings/model', label: '모델' }, { id: 'settings/skills', label: '스킬' }, { id: 'settings/connections', label: '연결된 앱' }] },
   { label: '정보', items: [{ id: 'settings/about', label: '앱 정보' }] },
 ];
