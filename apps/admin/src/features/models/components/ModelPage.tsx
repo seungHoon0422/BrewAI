@@ -1,6 +1,7 @@
 import { useId, useRef, useState, type ReactNode } from 'react';
 import {
-  Button, Callout, Card, CardHeader, EmptyState, IconButton, KeyValue, LinkButton, PageHeader, ProviderIcon, Skeleton, Switch, providerLabel,
+  Button, Callout, Card, CardHeader, Dialog, EmptyState, IconButton, KeyValue, LinkButton, PageHeader, ProviderIcon, Skeleton, Switch, Tabs,
+  providerLabel,
 } from '@brewai/ui';
 import { ModelUsage } from '../../usage/components/ModelUsage';
 import type { AdminModel, GatewayInfo } from '../api';
@@ -15,11 +16,14 @@ import { DefaultBadge, DupBadge, NameEditor, SourceBadge, StateBadge } from './N
 
 // 모델 자세히 페이지 ('#/models/<gateway_id>' — 링크로 바로 · 뒤로 · 앞으로). 위 줄(← 모델 목록 · 세션)은 틀(App.tsx)이 그린다.
 // 머리 = 제공사 아이콘 · 보이는 이름(h1) / 실제 모델 이름(고정폭 · 옅게) · 딱지 · 오른쪽에 [노출] [기본 모델로 정하기] [연결 테스트].
-// 몸 = 두 칸 (≥1100 · 좁으면 한 칸): 왼쪽 = 사용자 앱(여기서 정하는 것) · 연결 / 오른쪽 = 게이트웨이 값(읽기 전용 · LiteLLM 에서 바꾼다).
-// 아래 = 사용량 (한 줄 가득 · features/usage ModelUsage — 캐시 토큰 · 종류별 비용 · Top 5 조직과 사용자)
+// 몸 = 탭 둘: 개요 = 두 칸 (≥1100 · 좁으면 한 칸): 왼쪽 = 사용자 앱(여기서 정하는 것) · 연결 / 오른쪽 = 게이트웨이 값(읽기 전용 · LiteLLM 에서 바꾼다)
+// · 사용량 = features/usage ModelUsage (캐시 토큰 · 종류별 비용 · Top 5 조직과 사용자). 게이트웨이에서 사라진 모델 = 머리에 [삭제] (확인 창)
 // 입력칸 = 표시 이름 바꿀 때 하나뿐 (가격 · 제공사 · 컨텍스트 입력칸 없음 — e2e admin.spec)
+type PageTab = 'overview' | 'usage';
+
 export function ModelPage({ id, api, view }: ModelPanelProps & { id: string }) {
   const h1 = useRef<HTMLHeadingElement>(null);
+  const [tab, setTab] = useState<PageTab>('overview');
   const m = api.rows.find((r) => r.id === id) ?? null;
   const idLine = <code className="mid" title={COPY.gatewayId}>{id}</code>;
 
@@ -70,17 +74,22 @@ export function ModelPage({ id, api, view }: ModelPanelProps & { id: string }) {
         </Callout>
       )}
 
-      <div className="mgrid">
-        <div className="mcol">
-          <AppCard m={m} rows={api.rows} dup={view.dupOf(m)} busy={busy} api={api} />
-          <HealthCard m={m} test={test} now={api.now} gateway={api.gateway} />
-        </div>
-        <div className="mcol">
-          <GatewayCard m={m} now={api.now} gateway={api.gateway} />
-        </div>
-      </div>
-
-      <ModelUsage id={m.id} />
+      <Tabs className="mpage-tabs" label={COPY.page.tabs} value={tab} onChange={setTab}
+        items={[{ id: 'overview', label: COPY.page.tabOverview }, { id: 'usage', label: COPY.page.tabUsage }]}>
+        {tab === 'overview' ? (
+          <div className="mgrid">
+            <div className="mcol">
+              <AppCard m={m} rows={api.rows} dup={view.dupOf(m)} busy={busy} api={api} />
+              <HealthCard m={m} test={test} now={api.now} gateway={api.gateway} />
+            </div>
+            <div className="mcol">
+              <GatewayCard m={m} now={api.now} gateway={api.gateway} />
+            </div>
+          </div>
+        ) : (
+          <ModelUsage id={m.id} />
+        )}
+      </Tabs>
     </div>
   );
 }
@@ -99,8 +108,24 @@ function HeadTags({ m, dup }: { m: AdminModel; dup: Dup }) {
 // 머리 오른쪽: 여기서 자주 하는 일 셋. 노출 · 기본은 표와 같은 규칙 (대화 모델 · 게이트웨이에 있는 것만 노출 · 노출한 것만 기본)
 function HeadActions({ m, busy, test, api }: { m: AdminModel; busy: boolean; test: TestState | undefined; api: ModelsApi }) {
   const exposeWhy = !m.is_chat ? COPY.notChat : m.status === 'missing' ? COPY.missing : COPY.page.exposeTitle;
+  const [asking, setAsking] = useState(false);
+  const remove = async () => {
+    if (await api.remove(m)) window.location.replace(tabHref('list'));
+    else setAsking(false);
+  };
   return (
     <div className="mhead-act">
+      {m.status === 'missing' && (
+        <>
+          <Button size="sm" variant="danger" icon="trash" disabled={busy} title={COPY.page.deleteTitle} onClick={() => setAsking(true)}>{COPY.page.delete}</Button>
+          <Dialog size="sm" open={asking} onClose={() => setAsking(false)} title={COPY.page.deleteAsk(m.label)} description={COPY.page.deleteBody}
+            footer={<>
+              <Button variant="ghost" onClick={() => setAsking(false)}>{COPY.page.cancel}</Button>
+              <Button variant="danger" loading={busy} onClick={() => void remove()}>{COPY.page.delete}</Button>
+            </>} />
+          <span className="mhead-sep" aria-hidden="true" />
+        </>
+      )}
       <Switch checked={m.exposed} label={COPY.page.expose} title={exposeWhy} className="mhead-sw"
         disabled={busy || (!canExpose(m) && !m.exposed)} onCheckedChange={(on) => void api.change(m, { exposed: on })} />
       <Button size="sm" icon={m.is_default ? 'check' : undefined} disabled={busy || !m.exposed || m.is_default}

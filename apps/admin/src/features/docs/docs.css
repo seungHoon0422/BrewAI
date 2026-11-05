@@ -161,35 +161,27 @@
   /* 보고서 — REPORT.html 은 흰 종이 문서라 테마와 무관하게 흰 바탕 (보고서 자체 색) */
   .report-frame{display:block;width:100%;height:max(480px,calc(100vh - 300px));border:1px solid var(--border);border-radius:var(--radius-lg);background:white}
 
-  /* 보드: 👤 내가 할 일 · ❓ 컨펌 필요 + 칸반 (예정 · 진행 중 · 완료) + 상세 서랍. 열 · 묶음 상태 = 머리의 상태 칩 · 이모지 (색 띠 없음) */
-  .asks{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--space-4);margin:0 0 var(--space-6)}
-  .askg{min-width:0;padding:var(--space-3) var(--space-3-5) var(--space-3-5);border:1px solid var(--border);border-radius:var(--radius-lg)}
-  .askg>h2,.askg>h3{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-1) var(--space-2);margin:0 0 var(--space-2-5);font-size:var(--fs-base);font-weight:var(--fw-semibold)}
-  .askg>h2 .hint{flex-basis:100%}
+  /* 보드: 칸반 (진행 중 · 다음 · 나중 · 완료) + 상세 서랍. 색 = 진행 중 파랑 · 다음 주황 · 나중 회색 · 완료 초록 (완료는 작게) */
   .count{display:inline-grid;place-items:center;min-width:20px;height:20px;padding:0 var(--space-1-5);border-radius:var(--radius-pill);background:var(--surface-chip);
     font:var(--fw-semibold) var(--fs-xs)/1 var(--font-mono);color:var(--text-2)}
-  .askg ol{list-style:none;margin:0;padding:0;display:grid;gap:var(--space-2)}
-  .ask{min-width:0;padding:var(--space-2) var(--space-3) var(--space-2-5);border-radius:var(--radius-md);background:var(--surface-sunken);color:var(--text)}
-  .ask-title{display:block;font-weight:var(--fw-semibold)}
-  .ask-body{margin:0;color:var(--text-2)}
-  .opts{list-style:none;margin:var(--space-1) 0 0;padding:0;display:flex;flex-wrap:wrap;gap:var(--space-1-5)}
-  .opts li{padding:var(--space-0-5) var(--space-2-5);border-radius:var(--radius-pill);background:var(--surface);box-shadow:inset 0 0 0 1px var(--border);color:var(--text)}
-  .ask-due{margin:var(--space-1-5) 0 0;font-size:var(--fs-xs);color:var(--warn-text)}
-  .ask-foot{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-0-5) var(--space-3);margin:var(--space-1-5) 0 0;font-size:var(--fs-xs)}
-  .ask-foot a{display:inline-flex;align-items:center;gap:var(--space-0-5);color:var(--info-text);text-decoration:none;font-weight:var(--fw-medium)}
-  .ask-foot a:hover{text-decoration:underline}
-  .ask-foot .pc{padding:0 var(--space-1-5);border-radius:var(--radius-sm);background:var(--surface-chip);color:var(--text-muted);font-weight:var(--fw-semibold)}
-  .ask-foot .pc[data-here]{background:var(--ok-soft);color:var(--ok-text)}
-  .ask-foot .from{color:var(--text-muted);font:var(--fs-2xs)/1.5 var(--font-mono);overflow-wrap:anywhere}
   .kempty{margin:0;padding:var(--space-2-5) var(--space-3);border:1px dashed var(--border);border-radius:var(--radius-md);color:var(--text-muted);font-size:var(--fs-sm)}
 
-  .kanban{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--space-3);align-items:start}
+  .kanban{display:grid;grid-template-columns:repeat(2,minmax(0,1.25fr)) minmax(0,1fr) minmax(0,.85fr);gap:var(--space-3);align-items:start}
   .kcol{min-width:0;padding:var(--space-2-5);border-radius:var(--radius-lg);background:var(--surface-sunken)}
-  .kcol>h3{display:flex;align-items:center;gap:var(--space-2);margin:var(--space-0-5) var(--space-1) var(--space-2-5);font-size:var(--fs-sm);font-weight:var(--fw-semibold)}
+  .kcol>h3{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-1) var(--space-2);margin:var(--space-0-5) var(--space-1) var(--space-2-5);font-size:var(--fs-sm);font-weight:var(--fw-semibold)}
+  .kcol>h3 .hint{font-weight:var(--fw-regular)}
+  .kcol[data-state="doing"]{background:var(--info-soft)}
+  .kcol[data-state="next"]{background:var(--warn-soft)}
   .kcol ul{list-style:none;margin:0;padding:0;display:grid;gap:var(--space-2)}
   .card{display:grid;gap:var(--space-1-5);width:100%;min-width:0;padding:var(--space-2-5) var(--space-3);border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface);
     text-align:left;cursor:pointer;transition:border-color var(--dur-fast)}
   .card:hover{border-color:var(--border-strong)}
+  .card[data-state="doing"]{border-left:3px solid var(--info-text)}
+  .card[data-state="next"]{border-left:3px solid var(--warn-text)}
+  .card[data-state="done"]{gap:var(--space-0-5);padding:var(--space-1-5) var(--space-2-5);background:transparent}
+  .card[data-state="done"] .card-title{font-size:var(--fs-sm);font-weight:var(--fw-medium);color:var(--text-2)}
+  .card[data-state="done"] .card-meta,.card[data-state="done"] .kind{display:none}
+  .kcol[data-state="done"] ul{gap:var(--space-1)}
   .card-top{display:flex;align-items:center;justify-content:space-between;gap:var(--space-2)}
   .kind{padding:0 7px;border-radius:var(--radius-sm);background:var(--surface-chip);font-size:var(--fs-2xs);font-weight:var(--fw-medium);color:var(--text-muted);white-space:nowrap}
   .card-title{font-size:var(--fs-md);font-weight:var(--fw-semibold);line-height:1.4;color:var(--text);overflow-wrap:anywhere}
@@ -198,9 +190,6 @@
   .kprog{display:inline-flex;align-items:center;gap:var(--space-1-5)}
   .kprog .bar{width:56px;flex:none}
   .kprog b{font:var(--fw-semibold) var(--fs-xs)/1 var(--font-mono);color:var(--text-2)}
-  .flagc{padding:0 var(--space-1-5);border-radius:var(--radius-pill);font-size:var(--fs-2xs);font-weight:var(--fw-semibold)}
-  .flagc.mine{background:var(--info-soft);color:var(--info-text)}
-  .flagc.ask{background:var(--warn-soft);color:var(--warn-text)}
 
   /* 상세 = 오른쪽 서랍 (폰: 아래에서 올라오는 시트) — @brewai/ui Sheet 와 같은 면 (불투명 + shadow-lg) */
   .drawer{position:fixed;inset:0 0 0 auto;width:min(520px,100vw);max-width:none;height:100dvh;max-height:none;margin:0;padding:0;
@@ -224,7 +213,8 @@
   .idlist{display:flex;flex-wrap:wrap;gap:var(--space-1)}
 
   @media (max-width:1020px){
-    .asks,.cols{grid-template-columns:minmax(0,1fr)}
+    .cols{grid-template-columns:minmax(0,1fr)}
+    .kanban{grid-template-columns:repeat(2,minmax(0,1fr))}
   }
   @media (max-width:760px){
     th,td{padding:var(--space-2) var(--space-2-5)}

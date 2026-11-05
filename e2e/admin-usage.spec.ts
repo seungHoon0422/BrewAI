@@ -311,8 +311,9 @@ const windowIn = (page: Page, days: number) => page.evaluate((d) => {
   return `from=${ymd(start)}&to=${ymd(now)}&tz=${-now.getTimezoneOffset()}`;
 }, days);
 
-test('모델 자세히 › 사용량: 숫자 = API · 캐시 적중률 · 종류별 토큰과 비용 · Top 5 조직과 사용자 → 이 모델로 거른 사용량', async ({ page }) => {
+test('모델 자세히 › 사용량 탭: 숫자 = API · 캐시 적중률 · 종류별 토큰과 비용 · Top 5 조직과 사용자 → 이 모델로 거른 사용량', async ({ page }) => {
   await page.goto('/#/models/fake-chat-large');
+  await page.getByRole('tab', { name: '사용량', exact: true }).click(); // 자세히 = 탭 둘 (개요 · 사용량)
   const sec = page.getByRole('region', { name: '사용량', exact: true });
   await expect(sec.getByRole('radiogroup', { name: '기간' }).getByRole('radio', { name: '30일' })).toBeChecked();
   const res = await page.request.get(`/api/admin/usage?group=org&model=fake-chat-large&limit=5&${await windowIn(page, 30)}`);
@@ -349,12 +350,14 @@ test('모델 자세히 › 사용량: 숫자 = API · 캐시 적중률 · 종류
   await expect(kpi(page, 'runs')).toHaveText(ko(t.runs));
   // 기간 바꾸기 = 칸 안에서만 (주소 그대로)
   await page.goto('/#/models/fake-chat-large');
+  await page.getByRole('tab', { name: '사용량', exact: true }).click(); // 자세히 = 탭 둘 (개요 · 사용량)
   await page.getByRole('region', { name: '사용량', exact: true }).getByRole('radiogroup', { name: '기간' }).getByRole('radio', { name: '7일' }).click();
   await expect(page).toHaveURL(/#\/models\/fake-chat-large$/);
   await expect(page.getByRole('region', { name: '사용량', exact: true }).getByRole('link', { name: '사용량에서 보기' }))
     .toHaveAttribute('href', '#/usage?days=7&metric=cost&model=fake-chat-large');
   // 작은 모델 = 캐시 쓰기 가격 모름 (ORG_B [fake:cache-write]) → 비용 카드 · 종류 표 아래에 '어림'
   await page.goto('/#/models/fake-chat-small');
+  await page.getByRole('tab', { name: '사용량', exact: true }).click(); // 자세히 = 탭 둘 (개요 · 사용량)
   const small = page.getByRole('region', { name: '사용량', exact: true });
   await expect(small.locator('[data-kpi="model-cost"]')).toContainText('어림');
   await expect(small).toContainText('어림한 호출');

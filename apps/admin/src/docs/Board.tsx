@@ -1,36 +1,23 @@
-import { useEffect, useRef, useSyncExternalStore, type MouseEvent, type RefObject } from 'react';
+import { useEffect, useRef, type MouseEvent, type RefObject } from 'react';
 import { Icon } from '@brewai/ui';
 import { Rich, Sources, St, type Tone } from './parts';
-import type { Ask, Card, CardState, DocsData, Pc } from './types';
+import type { Card, CardState, DocsData } from './types';
 
-// 보드 = roadmap slice_hint · docs/slices · HANDOFF(👤 내가 할 일 · 결정 대기)를 카드로 (docs-plugin.ts buildBoard)
+// 보드 = roadmap slice_hint · docs/slices · HANDOFF Phase('구현')를 카드로 (docs-plugin.ts buildBoard). 레포 파일이 바뀌면 개발 서버가 다시 읽는다
+// 열 = 지금 하는 것부터: 진행 중 (파랑) → 다음 (주황 · 예정 중 바로 다음 하나) → 나중 (회색) → 완료 (초록 · 작게)
 // 주소: #/docs/board · 카드 상세 = #/docs/board/<key> (slice-02 · P2)
-const COLS: { state: CardState; label: string; tone: Tone }[] = [
-  { state: 'todo', label: '예정', tone: 'off' },
-  { state: 'doing', label: '진행 중', tone: 'now' },
-  { state: 'done', label: '완료', tone: 'on' },
+const COLS: { state: CardState; label: string; tone: Tone; hint: string }[] = [
+  { state: 'doing', label: '진행 중', tone: 'now', hint: '지금 하는 작업' },
+  { state: 'next', label: '다음', tone: 'warn', hint: '이어서 할 작업' },
+  { state: 'later', label: '나중', tone: 'off', hint: '얘기 나온 뒤 작업' },
+  { state: 'done', label: '완료', tone: 'on', hint: '구현 끝' },
 ];
-// 폰(한 줄)에서는 진행 중부터. CSS order 가 아니라 DOM 순서를 바꾼다 → Tab · 스크린 리더도 같은 순서
-const PHONE = '(max-width:760px)';
-const COLS_PHONE = [COLS[1], COLS[0], COLS[2]];
-function usePhone() {
-  return useSyncExternalStore(
-    (cb) => {
-      const q = window.matchMedia(PHONE);
-      q.addEventListener('change', cb);
-      return () => q.removeEventListener('change', cb);
-    },
-    () => window.matchMedia(PHONE).matches,
-    () => false,
-  );
-}
 const KIND = { slice: '슬라이스', phase: '단계' } as const;
 const BOARD = '#/docs/board';
 const cardHref = (key: string) => `${BOARD}/${key}`; // key = 영문·숫자·- 만 (slice-02 · P2)
 
 export default function Board({ data, sel }: { data: DocsData; sel: string | null }) {
-  const { cards, mine, confirm, here } = data.board;
-  const phone = usePhone();
+  const { cards } = data.board;
   const card = sel === null ? null : (cards.find((c) => c.key.toLowerCase() === sel.toLowerCase()) ?? null);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -69,16 +56,8 @@ export default function Board({ data, sel }: { data: DocsData; sel: string | nul
     if (e.target === e.currentTarget) close();
   };
 
-  const of = (key: string) => cards.find((c) => c.key === key) ?? null;
-  const asksOf = (list: Ask[], key: string) => list.filter((a) => a.card === key);
-
   return (
     <>
-      <div className="asks">
-        <AskGroup id="mine" icon="👤" title="내가 할 일" hint="사람만 할 수 있는 확인과 실행" list={mine} of={of} here={here} />
-        <AskGroup id="confirm" icon="❓" title="컨펌 필요" hint="Claude 가 정하기 전에 물어볼 것" list={confirm} of={of} here={here} />
-      </div>
-
       <section className="dsec" aria-labelledby="board-title">
         <h2 id="board-title">
           작업 보드 <span className="hint">카드를 누르면 상세</span>
@@ -87,13 +66,14 @@ export default function Board({ data, sel }: { data: DocsData; sel: string | nul
           <p className="missing">docs/roadmap.json 에 phase 가 없습니다.</p>
         ) : (
           <div className="kanban">
-            {(phone ? COLS_PHONE : COLS).map((col) => {
+            {COLS.map((col) => {
               const list = cards.filter((c) => c.state === col.state);
               return (
                 <section key={col.state} className="kcol" data-state={col.state} aria-labelledby={`col-${col.state}`}>
                   <h3 id={`col-${col.state}`}>
                     <St tone={col.tone}>{col.label}</St>
                     <span className="count">{list.length}</span>
+                    <span className="hint">{col.hint}</span>
                   </h3>
                   {list.length === 0 ? (
                     <p className="kempty">없음</p>
@@ -101,7 +81,7 @@ export default function Board({ data, sel }: { data: DocsData; sel: string | nul
                     <ul>
                       {list.map((c) => (
                         <li key={c.key}>
-                          <CardButton c={c} mine={asksOf(mine, c.key).length} confirm={asksOf(confirm, c.key).length} />
+                          <CardButton c={c} />
                         </li>
                       ))}
                     </ul>
@@ -119,12 +99,9 @@ export default function Board({ data, sel }: { data: DocsData; sel: string | nul
         {card && (
           <Detail
             c={card}
-            mine={asksOf(mine, card.key)}
-            confirm={asksOf(confirm, card.key)}
             adrTitle={(k) => data.adrs.find((a) => a.key === k)?.title ?? null}
             closeRef={closeRef}
             onClose={close}
-            here={here}
           />
         )}
       </dialog>
@@ -145,12 +122,12 @@ function Progress({ p }: { p: NonNullable<Card['progress']> }) {
   );
 }
 
-function CardButton({ c, mine, confirm }: { c: Card; mine: number; confirm: number }) {
+function CardButton({ c }: { c: Card }) {
   const open = () => {
     if (window.location.hash !== cardHref(c.key)) window.location.hash = cardHref(c.key);
   };
   return (
-    <button type="button" className="card" data-key={c.key} aria-haspopup="dialog" aria-label={`${c.label} ${c.title}`} onClick={open}>
+    <button type="button" className="card" data-key={c.key} data-state={c.state} aria-haspopup="dialog" aria-label={`${c.label} ${c.title}`} onClick={open}>
       <span className="card-top">
         <span className="rid">{c.label}</span>
         <span className="kind">{KIND[c.kind]}</span>
@@ -159,86 +136,21 @@ function CardButton({ c, mine, confirm }: { c: Card; mine: number; confirm: numb
       <span className="card-meta">
         {c.progress ? <Progress p={c.progress} /> : <span className="hint">기준 {c.checklist.length}개</span>}
         <span className="ph-id">{c.kind === 'slice' ? c.phase : c.weeks !== null ? `${c.weeks}주` : ''}</span>
-        {mine > 0 && <span className="flagc mine">👤 {mine}</span>}
-        {confirm > 0 && <span className="flagc ask">❓ {confirm}</span>}
       </span>
     </button>
   );
 }
 
-function AskGroup({ id, icon, title, hint, list, of, here }: { id: string; icon: string; title: string; hint: string; list: Ask[]; of: (k: string) => Card | null; here: Pc | null }) {
-  return (
-    <section className={`askg ${id}`} aria-labelledby={`${id}-title`}>
-      <h2 id={`${id}-title`}>
-        <span aria-hidden="true">{icon}</span> {title}
-        <span className="count">{list.length}</span>
-        <span className="hint">{hint}</span>
-      </h2>
-      {list.length === 0 ? (
-        <p className="kempty">없음</p>
-      ) : (
-        <ol>
-          {list.map((a, i) => (
-            <AskItem key={i} a={a} card={a.card ? of(a.card) : null} here={here} />
-          ))}
-        </ol>
-      )}
-    </section>
-  );
-}
-
-function AskItem({ a, card, here, inDrawer = false }: { a: Ask; card: Card | null; here: Pc | null; inDrawer?: boolean }) {
-  return (
-    <li className="ask">
-      {a.title && <b className="ask-title">{a.title}</b>}
-      {a.options.length > 0 ? (
-        <ul className="opts" aria-label="선택지">
-          {a.options.map((o, i) => (
-            <Rich key={i} as="li" html={o} />
-          ))}
-        </ul>
-      ) : (
-        <Rich as="p" className="ask-body" html={a.html} />
-      )}
-      {a.due && (
-        <p className="ask-due">
-          기한: <Rich html={a.due} />
-        </p>
-      )}
-      <p className="ask-foot">
-        {a.pc && (
-          <span className="pc" data-here={a.pc === here ? '' : undefined}>
-            {a.pc} PC{a.pc === here ? ' (지금 이 PC)' : ''}
-          </span>
-        )}
-        {card && !inDrawer && (
-          <a href={cardHref(card.key)}>
-            {card.label}: {card.title}
-            <Icon name="arrow-right" size="sm" />
-          </a>
-        )}
-        <span className="from">{a.from.join(', ')}</span>
-      </p>
-    </li>
-  );
-}
-
 function Detail({
   c,
-  mine,
-  confirm,
   adrTitle,
   closeRef,
   onClose,
-  here,
 }: {
   c: Card;
-  mine: Ask[];
-  confirm: Ask[];
   adrTitle: (k: string) => string | null;
   closeRef: RefObject<HTMLButtonElement | null>;
   onClose: () => void;
-  here: Pc | null;
 }) {
   const col = COLS.find((x) => x.state === c.state)!;
   const checked = c.checklist.filter((x) => x.done).length;
@@ -260,35 +172,6 @@ function Detail({
           ×
         </button>
       </header>
-
-      {(mine.length > 0 || confirm.length > 0) && (
-        <div className="drawer-asks">
-          {mine.length > 0 && (
-            <section className="askg mine" aria-labelledby="d-mine">
-              <h3 id="d-mine">
-                <span aria-hidden="true">👤</span> 확인할 것 <span className="count">{mine.length}</span>
-              </h3>
-              <ol>
-                {mine.map((a, i) => (
-                  <AskItem key={i} a={a} card={c} here={here} inDrawer />
-                ))}
-              </ol>
-            </section>
-          )}
-          {confirm.length > 0 && (
-            <section className="askg confirm" aria-labelledby="d-confirm">
-              <h3 id="d-confirm">
-                <span aria-hidden="true">❓</span> 컨펌할 것 <span className="count">{confirm.length}</span>
-              </h3>
-              <ol>
-                {confirm.map((a, i) => (
-                  <AskItem key={i} a={a} card={c} here={here} inDrawer />
-                ))}
-              </ol>
-            </section>
-          )}
-        </div>
-      )}
 
       <section className="dpart" aria-labelledby="d-goal">
         <h3 id="d-goal">목표</h3>

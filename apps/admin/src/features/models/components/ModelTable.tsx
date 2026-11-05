@@ -9,13 +9,14 @@ import { ModelRow } from './ModelRow';
 // 모델 표 한 장 (제공사 = 칸 · 줄 = 전체 순서 하나 = 사용자 앱 모델 메뉴 순서). 끌어 옮기기 때문에 Table 대신 TableFrame + ui-table 을 직접.
 // 머리 · 칸 모두 왼쪽 맞춤 (숫자도). 좁은 창에서 숨는 칸 = models.css 의 [data-col] (덜 중요한 것부터: 기능 → 비용 → 컨텍스트 → 제공사). 줄을 누르면 자세히 페이지
 
-export function ModelTable({ view, isBusy, testOf, now, onChange, onProbe, onReorder }: {
+export function ModelTable({ view, isBusy, testOf, now, onChange, onProbe, onRemove, onReorder }: {
   view: ModelView;
   isBusy: (id: string) => boolean;
   testOf: (id: string) => TestState | undefined;
   now: number;
   onChange: Change;
   onProbe: Probe;
+  onRemove: (m: AdminModel) => Promise<boolean>;
   onReorder: (src: AdminModel, target: AdminModel) => void;
 }) {
   const { visible, dragSrc } = view;
@@ -41,7 +42,7 @@ export function ModelTable({ view, isBusy, testOf, now, onChange, onProbe, onReo
             </tr>
           )}
           {visible.map((m) => (
-            <ModelRow key={m.id} m={m} busy={isBusy(m.id)} test={testOf(m.id)} onChange={onChange} onProbe={onProbe} now={now}
+            <ModelRow key={m.id} m={m} busy={isBusy(m.id)} test={testOf(m.id)} onChange={onChange} onProbe={onProbe} onRemove={onRemove} now={now}
               dup={view.dupOf(m)} checked={view.selected.has(m.id)} onCheck={() => view.toggleSel(m.id)} onOpen={() => window.location.assign(modelHref(m.id))}
               canDrag={view.unfiltered} canDrop={!dragSrc || dragSrc.id !== m.id} dropBelow={!!dragSrc && dragSrc.order < m.order}
               dragging={view.dragId === m.id} onDragStart={() => view.setDragId(m.id)} onDragEnd={() => view.setDragId(null)}

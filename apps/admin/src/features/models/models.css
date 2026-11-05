@@ -134,6 +134,7 @@
 .hcell.head .hrow{gap:var(--space-2-5)}
 .hcell.head .hl{font-size:var(--fs-sm)}
 
+.mpage-tabs>.ui-tabpanel{padding-top:var(--space-4)}
 .mgrid{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--space-4);align-items:start}
 .mcol{display:grid;gap:var(--space-4);min-width:0}
 .mcard{display:grid;gap:var(--space-4)}

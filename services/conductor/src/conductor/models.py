@@ -2,7 +2,7 @@
 
 동기화 규칙 (게이트웨이 `/model_group/info` → model_exposure)
   새 모델        = 후보 (숨김). 관리자가 한 번이라도 손대면 후보 딱지가 떨어진다 (reviewed)
-  사라진 모델    = missing + 자동 숨김 + 기본 해제. 돌아와도 숨김 그대로 (관리자가 다시 켠다)
+  사라진 모델    = missing + 자동 숨김 + 기본 해제. 돌아와도 숨김 그대로 (관리자가 다시 켠다) · 관리자가 지울 수 있다 (delete · missing 만)
   첫 동기화      = bootstrap 모델(기본 brewai-mock: 키 없이 답함)만 노출 + 기본 → 새 PC 에서 바로 대화가 된다
   기본 모델      = is_default 인 노출 모델. 없으면 노출 순서 첫 모델이 기본 (API 의 is_default 는 이 '실제' 기본)
   순서           = 전체 순서 하나 (sort_order · 제공사로 묶지 않는다). 관리자 표 1 … N = 사용자 앱 모델 메뉴 순서 그대로.
@@ -323,6 +323,20 @@ class ModelRegistry:
                     "UPDATE model_exposure SET sort_order = ? WHERE gateway_id = ?", [(i, gid) for i, gid in enumerate(ids, 1)]
                 )
             return _row(db.execute("SELECT * FROM model_exposure WHERE gateway_id = ?", (gateway_id,)).fetchone())
+
+    def delete(self, gateway_id: str) -> None:
+        """게이트웨이에서 사라진 모델(missing)만 우리 표에서 지운다 (이름 · 순서 · 상태 기록). 사용량 기록은 그대로 둔다.
+        게이트웨이에 다시 생기면 다음 동기화 때 새 후보(숨김)로 들어온다."""
+        with self._store.tx() as db:
+            raw = db.execute("SELECT status FROM model_exposure WHERE gateway_id = ?", (gateway_id,)).fetchone()
+            if raw is None:
+                raise ModelPatchError(404, "model_not_found")
+            if raw["status"] != "missing":
+                raise ModelPatchError(409, "model_present")
+            db.execute("DELETE FROM model_exposure WHERE gateway_id = ?", (gateway_id,))
+            db.execute("DELETE FROM model_health WHERE gateway_id = ?", (gateway_id,))
+            ids = [r["gateway_id"] for r in db.execute("SELECT gateway_id FROM model_exposure ORDER BY status = 'missing', sort_order, gateway_id")]
+            db.executemany("UPDATE model_exposure SET sort_order = ? WHERE gateway_id = ?", [(i, gid) for i, gid in enumerate(ids, 1)])
 
     def last_sync_at(self) -> str | None:
         return self._store.get_meta("last_sync_at")

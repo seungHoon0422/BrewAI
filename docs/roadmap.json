@@ -1,5 +1,5 @@
 {
-  "updated": "2026-11-01",
+  "updated": "2026-11-05",
   "rule": "passes 는 기능 개발이 끝난 시점의 Playwright E2E(= 금요일 데모 스펙)가 exit_criteria 를 모두 통과했을 때만 true 로 바꾼다. 기능이 없는 P0 은 증거 링크(CI run · 두 PC /start 3줄)로 판정한다. 항목을 지우거나 고쳐 쓰지 않는다 — 사용자가 방향을 바꿀 때만 ADR 을 먼저 남기고 고친다(ADR-0007 · ADR-0008).",
   "phases": [
     {
@@ -36,8 +36,11 @@
         "04 조직 · 스페이스: 공유 스페이스(작업공간) · 대화 [공유] · 초대 코드 · 재설정 코드 · 관리자 '사용자·조직' 탭 (P1-7)",
         "05 MCP 연결: 관리자 공통 서버 + 사용자 추가 서버(공유 · 가져오기) · 사용자별 OAuth 인증 재사용 · 자동 인증 알림 플래그(기본 꺼짐) · 앱 목록 + use_app 으로 도구는 필요할 때만 → 결과 카드 (P1-1, P1-8, ADR-0013)",
         "06 에이전트 팀(P4 를 앞당김 · 사용자: \"도구쪽 먼저, 그 이후에 에이전트\"): 복합 요청 → 서브에이전트 자동 편성 → 병렬 도구 · 팀 활동 표시 (P4-1, P4-2)",
-        "07 승인 필요 툴(deferred tool) + 승인 카드 + Playwright desktop 스펙 CI + eval 3건 — CI는 키 없이 TestModel·mock (P1-2, P1-4)",
-        "08 trace: Langfuse 에 agent · LLM · MCP tool · 서브에이전트 span 이 user · session 과 한 trace tree 로 (P1-3, P4-3) — 05~07 은 OTel span 만 남긴다"
+        "07 파일: 대화 첨부 · 프로젝트 파일 · 스페이스 '파일' 메뉴 · 모델마다 서버가 전달 방법을 정한다 (ADR-0015)",
+        "08 문서 파일 만들기: 스킬은 필요할 때 찾기(use_skill) · make_file 로 docx · xlsx · pptx · pdf · 답 아래 저장",
+        "09 로컬 폴더: 프로젝트에 이 PC 폴더 연결 · 읽기 도구 3개 · 비밀 파일 막음 (ADR-0016)",
+        "10 샌드박스 + 승인 카드: 승인 필요 툴(deferred tool) + 승인 카드 · 이 PC Docker 샌드박스 · 로컬 폴더 쓰기 · 실행 + Playwright desktop 스펙 CI + eval 3건 — CI는 키 없이 TestModel·mock (P1-2, P1-4)",
+        "11 trace: Langfuse 에 agent · LLM · MCP tool · 서브에이전트 span 이 user · session 과 한 trace tree 로 (P1-3, P4-3) — 05~10 은 OTel span 만 남긴다"
       ],
       "passes": false
     },

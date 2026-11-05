@@ -17,6 +17,7 @@
 - (아이디어·요청을 한 줄씩. 다음 `/start` 때 처리하고 지운다)
 
 ## 🕘 최근 기록
+- 2026-11-05 · 클라우드 · 관리자 문서 › 보드: 👤 내가 할 일 · ❓ 컨펌 필요 없앰 · 칸반이 맨 위 · 열 4개 (진행 중 파랑 · 다음 주황 · 나중 회색 · 완료 초록 작게) · 상태 = HANDOFF Phase '(slice NN) 구현' + roadmap slice_hint (07 파일 · 08 문서 · 09 로컬 폴더 · 10 샌드박스 + 승인 · 11 trace 로 번호 맞춤) · 모델: 게이트웨이에서 사라진 모델 [삭제] (목록 연결 칸 · 자세히 머리 · DELETE /api/admin/models/{id} · 사용량 기록은 남음) · 자세히 = 탭 개요 · 사용량 · E2E admin 55 · pytest 621
 - 2026-11-05 · 클라우드 · 로컬 폴더(slice 09 · ADR-0016 · 승인 카드는 10 으로 미룸): 프로젝트 화면 [로컬 폴더 연결] (Electron 폴더 대화상자 · `pick-folder.cjs`) → `PUT /api/projects/{id}/folder` (집 폴더 안 · 숨김 X · 이 PC 만 · `project_folders` 사람마다) → 그 프로젝트 대화에만 folder_list · folder_read · folder_search (팀원도) · 폴더 밖 · 링크 · .env · 키 · .git = 막힘 · 모델엔 폴더 이름만 · eval `p1-folder-secret` · E2E `chat-folder.spec.ts` (리눅스 xvfb 에서 chat-folder · projects · chat-files 14/14) · pytest 621 · 맥 · 윈도우 전체 E2E 는 아직
 - 2026-11-04 · 회사 맥 · 문서 디자인 4종 (깔끔 · 보고서 · 모던 · 따뜻함 · designs.py 한 표를 docx · pptx · pdf · xlsx 가 따름) + 꾸밈 블록 (표지 · 숫자 카드 · 강조 상자 · 인용 · 구분선 · 두 단 · PPT 장 구분 · 큰 숫자 · 두 단) · GET /api/designs + 견본 그림 · 설정 › 스킬 '문서 디자인' · 도구 카드 두 단계 (머리 줄 → 입력 · 결과) · E2E 255 · pytest 573
 - 2026-11-04 · 회사 맥 · PDF 만들기 (fonttools 4.67.0 + 나눔고딕 OFL 동봉 · 직접 짠 PDF 쓰기 · 쓴 글자만 넣음 · 'PDF 문서' 스킬 · 답 칩 → 앱 안 미리보기 서랍(쪽 그림) + 저장) · 관리자 개요 = 단위별 추이 + 고른 단위 Top 5 · 비용 분해는 사용량으로 · 차트 움직임 · 줄인 숫자에 실제 값 · 팀원 요청 한도 = 받은 자료로 마무리 (6회 · 12만 토큰) · 팀원 목록 넘침 · E2E 254 · pytest 549

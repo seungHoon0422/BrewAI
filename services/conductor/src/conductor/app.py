@@ -36,6 +36,7 @@
   GET    /api/admin/models           모든 모델 (노출 · 후보 · 숨김 · 사라짐) + 게이트웨이 값 (읽기 전용) + source (등록 출처)
   GET    /api/admin/providers        provider 별 개수
   PATCH  /api/admin/models/{id}      exposed · display_name · order · is_default 만
+  DELETE /api/admin/models/{id}      게이트웨이에서 사라진 모델(missing)만 → 204 (있는 모델 = 409 model_present · 사용량 기록은 남음)
                                      칸 값이 틀리면 422 {detail: bad_<칸>} · 모르는 칸 = 422 (FastAPI 기본 목록)
   관리자 경로에 관리자 출처가 아닌 Origin 이 붙은 요청 = 403 origin_not_allowed (쿠키 · CSRF 전에)
   POST   /api/admin/models/sync      게이트웨이에서 다시 읽기
@@ -729,6 +730,11 @@ def create_app(
                 raise ModelPatchError(422, f"bad_{key}")
         registry.patch(gateway_id, changes)
         return next(r for r in admin_rows() if r.id == gateway_id)
+
+    @admin.delete("/api/admin/models/{gateway_id:path}", status_code=204)
+    async def delete_model(gateway_id: str) -> Response:
+        registry.delete(gateway_id)  # missing 만 (게이트웨이에 있는 모델 = 409 model_present · 숨기기는 노출 끄기)
+        return Response(status_code=204)
 
     @admin.post("/api/admin/models/sync")
     async def sync_models() -> dict[str, Any]:

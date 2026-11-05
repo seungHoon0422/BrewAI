@@ -263,14 +263,9 @@ test.describe('문서', () => {
   });
 });
 
-// ---------- 보드: 카드 = roadmap slice_hint(+ docs/slices) · slice_hint 없는 phase / 👤 · ❓ = HANDOFF 칸 ----------
+// ---------- 보드: 카드 = roadmap slice_hint(+ docs/slices) · slice_hint 없는 phase · 열 = 진행 중 · 다음 · 나중 · 완료 ----------
 type RoadmapFile = { phases: { id: string; name: string; exit_criteria?: string[]; slice_hint?: string[] }[] };
 const roadmapFile = () => JSON.parse(read('docs/roadmap.json')) as RoadmapFile;
-// HANDOFF 칸 → 항목: ①②③ 이 있으면 그걸로, 없으면 ' · '. '없음' = []
-const items = (cell: string) =>
-  /^(없음|-|—)?$/.test(cell) ? [] : /[①-⑳]/.test(cell) ? cell.split(/(?=[①-⑳])/).map((x) => x.replace(/^[①-⑳]\s*/, '').trim()).filter(Boolean) : cell.split(' · ');
-// 화면은 '이름: 내용' · 'A / B' · ' — 기한' 을 따로 그린다 → 조각마다 들어 있는지 본다
-const pieces = (item: string) => item.split(/\s*(?:[:：]|\s\/\s|\s—\s)\s*/).map((x) => x.trim()).filter(Boolean);
 const boardRegion = (page: Page) => page.getByRole('region', { name: /^작업 보드/ });
 const cardBtn = (page: Page, label: string) => boardRegion(page).getByRole('button', { name: new RegExp(`^${label} `) });
 const detail = (page: Page) => page.getByRole('dialog');
@@ -288,28 +283,12 @@ test.describe('문서 · 보드', () => {
     await expect(boardRegion(page).getByRole('button')).toHaveCount(expected.length);
     for (const label of expected) await expect(cardBtn(page, label), label).toHaveCount(1);
     for (const p of phases.filter((x) => !x.slice_hint?.length)) await expect(cardBtn(page, p.id)).toContainText(p.name);
-    // 열 3개
-    for (const col of ['예정', '진행 중', '완료']) await expect(boardRegion(page).getByRole('region', { name: new RegExp(`^${col}`) })).toBeVisible();
-    expect(await colOrder(page)).toEqual(['col-todo', 'col-doing', 'col-done']);
+    // 열 4개 = 지금 하는 것부터 (진행 중 → 다음 → 나중 → 완료) · '다음' 은 slice 하나
+    for (const col of ['진행 중', '다음', '나중', '완료']) await expect(boardRegion(page).getByRole('region', { name: new RegExp(`^${col}`) })).toBeVisible();
+    expect(await colOrder(page)).toEqual(['col-doing', 'col-next', 'col-later', 'col-done']);
+    await expect(boardRegion(page).locator('.kcol[data-state="next"] .card')).toHaveCount(1);
+    await expect(page.getByRole('region', { name: /내가 할 일|컨펌 필요/ })).toHaveCount(0);
     await page.screenshot({ path: shot('admin-docs-board'), fullPage: true });
-  });
-
-  test('👤 내가 할 일 = HANDOFF 👤 칸 · ❓ 컨펌 필요 = 결정 대기 칸', async ({ page }) => {
-    await openDocs(page, '#/docs/board', '보드');
-    const mine = page.getByRole('region', { name: /내가 할 일/ });
-    const confirm = page.getByRole('region', { name: /컨펌 필요/ });
-
-    const todo = items(handoffCell('👤 내가 할 일'));
-    if (todo.length === 0) await expect(mine).toContainText('없음');
-    const mineLis = mine.locator(':scope > ol > li');
-    expect(await mineLis.count()).toBeGreaterThanOrEqual(todo.length); // + slice done 의 남은 사람 확인
-    for (const [i, t] of todo.entries()) for (const piece of pieces(t)) await expect(mineLis.nth(i), t).toContainText(piece);
-
-    const asks = items(handoffCell('결정 대기'));
-    const askLis = confirm.locator(':scope > ol > li');
-    if (asks.length === 0) await expect(confirm).toContainText('없음');
-    await expect(askLis).toHaveCount(asks.length);
-    for (const [i, t] of asks.entries()) for (const piece of pieces(t)) await expect(askLis.nth(i), t).toContainText(piece);
   });
 
   test('slice 카드를 누르면 상세(done 항목) · Esc 로 닫고 카드로 포커스', async ({ page }) => {
@@ -362,7 +341,7 @@ test.describe('문서 · 보드', () => {
     test('보드 · 상세 시트가 가로로 넘치지 않는다', async ({ page }) => {
       await openDocs(page, '#/docs/board', '보드');
       await expect.poll(() => overflowX(page)).toBeLessThanOrEqual(0);
-      expect(await colOrder(page)).toEqual(['col-doing', 'col-todo', 'col-done']); // 폰 = 진행 중부터 (DOM 순서째)
+      expect(await colOrder(page)).toEqual(['col-doing', 'col-next', 'col-later', 'col-done']); // 폰도 진행 중부터 (넓은 화면과 같은 DOM 순서)
       await page.screenshot({ path: shot('admin-docs-board-phone'), fullPage: true });
       await cardBtn(page, 'P0').click();
       await expect(detail(page)).toBeVisible();

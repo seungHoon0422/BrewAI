@@ -102,6 +102,11 @@ export async function patchModel(id: string, patch: ModelPatch): Promise<AdminMo
   return toModel(expectObj(data), 0);
 }
 
+// 게이트웨이에서 사라진 모델(missing)만 우리 표에서 지운다 (204). 있는 모델 = 409 model_present · 사용량 기록은 남는다
+export async function deleteModel(id: string): Promise<void> {
+  await call(`/api/admin/models/${modelPath(id)}`, { method: 'DELETE' });
+}
+
 export async function testModel(id: string): Promise<ProbeResult> {
   const data = expectObj(await call(`/api/admin/models/${modelPath(id)}/test`, { method: 'POST' }));
   return {

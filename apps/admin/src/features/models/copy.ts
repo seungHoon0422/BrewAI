@@ -106,6 +106,7 @@ export const PATCH_ERROR: Record<string, string> = {
   default_requires_exposed: '노출한 모델만 기본으로 정할 수 있어요',
   bad_display_name: '표시 이름은 60자까지, 보이지 않는 글자 없이 써 주세요',
   bad_order: '순서 값이 올바르지 않아요',
+  model_present: '게이트웨이에 있는 모델은 지울 수 없어요. 숨기려면 노출을 꺼 주세요',
 };
 
 // 상태 (E2E: 거르개 · 이름 옆 딱지는 후보 · 사라짐만 .chip)
@@ -245,6 +246,14 @@ export const COPY = {
     expose: '노출', // E2E: 머리 스위치 이름
     exposeTitle: '사용자 앱 모델 메뉴에 보이기',
     openInLitellm: 'LiteLLM 에서 보기',
+    tabs: '모델 정보', // 탭 줄 이름
+    tabOverview: '개요', // E2E
+    tabUsage: '사용량', // E2E
+    delete: '삭제', // E2E: 사라진 모델만
+    deleteTitle: '게이트웨이에서 사라진 모델을 목록에서 지워요',
+    deleteAsk: (label: string) => `${label}을(를) 목록에서 지울까요?`,
+    deleteBody: '표시 이름과 순서 설정이 사라져요. 사용량 기록은 남아요. 게이트웨이에 다시 생기면 새 후보로 들어와요',
+    cancel: '취소',
   },
   familyOf: (f: string) => `${f} 계열`,
   renameBtn: '이름 바꾸기', // E2E
@@ -298,6 +307,7 @@ export const COPY = {
     patchUnknown: '바꾸지 못했어요. 잠시 뒤 다시 해 주세요',
     defaultChanged: (label: string) => `기본 모델을 바꿨어요: ${label}`,
     nameReverted: (name: string) => `기본 이름으로 되돌렸어요: ${name}`,
+    deleted: (label: string) => `목록에서 지웠어요: ${label}`,
     moved: (label: string, pos: number) => `순서를 바꿨어요: ${label} → ${pos}번`, // E2E
     bulk: (n: number, expose: boolean) => `${n}개 ${expose ? '노출' : '숨김'}`,
     bulkSkipped: (n: number) => `${n}개는 대화 모델이 아니라 건너뜀`,

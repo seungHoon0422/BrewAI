@@ -8,7 +8,7 @@ import { optionsOf, overflowX, pickOption, pickedText, shot } from './helpers';
 // 모델 등록은 LiteLLM 에서만. 여기서 바꾸는 것 = 노출 · 표시 이름 · 순서 · 기본 모델. 표 한 장 · 제공사(provider) = 칸 · 순서 = 전체 하나 (= 사용자 앱 메뉴 순서).
 // 화면 = 탭 둘: 모델 목록(#/models) · 모델 추가(#/models/add = 등록 순서 안내 · 동기화 · 후보 확인) + 모델 자세히 페이지(#/models/<id>).
 // 처음 상태(E2E conductor = 메모리 DB): fake-chat-small(OpenAI) · fake-chat-large(Anthropic) 노출, fake-embed(OpenAI, 임베딩) 숨김.
-// 바꾼 값은 테스트마다 되돌린다 (desktop 스펙도 같은 conductor 를 쓴다). 새 모델(P2-2) 테스트는 '사라짐' 줄을 남겨서 맨 끝에 둔다.
+// 바꾼 값은 테스트마다 되돌린다 (desktop 스펙도 같은 conductor 를 쓴다). 새 모델(P2-2) 테스트는 '사라짐' 줄을 만들었다 지우므로 맨 끝에 둔다.
 // 상태 칸 없음 (후보 · 사라짐만 이름 옆 딱지) · 여기서 정하는 것(노출 · 기본)과 연결 = 맨 오른쪽
 const COLS = ['선택', '순서', '제공사', '모델', '컨텍스트', '입력 비용', '출력 비용', '기능', '노출', '기본', '연결'];
 const table = (page: Page) => page.getByRole('table', { name: '모델 목록' });
@@ -660,6 +660,10 @@ test('자세히 페이지: 줄을 누르면 #/models/<id> → 머리(이름 h1 �
     expect(cb!.y).toBeGreaterThan(ab!.y + ab!.height - 1);
     await expect(app.locator('.dlab')).toHaveText(['표시 이름', '노출', '기본', '순서']);
     await expect(app).toContainText('사용자 앱 모델 메뉴에 보여요');
+    // 탭 둘: 개요(지금) · 사용량 (사용량 칸은 탭을 눌러야 보인다)
+    await expect(page.getByRole('tablist', { name: '모델 정보' }).getByRole('tab')).toHaveText(['개요', '사용량']);
+    await expect(page.getByRole('tab', { name: '개요', exact: true })).toHaveAttribute('aria-selected', 'true');
+    await expect(part(page, '사용량')).toHaveCount(0);
     const gw = part(page, '게이트웨이 값');
     await expect(gw).toContainText('읽기 전용, 값은 LiteLLM 에서 바꿔요');
     const kv = gw.locator('.dkv');
@@ -862,7 +866,7 @@ test.describe('폭 960 · 390', () => {
 });
 
 // ↓ 맨 끝: 게이트웨이 카탈로그를 바꾼다 (끝나면 fake-chat-late 가 '사라짐' 줄로 남는다)
-test('P2-2 LiteLLM 에 모델이 추가되면 후보 · 숨김으로만 뜬다 → 모델 추가 탭에서 확인 · 노출 → 사용자 앱에 → 게이트웨이에서 빠지면 사라짐', async ({ page }) => {
+test('P2-2 LiteLLM 에 모델이 추가되면 후보 · 숨김으로만 뜬다 → 모델 추가 탭에서 확인 · 노출 → 사용자 앱에 → 게이트웨이에서 빠지면 사라짐 → [삭제]', async ({ page }) => {
   await page.goto('/#/models');
   await expect(rowsOf(page)).toHaveCount(3);
   try {
@@ -918,6 +922,15 @@ test('P2-2 LiteLLM 에 모델이 추가되면 후보 · 숨김으로만 뜬다 �
     await expect(exposeSwitch(page, 'fake-chat-late')).toBeDisabled();
     await expect(cell(page, 'fake-chat-late', 'order')).toHaveText('—');
     await expect(stateCount(page, '숨김')).toHaveText('2'); // 숨김 = 사라짐 포함
+    // 사라진 모델만 [삭제] (연결 칸 · 확인 창) → 목록에서 빠진다 · 있는 모델은 API 도 409
+    await expect(cell(page, 'fake-chat-small', 'health').getByRole('button', { name: /^삭제/ })).toHaveCount(0);
+    await cell(page, 'fake-chat-late', 'health').getByRole('button', { name: '삭제 fake-chat-late' }).click();
+    const ask = page.getByRole('dialog', { name: /목록에서 지울까요/ });
+    await expect(ask).toContainText('사용량 기록은 남아요');
+    await ask.getByRole('button', { name: '삭제' }).click();
+    await expect(page.getByRole('status')).toContainText('목록에서 지웠어요: fake-chat-late');
+    await expect(rowsOf(page)).toHaveCount(3);
+    expect((await admin.raw('DELETE', '/api/admin/models/fake-chat-small')).status).toBe(409);
   } finally {
     await fakeCatalog({ reset: true });
   }

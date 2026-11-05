@@ -10,8 +10,6 @@ import {
   ARCH_PATHS,
   type Adr,
   type ArchPath,
-  type Ask,
-  type Pc,
   type Board,
   type Card,
   type DocsData,
@@ -715,13 +713,6 @@ const uniq = <T,>(xs: T[]) => [...new Set(xs)];
 const critIds = (s: string): string[] => s.match(/P\d+-\d+/g) ?? [];
 const adrIds = (s: string) => [...s.matchAll(/ADR-?(\d{4})/g)].map((m) => m[1]);
 
-// 한 칸을 항목으로: ①②③ 이 있으면 그걸로, 없으면 ' · ' (괄호 · 백틱 안은 그대로). '없음' = []
-function splitItems(v: string | null): string[] {
-  if (v === null || NONE.test(v.trim())) return [];
-  if (/[①-⑳]/.test(v)) return v.split(/(?=[①-⑳])/).map((x) => x.replace(/^[①-⑳]\s*/, '').trim()).filter(Boolean);
-  return splitTop(v);
-}
-
 // 괄호 · 백틱 밖에서 처음 나오는 sep 의 위치 (없으면 -1)
 function topIndex(s: string, sep: string): number {
   let depth = 0;
@@ -758,29 +749,18 @@ function shortTitle(s: string, max = 20): string {
   return out;
 }
 
-// 느슨한 중복 판정: 낱말이 짧은 쪽의 절반 이상 겹치면 같은 일
-function words(s: string) {
-  return new Set(plain(s).toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean));
-}
-function sameTask(a: string, b: string) {
-  const A = words(a);
-  const B = words(b);
-  const n = [...A].filter((w) => B.has(w)).length;
-  return n / Math.max(1, Math.min(A.size, B.size)) >= 0.5;
-}
-
-// 사람만 할 수 있는 확인 (slice done 의 남은 항목 중)
-const HUMAN = /집|회사|윈도우|맥(?!락)|눈\s*(?:으로\s*)?확인/;
-
-// 어느 PC 에서 할 일인지 (AGENTS.md: 윈도우 = 집 · 맥 = 회사). 둘 다 나오거나 없으면 null
-function pcOf(t: string): Pc | null {
-  const home = /집|윈도우|windows/i.test(t);
-  const office = /회사|맥(?!락)|macos/i.test(t);
-  return home === office ? null : home ? '집' : '회사';
-}
-const HERE: Pc | null = process.platform === 'win32' ? '집' : process.platform === 'darwin' ? '회사' : null;
-
 type SliceFile = { slice: Slice; src: string };
+
+// HANDOFF Phase 칸에서 '구현' 이라고 적힌 slice 번호 ('프로젝트(slice 03 · 04 구현)' · '파일(slice 07 · ADR-0015) 구현')
+function builtSlices(phaseLine: string): Set<number> {
+  const t = plain(phaseLine);
+  const out = new Set<number>();
+  for (const m of t.matchAll(/slice\s+(\d+(?:\s*·\s*\d+)*)/gi)) {
+    const tail = t.slice(m.index + m[0].length, m.index + m[0].length + 60);
+    if (/^\s*구현/.test(tail) || /^[^()]*\)\s*구현/.test(tail)) for (const n of m[1].match(/\d+/g) ?? []) out.add(Number(n));
+  }
+  return out;
+}
 
 function buildBoard(
   md: Md,
@@ -795,6 +775,8 @@ function buildBoard(
   const H = FILES.handoff;
   const R = FILES.roadmap;
   const cards: Card[] = [];
+  const builtSet = builtSlices(phaseLine);
+  const maxBuilt = Math.max(0, ...builtSet);
 
   const relatedAdrs = (text: string, ids: string[]) => {
     const out = adrIds(text);
@@ -824,8 +806,11 @@ function buildBoard(
           : ids.map((id) => ({ done: p.passes ? true : null, id, html: md.inline(critText.get(id) ?? '', R) }));
         const total = s?.done.length ?? 0;
         const doneN = s?.done.filter((d) => d.done).length ?? 0;
-        const onBranch = new RegExp(`slice/0*${Number(m[1])}(?![0-9])`).test(branchLine);
-        const state: Card['state'] = p.passes || (total > 0 && doneN === total) ? 'done' : s || onBranch ? 'doing' : 'todo';
+        const num = Number(m[1]);
+        const onBranch = new RegExp(`slice/0*${num}(?![0-9])`).test(branchLine);
+        // 완료 = passes · done 모두 체크 · HANDOFF '구현' · 그 뒤 번호가 구현됨 / 진행 중 = 문서 있음 · 활성 브랜치 / 나머지 = 예정 (다음 · 나중은 아래)
+        const built = p.passes || (total > 0 && doneN === total) || builtSet.has(num) || num < maxBuilt;
+        const state: Card['state'] = built ? 'done' : s || onBranch ? 'doing' : 'later';
         cards.push({
           key,
           label: `slice ${key.slice(6)}`,
@@ -835,9 +820,9 @@ function buildBoard(
           weeks: null,
           state,
           why:
-            state === 'done' ? (p.passes ? `${p.id} passes` : 'done 모두 체크')
+            state === 'done' ? (p.passes ? `${p.id} passes` : builtSet.has(num) ? 'HANDOFF 에 구현' : num < maxBuilt ? '뒤 slice 가 구현됨' : 'done 모두 체크')
             : onBranch ? 'HANDOFF 활성 브랜치'
-            : s ? `${s.file} 있음`
+            : s ? `${s.file} 있음, 아직 구현 전`
             : 'slice 문서 아직 없음',
           goal: s?.goal ?? (desc ? md.inline(desc, R) : null),
           hint: md.inline(hint, R),
@@ -861,7 +846,7 @@ function buildBoard(
       html: md.inline(c.text, R),
     }));
     const known = checklist.length > 0 && checklist.every((c) => c.done !== null);
-    const state: Card['state'] = p.passes ? 'done' : seg ? 'doing' : 'todo';
+    const state: Card['state'] = p.passes ? 'done' : seg ? 'doing' : 'later';
     const ids = p.criteria.map((c) => c.id).filter(Boolean);
     cards.push({
       key: p.id,
@@ -883,65 +868,31 @@ function buildBoard(
     });
   }
 
-  // 글에 나온 slice 번호 · 완료 기준 id · phase id → 카드
-  const cardFor = (text: string): string | null => {
-    const t = plain(text);
-    const sl = /slice\s*(\d{1,3})(?![0-9])/i.exec(t);
-    if (sl && cards.some((c) => c.key === sliceKey(sl[1]))) return sliceKey(sl[1]);
-    for (const id of critIds(t)) {
-      const hit = cards.filter((c) => c.ids.includes(id));
-      const pick = hit.find((c) => c.state !== 'done') ?? hit[0];
-      if (pick) return pick.key;
-    }
-    for (const m of t.matchAll(/(?:^|[^A-Za-z0-9])(P\d+)(?![0-9-])/g)) {
-      const pick = cards.find((c) => c.key === m[1]) ?? cards.find((c) => c.phase === m[1] && c.state !== 'done');
-      if (pick) return pick.key;
-    }
-    return null;
-  };
-
-  const ask = (raw: string, from: string[], card: string | null, split = false): Ask => {
-    const [title, body] = headOf(raw);
-    let options: string[] = [];
-    let due: string | null = null;
-    if (split) {
-      const dash = topIndex(body, ' — ');
-      const choice = dash >= 0 ? body.slice(0, dash) : body;
-      if (dash >= 0) due = body.slice(dash + 3).trim();
-      const opts = choice.split(/\s+\/\s+/).map((x) => x.trim()).filter(Boolean);
-      if (opts.length > 1) options = opts;
-    }
-    return {
-      html: md.inline(title !== null ? body : raw, from[0]),
-      title,
-      options: options.map((o) => md.inline(o, from[0])),
-      due: due ? md.inline(due, from[0]) : null,
-      card: card ?? cardFor(raw),
-      from,
-      pc: pcOf(raw),
+  // roadmap 에 없는 slice 문서도 카드로 (번호 순 자리 · phase = 바로 앞 slice 의 것)
+  for (const [key, { slice: sl, src }] of slices) {
+    if (cards.some((c) => c.key === key)) continue;
+    const num = Number(key.slice(6));
+    const before = cards.filter((c) => c.kind === 'slice' && Number(c.key.slice(6)) < num).pop();
+    const total = sl.done.length;
+    const doneN = sl.done.filter((d) => d.done).length;
+    const built = (total > 0 && doneN === total) || builtSet.has(num) || num < maxBuilt;
+    const card: Card = {
+      key, label: `slice ${key.slice(6)}`, kind: 'slice', title: sl.title, phase: before?.phase ?? 'P1', weeks: null,
+      state: built ? 'done' : 'doing', why: built ? 'HANDOFF 에 구현' : `${sl.file} 있음, 아직 구현 전`,
+      goal: sl.goal, hint: null, checklist: sl.done.map((d) => ({ done: d.done, id: null, html: d.html })),
+      progress: total > 0 ? { done: doneN, total } : null, branch: sl.branch, ids: sl.criteria, adrs: relatedAdrs(src, sl.criteria),
+      files: [sl.file],
     };
-  };
-
-  const mineRaw = splitItems(rows.get('👤 내가 할 일') ?? null);
-  const mine = mineRaw.map((r) => ask(r, [H], null));
-  // slice done 의 남은 항목 중 사람이 해야 하는 것 (HANDOFF 칸과 겹치면 출처만 더한다)
-  for (const [key, { slice: s, src }] of slices) {
-    const card = cards.find((c) => c.key === key);
-    if (card?.state === 'done') continue;
-    const open = (sectionItems(src, /^##\s+done\b/i) ?? [])
-      .map((l) => /^\[ \]\s+(.*)$/.exec(l)?.[1])
-      .filter((x): x is string => !!x && HUMAN.test(x));
-    for (const item of open) {
-      const i = mineRaw.findIndex((r) => sameTask(r, item));
-      if (i >= 0) {
-        mine[i].from = uniq([...mine[i].from, s.file]);
-        mine[i].card ??= key;
-      } else mine.push(ask(item, [s.file], card ? key : null));
-    }
+    cards.splice(before ? cards.indexOf(before) + 1 : cards.length, 0, card);
   }
 
-  const confirm = splitItems(rows.get('결정 대기') ?? null).map((r) => ask(r, [H], null, true));
-  return { cards, mine, confirm, here: HERE };
+  // 예정 중 바로 다음 = 진행 중인 slice 가 없을 때 번호가 가장 작은 예정 slice (진행 중이 있으면 그 다음 하나)
+  const nextSlice = cards.filter((c) => c.kind === 'slice' && c.state === 'later').sort((a, b) => Number(a.key.slice(6)) - Number(b.key.slice(6)))[0];
+  if (nextSlice) {
+    nextSlice.state = 'next';
+    nextSlice.why = `다음 작업 (${nextSlice.why})`;
+  }
+  return { cards };
 }
 
 // ---------- 모으기 ----------
@@ -992,7 +943,7 @@ export function collectDocs(root: string): { data: DocsData; report: string | nu
     })
     .filter((a): a is Adr => a !== null);
 
-  const board = guard('보드(HANDOFF · roadmap · slices)', { cards: [], mine: [], confirm: [], here: null } as Board, () =>
+  const board = guard('보드(HANDOFF · roadmap · slices)', { cards: [] } as Board, () =>
     buildBoard(md, handoffSrc, roadmap, slices, adrSrc),
   );
 

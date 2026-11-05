@@ -2,7 +2,7 @@
 // 컴포넌트는 이 둘이 주는 값과 함수만 쓴다 (fetch 없음).
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AdminApiError, isConductorDown, loadErrorOf, type LoadError } from '../../shared/http';
-import { getGateway, listAdminModels, patchModel, syncModels, testModel, type AdminModel, type GatewayInfo, type ModelPatch, type ProbeResult } from './api';
+import { deleteModel, getGateway, listAdminModels, patchModel, syncModels, testModel, type AdminModel, type GatewayInfo, type ModelPatch, type ProbeResult } from './api';
 import { COPY, LOAD_ERROR, PATCH_ERROR, syncText, type StateFilter } from './copy';
 import { canProbe, countsOf, dupIndex, errorOf, filterRows, providerSummary } from './derive';
 
@@ -210,6 +210,24 @@ export function useModels() {
     setFlash({ kind: bad ? 'error' : 'ok', text: parts.join(', ') });
   };
 
+  // 지우기 = 사라진 모델만 (conductor 가 판정) → 표를 다시 읽는다. 성공하면 true (자세히 페이지가 목록으로 간다)
+  const remove = async (m: AdminModel) => {
+    start(m.id);
+    setFlash(null);
+    try {
+      await deleteModel(m.id);
+      setRows((list) => list.filter((r) => r.id !== m.id));
+      await refresh();
+      setFlash({ kind: 'ok', text: COPY.done.deleted(m.label) });
+      return true;
+    } catch (e) {
+      setFlash({ kind: 'error', text: COPY.done.patchFail(m.label, patchError(e)) });
+      return false;
+    } finally {
+      done(m.id);
+    }
+  };
+
   const sync = async () => {
     setSyncing(true);
     setFlash(null);
@@ -231,7 +249,7 @@ export function useModels() {
     isBusy: (id: string) => busy.has(id) || bulkBusy,
     testOf: (id: string): TestState | undefined => tests[id],
     dismissFlash: () => setFlash(null),
-    reload, probe, probeMany, change, bulk, sync,
+    reload, probe, probeMany, change, bulk, sync, remove,
   };
 }
 

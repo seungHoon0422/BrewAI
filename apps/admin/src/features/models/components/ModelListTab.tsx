@@ -51,7 +51,7 @@ export function ModelListTab({ api, view }: ModelPanelProps) {
       )}
       {ready && rows.length > 0 && (
         <>
-          <ModelTable view={view} isBusy={api.isBusy} testOf={api.testOf} now={api.now} onChange={api.change} onProbe={api.probe} onReorder={reorder} />
+          <ModelTable view={view} isBusy={api.isBusy} testOf={api.testOf} now={api.now} onChange={api.change} onProbe={api.probe} onRemove={api.remove} onReorder={reorder} />
           <p className="mfoot">
             {COPY.foot}{' '}
             {COPY.footGateway.map((t, i) => (i % 2 ? <code key={i}>{t}</code> : t))}

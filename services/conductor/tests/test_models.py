@@ -107,6 +107,17 @@ def test_new_model_appears_later_as_candidate_and_missing_is_auto_hidden(make_ap
     assert c.get("/api/admin/gateway").json()["last_sync_at"] == sync["synced_at"]
 
 
+    # 사라진 모델만 지울 수 있다 (있는 모델 = 409 · 없는 모델 = 404) · 지운 뒤 순서는 빈칸 없이 · 다시 생기면 새 후보
+    assert c.delete("/api/admin/models/claude-sonnet-5-5").json() == {"detail": "model_present"}
+    assert c.delete("/api/admin/models/nope").json() == {"detail": "model_not_found"}
+    assert c.delete("/api/admin/models/gemini-3-pro").status_code == 204
+    rows = c.get("/api/admin/models").json()
+    assert "gemini-3-pro" not in ids(rows) and [r["order"] for r in rows] == list(range(1, len(rows) + 1))
+    api.catalog.set([*_gateway(h), h.group("gemini-3-pro", ["vertex_ai"])])
+    sync = c.post("/api/admin/models/sync").json()
+    assert sync["added"] == ["gemini-3-pro"] and {r["id"]: r for r in sync["models"]}["gemini-3-pro"]["state"] == "candidate"
+
+
 def test_catalog_cache_hit_does_not_rewrite_the_db(make_api, h) -> None:
     api = make_api(lambda _: TestModel(), _gateway(h), bootstrap_models=("brewai-mock",))
     first = api.store.get_meta("last_sync_at")

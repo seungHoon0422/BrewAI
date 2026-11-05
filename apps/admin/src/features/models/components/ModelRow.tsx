@@ -1,5 +1,5 @@
 import { useState, type DragEvent, type MouseEvent } from 'react';
-import { Checkbox, Icon, ProviderIcon, Radio, Switch, flag } from '@brewai/ui';
+import { Button, Checkbox, Dialog, Icon, ProviderIcon, Radio, Switch, flag } from '@brewai/ui';
 import type { AdminModel } from '../api';
 import { COL_LABEL, COPY } from '../copy';
 import { canExpose, perM, providerName, tokens, type Dup } from '../derive';
@@ -16,12 +16,13 @@ export const ProviderName = ({ m }: { m: AdminModel }) => (
 // 비용 · 컨텍스트 = 숫자만 (단위는 머리 글 툴팁 · 표 아래 한 줄). 모르면 —
 const Num = ({ v, title }: { v: string | null; title?: string }) => (v ? <span className="ui-num" title={title}>{v}</span> : <span className="nil">—</span>);
 
-export function ModelRow({ m, busy, test, onChange, onProbe, now, dup, checked, onCheck, onOpen, canDrag, canDrop, dropBelow, dragging, onDragStart, onDragEnd, onDrop }: {
+export function ModelRow({ m, busy, test, onChange, onProbe, onRemove, now, dup, checked, onCheck, onOpen, canDrag, canDrop, dropBelow, dragging, onDragStart, onDragEnd, onDrop }: {
   m: AdminModel;
   busy: boolean;
   test: TestState | undefined;
   onChange: Change;
   onProbe: Probe;
+  onRemove: (m: AdminModel) => Promise<boolean>;
   now: number;
   dup: Dup;
   checked: boolean;
@@ -38,6 +39,7 @@ export function ModelRow({ m, busy, test, onChange, onProbe, now, dup, checked, 
   const missing = m.status === 'missing';
   const exposeWhy = !m.is_chat ? COPY.notChat : missing ? COPY.missing : undefined;
   const [over, setOver] = useState(false);
+  const [asking, setAsking] = useState(false);
   // 줄의 빈 곳을 누르면 자세히 페이지 (버튼 · 입력 · 링크 · 고르기 · 노출 · 연결 칸은 제 일을 한다). 글을 끌어 고르는 중(복사)이면 그대로
   const onRowClick = (e: MouseEvent<HTMLTableRowElement>) => {
     if ((e.target as HTMLElement).closest('button,input,a,label,.nedit,.grip,td.sel,td.set,td.conn')) return;
@@ -86,7 +88,21 @@ export function ModelRow({ m, busy, test, onChange, onProbe, now, dup, checked, 
           disabled={busy || !m.exposed} title={m.exposed ? COPY.defaultTitle : COPY.defaultNeedsExposed}
           onChange={() => onChange(m, { is_default: true }, COPY.done.defaultChanged(m.label))} />
       </td>
-      <td className="conn" data-col="health"><Health m={m} test={test} onProbe={onProbe} now={now} /></td>
+      <td className="conn" data-col="health">
+        {missing ? (
+          <>
+            <Button size="sm" variant="ghost" icon="trash" disabled={busy} title={COPY.page.deleteTitle} aria-label={`${COPY.page.delete} ${m.label}`}
+              onClick={() => setAsking(true)}>{COPY.page.delete}</Button>
+            <Dialog size="sm" open={asking} onClose={() => setAsking(false)} title={COPY.page.deleteAsk(m.label)} description={COPY.page.deleteBody}
+              footer={<>
+                <Button variant="ghost" onClick={() => setAsking(false)}>{COPY.page.cancel}</Button>
+                <Button variant="danger" loading={busy} onClick={() => void onRemove(m).then(() => setAsking(false))}>{COPY.page.delete}</Button>
+              </>} />
+          </>
+        ) : (
+          <Health m={m} test={test} onProbe={onProbe} now={now} />
+        )}
+      </td>
     </tr>
   );
 }
